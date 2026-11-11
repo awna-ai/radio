@@ -333,6 +333,50 @@ hello
 git branch "$term_lower"
 expect ref-name 1 'a ref name names a private term'
 
+new_case 45
+printf 'author %s Corp <x@y.example> 1700000000 +0000\n' "$term_title" > notes.txt
+commit_file notes.txt
+git rm -q notes.txt
+git commit -qm 'remove notes'
+expect removed-identity-line 1 'the history holds a file naming a private term'
+
+new_case 46
+hello
+printf 'changed\n' >> hello.txt
+git add hello.txt
+printf 'update\n\ntagger ok <%s@corp.example> 1 +0000\n' "$term_lower" > "$tmp/message.txt"
+git commit -q -F "$tmp/message.txt"
+expect message-identity-line 1 'names a private term in its message'
+
+new_case 47
+hello
+tree=$(git rev-parse 'HEAD^{tree}')
+printf 'changed\n' >> hello.txt
+git add hello.txt
+printf 'update\n\n40\n%s\n' "$tree" > "$tmp/message.txt"
+git commit -q -F "$tmp/message.txt"
+expect message-batch-lookalike 0 'term-check: clean'
+
+new_case 48
+hello
+c=$(printf 'no newline' | git commit-tree 'HEAD^{tree}' -p HEAD)
+git reset -q --hard "$c"
+expect message-no-final-newline 0 'term-check: clean'
+
+new_case 49
+hello
+c=$(printf 'ends with %s' "$term_title" | git commit-tree 'HEAD^{tree}' -p HEAD)
+git reset -q --hard "$c"
+expect message-no-final-newline-hit 1 'names a private term in its message'
+
+new_case 50
+hello
+c=$(printf 'no newline' | git commit-tree 'HEAD^{tree}' -p HEAD)
+git reset -q --hard "$c"
+printf 'changed\n' >> hello.txt
+commit_file hello.txt
+expect message-no-final-newline-followed 0 'term-check: clean'
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi

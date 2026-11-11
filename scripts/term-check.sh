@@ -143,13 +143,33 @@ if ! awk '$1 != "commit" && $1 != "tree" && $1 != "blob" && $1 != "tag" { exit 1
     exit 2
 fi
 history=$(mktemp)
-if ! awk '$1 != "tree" { print $2 }' "$objects" \
-    | git -C "$root" cat-file --batch='' > "$scan"; then
+if ! awk '$1 == "blob" { print $2 }' "$objects" \
+    | git -C "$root" cat-file --batch='' >> "$history"; then
     echo 'term-check: git could not read the history' >&2
     exit 2
 fi
-grep -a -v -E '^(author|committer|tagger) .* <[^>]*> [0-9]+ [+-][0-9]{4}$' "$scan" > "$history" \
-    || { [ "$?" -eq 1 ] || exit 2; }
+if ! awk '$1 == "commit" || $1 == "tag" { print $2 }' "$objects" \
+    | git -C "$root" cat-file --batch='%(objectsize)' \
+    | awk '
+        {
+            if ($0 !~ /^[0-9]+$/) exit 1
+            n = $0 + 0
+            consumed = 0
+            header = 1
+            while (consumed < n) {
+                if ((getline) <= 0) exit 1
+                consumed += length($0) + 1
+                if (consumed > n + 1) exit 1
+                if ($0 == "") header = 0
+                if (!header || $0 !~ /^(author|committer|tagger) .* <[^>]*> [0-9]+ [+-][0-9]{4}$/)
+                    print
+            }
+            if (consumed == n && ((getline) <= 0 || $0 != "")) exit 1
+        }
+    ' >> "$history"; then
+    echo 'term-check: git could not read the history' >&2
+    exit 2
+fi
 if ! git -C "$root" log --all -m --no-renames --name-only -z --format= >> "$history"; then
     echo 'term-check: git could not read the history' >&2
     exit 2
