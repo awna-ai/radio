@@ -53,16 +53,20 @@ expect() {
         printf 'term_check_test: FAIL %s: expected diagnostic absent\n' "$name"
         failed=1
     fi
-    if [ "$case_number" -ne 5 ] && printf '%s\n' "$output" | grep -F -i -q -e "$term_lower" -e "$phrase"; then
+    case "$case_number" in
+        5)
+            output=$(printf '%s\n' "$output" | sed "s/^term-check: the path $term_lower.txt names a private term$/term-check: the path [redacted] names a private term/")
+            ;;
+        21)
+            output=$(printf '%s\n' "$output" | sed 's/^term-check: the path lane_q.txt names a private term$/term-check: the path [redacted] names a private term/')
+            ;;
+        22)
+            output=$(printf '%s\n' "$output" | sed 's/^term-check: the link docs points at a private term$/term-check: the link [redacted] points at a private term/')
+            ;;
+    esac
+    if printf '%s\n' "$output" | grep -F -i -q -e "$term_lower" -e "$phrase"; then
         printf 'term_check_test: FAIL %s: output exposed a private term\n' "$name"
         failed=1
-    fi
-    if [ "$case_number" -eq 5 ]; then
-        output=$(printf '%s\n' "$output" | sed "s/the path $term_lower.txt names a private term/the path [redacted] names a private term/g")
-        if printf '%s\n' "$output" | grep -F -i -q -e "$term_lower" -e "$phrase"; then
-            printf 'term_check_test: FAIL %s: output exposed a private term beyond the path\n' "$name"
-            failed=1
-        fi
     fi
 }
 
@@ -151,6 +155,61 @@ export RADIO_TERMS_FILE="$tmp/windows.txt"
 printf '%s\n' "$term_lower" > words.txt
 commit_file words.txt
 expect line-endings 1 'names a private term'
+
+new_case 17
+printf '%s\n' "$term_title" > notes.txt
+commit_file notes.txt
+sha=$(git rev-parse --short=7 HEAD)
+printf 'hello\n' > notes.txt
+commit_file notes.txt
+expect removed-content 1 "term-check: commit $sha holds a file or path naming a private term"
+
+new_case 18
+printf 'hello\n' > "$term_lower.txt"
+commit_file "$term_lower.txt"
+git mv "$term_lower.txt" clean.txt
+git commit -qm 'rename text'
+expect renamed-path 1 'holds a file or path naming a private term'
+
+new_case 19
+printf 'let %s_client = 1;\n' "$term_lower" > code.rs
+commit_file code.rs
+expect underscore-identifier 1 'code.rs:1 names a private term'
+
+new_case 20
+printf 'struct %sClient;\n' "$term_title" > code.rs
+commit_file code.rs
+expect camel-identifier 1 'code.rs:1 names a private term'
+
+new_case 21
+printf 'hello\n' > lane_q.txt
+commit_file lane_q.txt
+expect identifier-path 1 'the path'
+
+new_case 22
+ln -s "$term_lower-notes" docs
+commit_file docs
+expect dangling-link 1 'the link docs points at a private term'
+
+new_case 23
+printf '%s\n' "$term_title" > "$tmp/target.txt"
+ln -s "$tmp/target.txt" outside
+commit_file outside
+expect outside-link 0 'term-check: clean'
+
+new_case 24
+printf 'a\0%s\0' "$term_title" > blob.bin
+commit_file blob.bin
+expect binary 1 'blob.bin (binary) names a private term'
+
+new_case 25
+printf 'Rename %sClient\n' "$term_title" > "$tmp/message.txt"
+expect message-identifier 1 'the message names a private term' --message "$tmp/message.txt"
+
+new_case 26
+printf 'invoice_total\nNot%ss\n' "$term_title" > words.txt
+commit_file words.txt
+expect identifier-whole-words 0 'term-check: clean'
 
 if [ "$failed" -ne 0 ]; then
     exit 1

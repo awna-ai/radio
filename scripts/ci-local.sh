@@ -2,12 +2,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+skipped=0
 missing() {
     if [ "${RADIO_STRICT:-}" = 1 ]; then
         printf 'ci-local: %s is missing (RADIO_STRICT=1)\n' "$1" >&2
         exit 1
     fi
     printf 'ci-local: %s is missing, skipping %s\n' "$1" "$2"
+    skipped=$((skipped + 1))
 }
 
 if command -v shellcheck > /dev/null 2>&1; then
@@ -20,12 +22,22 @@ fi
 echo 'bash tests/term_check_test.sh'
 bash tests/term_check_test.sh
 echo 'bash scripts/term-check.sh'
-bash scripts/term-check.sh
+term_status=0
+term_output=$(bash scripts/term-check.sh) || term_status=$?
+printf '%s\n' "$term_output"
+if [ "$term_status" -ne 0 ]; then
+    exit "$term_status"
+fi
+if [[ "$term_output" == *", skipped" ]]; then
+    skipped=$((skipped + 1))
+fi
 
 if command -v gitleaks > /dev/null 2>&1; then
     if git rev-parse --verify -q HEAD > /dev/null; then
         echo 'gitleaks git --redact --no-banner .'
         gitleaks git --redact --no-banner .
+        echo 'git log --format=%B | gitleaks stdin --redact --no-banner'
+        git log --format=%B | gitleaks stdin --redact --no-banner
     fi
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
@@ -53,4 +65,8 @@ else
     missing cargo 'the Rust checks'
 fi
 
-echo 'ci-local: all passed'
+if [ "$skipped" -eq 0 ]; then
+    echo 'ci-local: all passed'
+else
+    printf 'ci-local: all passed, %s skipped\n' "$skipped"
+fi
