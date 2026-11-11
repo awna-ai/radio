@@ -36,8 +36,8 @@ if command -v gitleaks > /dev/null 2>&1; then
     if git rev-parse --verify -q HEAD > /dev/null; then
         echo 'gitleaks git --redact --no-banner .'
         gitleaks git --redact --no-banner .
-        echo 'git log --format=%B | gitleaks stdin --redact --no-banner'
-        git log --format=%B | gitleaks stdin --redact --no-banner
+        echo "{ git log --all --format=%B; git for-each-ref refs/tags --format='%(contents)'; } | gitleaks stdin --redact --no-banner"
+        { git log --all --format=%B; git for-each-ref refs/tags --format='%(contents)'; } | gitleaks stdin --redact --no-banner
     fi
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT

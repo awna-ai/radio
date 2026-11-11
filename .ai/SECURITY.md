@@ -57,6 +57,8 @@ None today. The link to other computers will be the first, and gets its own row 
 | --- | --- | --- | --- |
 | A process running as the same user can use the socket | the same rule as any per-user daemon; the user's own processes are trusted at this boundary | founding design, 2026-11-10 | when the link is built |
 | The term check's list lives outside the repo, so a contributor without it runs no term check | the list names private terms and cannot be published | founding design, 2026-11-10 | never, by design |
+| Commit and tag identities (author, committer, tagger) are not term-checked | they are the publishing account's own GitHub noreply identity, which GitHub shows on every push anyway | fix-up review, 2026-11-11 | if a second account publishes here |
+| Text stored as UTF-16 (a NUL between characters) is not matched | only deliberate evasion produces it in this repo; gitleaks still reads it | fix-up review, 2026-11-11 | if a UTF-16 file is ever added |
 
 ## Who to tell
 
@@ -66,3 +68,4 @@ Report a security problem privately through GitHub's private vulnerability repor
 ## Change log
 
 - 2026-11-11: created from the founding design.
+- 2026-11-11: the term check reads every object in the history once; identities and UTF-16 noted as gaps.

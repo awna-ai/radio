@@ -159,17 +159,16 @@ expect line-endings 1 'names a private term'
 new_case 17
 printf '%s\n' "$term_title" > notes.txt
 commit_file notes.txt
-sha=$(git rev-parse --short=7 HEAD)
 printf 'hello\n' > notes.txt
 commit_file notes.txt
-expect removed-content 1 "term-check: commit $sha holds a file or path naming a private term"
+expect removed-content 1 'the history holds a file naming a private term'
 
 new_case 18
 printf 'hello\n' > "$term_lower.txt"
 commit_file "$term_lower.txt"
 git mv "$term_lower.txt" clean.txt
 git commit -qm 'rename text'
-expect renamed-path 1 'holds a file or path naming a private term'
+expect renamed-path 1 'the history holds a path naming a private term'
 
 new_case 19
 printf 'let %s_client = 1;\n' "$term_lower" > code.rs
@@ -210,6 +209,78 @@ new_case 26
 printf 'invoice_total\nNot%ss\n' "$term_title" > words.txt
 commit_file words.txt
 expect identifier-whole-words 0 'term-check: clean'
+
+new_case 27
+printf 'a\0%s\0' "$term_title" > blob.bin
+commit_file blob.bin
+git rm -q blob.bin
+git commit -qm 'remove binary'
+expect removed-binary 1 'the history holds a file naming a private term'
+
+new_case 28
+printf 'notes.txt binary\n' > .gitattributes
+printf '%s\n' "$term_title" > notes.txt
+git add .gitattributes notes.txt
+git commit -qm 'add notes'
+git rm -q .gitattributes notes.txt
+git commit -qm 'remove notes'
+expect attributed-binary 1 'the history holds a file naming a private term'
+
+new_case 29
+hello
+git checkout -q -b side
+printf '%s\n' "$term_title" > notes.txt
+commit_file notes.txt
+git checkout -q -
+expect side-branch 1 'the history holds a file naming a private term'
+
+new_case 30
+hello
+git tag -a v1 -m "$term_title release"
+expect tag-message 1 'tag '
+expect tag-message-diagnostic 1 'names a private term in its message'
+
+new_case 31
+name=$(printf 'a\n%s.txt' "$term_lower")
+: > "$name"
+commit_file "$name"
+git mv "$name" clean.txt
+git commit -qm 'rename text'
+expect newline-path 1 'the history holds a path naming a private term'
+
+new_case 32
+printf 'let HTTP%s = 1;\n' "$term_title" > code.rs
+commit_file code.rs
+expect acronym-identifier 1 'code.rs:1 names a private term'
+
+new_case 33
+printf 'let %s2_client = 1;\n' "$term_lower" > code.rs
+commit_file code.rs
+expect digit-identifier 1 'code.rs:1 names a private term'
+
+new_case 34
+hello
+expect missing-message 2 "can't read the message file" --message "$tmp/absent.txt"
+
+new_case 35
+printf 'clean\n' > notes.txt
+commit_file notes.txt
+sha=$(git rev-parse HEAD:notes.txt)
+rm ".git/objects/${sha:0:2}/${sha:2}"
+expect missing-blob 2 'git could not'
+
+new_case 36
+printf 'hello\n' > hello.txt
+git add hello.txt
+git -c user.name="$term_title" commit -qm 'add text'
+expect author-identity 0 'term-check: clean'
+
+new_case 37
+hello
+blob=$(printf 'x\n' | git hash-object -w --stdin)
+tree=$(printf '100644 blob %s\t%s.txt\n' "$blob" "$term_lower" | git mktree)
+git tag -a t1 -m 'a tree' "$tree"
+expect tagged-tree-path 1 'the history holds a path naming a private term'
 
 if [ "$failed" -ne 0 ]; then
     exit 1
