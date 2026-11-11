@@ -69,3 +69,5 @@ Report a security problem privately through GitHub's private vulnerability repor
 
 - 2026-11-11: created from the founding design.
 - 2026-11-11: the term check reads every object in the history once; identities and UTF-16 noted as gaps.
+- 2026-11-11: the term check runs under the C locale, ignores replace refs, refuses grafts and
+missing objects, and reads ref names.

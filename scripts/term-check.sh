@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
+export GIT_NO_REPLACE_OBJECTS=1
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 if [ "$#" -ne 0 ] && { [ "$#" -ne 2 ] || [ "$1" != --message ]; }; then
@@ -20,9 +22,10 @@ fi
 list=$(mktemp)
 paths=''
 scan=$(mktemp)
+normalized=$(mktemp)
 objects=''
 history=''
-trap 'rm -f "$list" "$paths" "$scan" "$objects" "$history"' EXIT
+trap 'rm -f "$list" "$paths" "$scan" "$objects" "$history" "$normalized"' EXIT
 sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*#/d' -e '/^$/d' "$terms" > "$list"
 if [ ! -s "$list" ]; then
     if [ "${RADIO_STRICT:-}" = 1 ]; then
@@ -46,7 +49,8 @@ hits() {
         status=$?
         [ "$status" -eq 1 ] || exit 2
     fi
-    if normalize "$1" | grep -a -F -i -w -f "$list" > /dev/null; then
+    normalize "$1" > "$normalized" || exit 2
+    if grep -a -F -i -w -f "$list" -- "$normalized" > /dev/null; then
         return 0
     else
         status=$?
@@ -94,7 +98,8 @@ while IFS= read -r -d '' path; do
             if [ "$text_status" -eq 0 ]; then
                 lines=$({
                     grep -a -F -i -w -I -n -f "$list" -- "$root/$path" || { [ "$?" -eq 1 ] || exit 2; }
-                    normalize "$root/$path" | grep -a -F -i -w -n -f "$list" || { [ "$?" -eq 1 ] || exit 2; }
+                    normalize "$root/$path" > "$normalized" || exit 2
+                    grep -a -F -i -w -n -f "$list" -- "$normalized" || { [ "$?" -eq 1 ] || exit 2; }
                 } | cut -d: -f1 | sort -n -u) || exit 2
                 while IFS= read -r line; do
                     printf 'term-check: %s:%s names a private term\n' "$path" "$line"
@@ -112,21 +117,39 @@ while IFS= read -r -d '' path; do
     fi
 done < "$paths"
 
+grafts=$(git -C "$root" rev-parse --git-path info/grafts) || exit 2
+case "$grafts" in
+    /*) ;;
+    *) grafts="$root/$grafts" ;;
+esac
+if [ -f "$grafts" ]; then
+    echo 'term-check: a grafts file rewrites the history; remove it first' >&2
+    exit 2
+fi
+git -C "$root" for-each-ref --format='%(refname)' > "$scan" || exit 2
+if hits "$scan"; then
+    echo 'term-check: a ref name names a private term'
+    hit=1
+fi
+
 objects=$(mktemp)
 if ! git -C "$root" rev-list --all --objects --no-object-names \
     | git -C "$root" cat-file --batch-check='%(objecttype) %(objectname)' > "$objects"; then
     echo 'term-check: git could not list the history' >&2
     exit 2
 fi
+if ! awk '$1 != "commit" && $1 != "tree" && $1 != "blob" && $1 != "tag" { exit 1 }' "$objects"; then
+    echo 'term-check: git could not read the history' >&2
+    exit 2
+fi
 history=$(mktemp)
-if ! git -C "$root" log --all --format=%B > "$history"; then
+if ! awk '$1 != "tree" { print $2 }' "$objects" \
+    | git -C "$root" cat-file --batch='' > "$scan"; then
     echo 'term-check: git could not read the history' >&2
     exit 2
 fi
-if ! git -C "$root" for-each-ref refs/tags --format='%(contents)' >> "$history"; then
-    echo 'term-check: git could not read the history' >&2
-    exit 2
-fi
+grep -a -v -E '^(author|committer|tagger) .* <[^>]*> [0-9]+ [+-][0-9]{4}$' "$scan" > "$history" \
+    || { [ "$?" -eq 1 ] || exit 2; }
 if ! git -C "$root" log --all -m --no-renames --name-only -z --format= >> "$history"; then
     echo 'term-check: git could not read the history' >&2
     exit 2
@@ -135,12 +158,7 @@ if ! git -C "$root" rev-list --all --objects >> "$history"; then
     echo 'term-check: git could not read the history' >&2
     exit 2
 fi
-if ! awk '$1 == "blob" { print $2 }' "$objects" \
-    | git -C "$root" cat-file --batch='' >> "$history"; then
-    echo 'term-check: git could not read the history' >&2
-    exit 2
-fi
-tr '\0' '\n' < "$history" > "$scan"
+tr '\0' '\n' < "$history" > "$scan" || exit 2
 if hits "$scan"; then
     history_hit=$hit
     hit=0

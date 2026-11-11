@@ -282,6 +282,57 @@ tree=$(printf '100644 blob %s\t%s.txt\n' "$blob" "$term_lower" | git mktree)
 git tag -a t1 -m 'a tree' "$tree"
 expect tagged-tree-path 1 'the history holds a path naming a private term'
 
+new_case 38
+printf 'x\377\376\nmy%s\n' "$term_title" > odd.txt
+commit_file odd.txt
+export LC_ALL=en_US.UTF-8
+expect invalid-utf8-content 1 'odd.txt:2 names a private term'
+unset LC_ALL
+
+new_case 39
+printf 'a\0%s\0' "$term_title" > blob.bin
+commit_file blob.bin
+git rm -q blob.bin
+git commit -qm 'remove binary'
+export LC_ALL=en_US.UTF-8
+expect utf8-removed-binary 1 'the history holds a file naming a private term'
+unset LC_ALL
+
+new_case 40
+printf '%s\n' "$term_title" > notes.txt
+commit_file notes.txt
+original=$(git rev-parse HEAD)
+git rm -q notes.txt
+git commit -qm 'remove notes'
+replacement=$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -m clean)
+git replace "$original" "$replacement"
+expect replaced-history 1 'the history holds a file naming a private term'
+
+new_case 41
+hello
+: > "$(git rev-parse --git-path info/grafts)"
+expect grafts-file 2 'grafts file'
+
+new_case 42
+printf 'clean\n' > notes.txt
+commit_file notes.txt
+sha=$(git rev-parse HEAD:notes.txt)
+chmod u+w ".git/objects/${sha:0:2}/${sha:2}"
+printf 'garbage' > ".git/objects/${sha:0:2}/${sha:2}"
+expect corrupt-blob 2 'git could not'
+
+new_case 43
+hello
+git tag -a inner -m "$term_title inner"
+git tag -a outer -m clean inner
+git tag -d inner > /dev/null
+expect nested-tag-message 1 'names a private term in its message'
+
+new_case 44
+hello
+git branch "$term_lower"
+expect ref-name 1 'a ref name names a private term'
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
