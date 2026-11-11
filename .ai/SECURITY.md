@@ -16,7 +16,7 @@ admission is a hole in that app's remote control, even though the Radio never re
 | Boundary | What crosses it | Control (designed) | Proven how |
 | --- | --- | --- | --- |
 | Local process → socket | one JSON request line | 0600 socket in a 0700 folder; peer uid must equal the daemon's; 16 KiB cap; 5 s deadline; unknown fields refused; `"v"` checked first | tests in the step that builds the socket (not built yet) |
-| A client app → the daemon's records | `register` (app name, version, members) | stored as data only; nothing a request names is ever run | tests in the socket step |
+| A client app → the daemon's records | `register` (app name, version, members) | stored as data only; nothing a request names is ever run | tests in the socket step (not built yet) |
 | Another computer → the Radio | link messages | an accepted member's signed records, freshness, replay and size checks on every message, before any handler sees it | tests in the link steps (not built yet) |
 | The Radio → an app's handler | an app's own message, passed on unread | the handler's path comes only from that app's install record, run with fixed arguments; never from a request or a peer | tests in the install step (not built yet) |
 | An app's installer → the launch agent and binaries | a new `radio` binary | an exclusive install lock; newer wins; copy to a temp file, then rename; roll back on a failed start | tests in the install step (not built yet) |
@@ -25,10 +25,10 @@ admission is a hole in that app's remote control, even though the Radio never re
 
 | Class | Examples | Where stored | Exposure impact | Retention |
 | --- | --- | --- | --- | --- |
-| Conversations | room messages and statuses | `~/.local/state/radio/rooms.db`, 0600 | private words of the people in a room | kept until the user deletes them; uninstall keeps them |
+| Conversations | room messages and statuses | `~/.local/state/radio/rooms.db`, 0600 (not built yet) | private words of the people in a room | kept until the user deletes them; uninstall keeps them |
 | Identity | the computer's link key | `~/.config/radio/` (not built yet) | anyone holding it can speak as this computer | rotated on loss |
-| Client records | each app's name, version, handler path | `~/.local/state/radio/clients/` | a forged record could make the daemon run the wrong handler | removed on that app's uninstall |
-| Operational | the daemon's log | `~/.local/state/radio/radio.log` | low, unless it carries the above (it must not) | short |
+| Client records | each app's name, version, handler path | `~/.local/state/radio/clients/` (not built yet) | a forged record could make the daemon run the wrong handler | removed on that app's uninstall |
+| Operational | the daemon's log | `~/.local/state/radio/radio.log` (not built yet) | low, unless it carries the above (it must not) | short |
 
 ## Where secrets live
 
@@ -60,8 +60,8 @@ None today. The link to other computers will be the first, and gets its own row 
 
 ## Who to tell
 
-Report a security problem privately to the maintainers through the repo's security advisories, never
-in a public issue.
+Report a security problem privately through GitHub's private vulnerability reporting on this repo
+(its Security tab, "Report a vulnerability"), never in a public issue.
 
 ## Change log
 
