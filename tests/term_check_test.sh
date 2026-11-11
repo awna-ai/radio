@@ -377,6 +377,31 @@ printf 'changed\n' >> hello.txt
 commit_file hello.txt
 expect message-no-final-newline-followed 0 'term-check: clean'
 
+new_case 51
+hello
+c=$(printf 'no newline' | git commit-tree 'HEAD^{tree}' -p HEAD)
+git reset -q --hard "$c"
+printf 'changed\n' >> hello.txt
+git add hello.txt
+git commit -qm "add $term_title text"
+expect message-no-final-newline-followed-hit 1 'names a private term in its message'
+
+new_case 52
+hello
+c=$(printf 'tree %s\nparent %s\nauthor Test <test@example.invalid> 1 +0000\ncommitter Test <test@example.invalid> 1 +0000\n\nsafe\0 %s here\n' \
+    "$(git rev-parse 'HEAD^{tree}')" "$(git rev-parse HEAD)" "$term_title" \
+    | git hash-object -t commit -w --literally --stdin)
+git reset -q --hard "$c"
+expect message-nul-hit 2 'holds a NUL byte'
+
+new_case 53
+hello
+c=$(printf 'tree %s\nparent %s\nauthor Test <test@example.invalid> 1 +0000\ncommitter Test <test@example.invalid> 1 +0000\n\nsafe\0 here\n' \
+    "$(git rev-parse 'HEAD^{tree}')" "$(git rev-parse HEAD)" \
+    | git hash-object -t commit -w --literally --stdin)
+git reset -q --hard "$c"
+expect message-nul-clean 2 'holds a NUL byte'
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi

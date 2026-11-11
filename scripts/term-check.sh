@@ -25,7 +25,8 @@ scan=$(mktemp)
 normalized=$(mktemp)
 objects=''
 history=''
-trap 'rm -f "$list" "$paths" "$scan" "$objects" "$history" "$normalized"' EXIT
+messages=''
+trap 'rm -f "$list" "$paths" "$scan" "$objects" "$history" "$normalized" "$messages"' EXIT
 sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*#/d' -e '/^$/d' "$terms" > "$list"
 if [ ! -s "$list" ]; then
     if [ "${RADIO_STRICT:-}" = 1 ]; then
@@ -148,9 +149,17 @@ if ! awk '$1 == "blob" { print $2 }' "$objects" \
     echo 'term-check: git could not read the history' >&2
     exit 2
 fi
+messages=$(mktemp)
 if ! awk '$1 == "commit" || $1 == "tag" { print $2 }' "$objects" \
-    | git -C "$root" cat-file --batch='%(objectsize)' \
-    | awk '
+    | git -C "$root" cat-file --batch='%(objectsize)' > "$messages"; then
+    echo 'term-check: git could not read the history' >&2
+    exit 2
+fi
+if [ "$(wc -c < "$messages")" -ne "$(tr -d '\000' < "$messages" | wc -c)" ]; then
+    echo 'term-check: a commit or tag holds a NUL byte; git refuses those, so this check does too' >&2
+    exit 2
+fi
+if ! awk '
         {
             if ($0 !~ /^[0-9]+$/) exit 1
             n = $0 + 0
@@ -166,7 +175,7 @@ if ! awk '$1 == "commit" || $1 == "tag" { print $2 }' "$objects" \
             }
             if (consumed == n && ((getline) <= 0 || $0 != "")) exit 1
         }
-    ' >> "$history"; then
+    ' "$messages" >> "$history"; then
     echo 'term-check: git could not read the history' >&2
     exit 2
 fi
