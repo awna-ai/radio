@@ -5,13 +5,17 @@ The decisions this repo was founded on (2026-11-10). Newer decisions go above th
 ## 2026-11-12: D10. The deliberation protocol comes in as a copy, its author field renamed
 
 The protocol crate, `radio-panels`, was first written in another public repo. It came in as one new
-commit, not with its history, because that history and its test data used words D3 keeps out of this
-repo. The one such word in the protocol itself, the field that names a dissent's author, became
-`member`, in the type, the rendered result and the fixtures; nothing else changed. `tests/rename.rs`
-holds the proof: each fixture's digest, taken from the earlier copy with that word masked, matches
-this copy with `member` masked at the recorded places, so the other bytes are the earlier copy's. A
-client that kept results under the old field name maps them itself. The first tag, `v0.1.0`, carries
-the crate; apps pin it exactly (D4).
+commit (from that repo's `d2c2871a309734e6a6b26f1b57e9a98c41e31f86`), not with its history, because that
+history and its test data used words D3 keeps out of this repo. The one such word in the protocol
+itself, the field that names a dissent's author, became `member` in the type, the serialized result
+and the fixtures (a few fixture sentences that used the same word too); the rendered markdown never
+named the field and is unchanged, and nothing else changed. `tests/rename.rs` holds the proof: each
+fixture's digest, taken from the earlier copy with that word masked, matches this copy with `member`
+masked at the recorded places, so the other bytes are the earlier copy's; the manifest is the root of
+trust, so a reviewer checks it against the earlier copy once. The reference probes' own note names a
+commit of the earlier reference, which still emits the old field name. A client that kept results
+under the old field name maps them itself. The first tag, `v0.1.0`, carries the crate; apps pin it
+exactly (D4).
 
 ## 2026-11-12: D9. Install records are checked, never trusted, and an older store comes in by name
 

@@ -61,6 +61,9 @@ if command -v cargo > /dev/null 2>&1; then
     cargo clippy --all-targets --locked -- -D warnings
     echo 'cargo test --locked'
     cargo test --locked
+    # radio-panels turns on serde_json features the daemon and client ship without; test them as they ship.
+    echo 'cargo test --locked -p radio -p radio-client -p radio-rooms'
+    cargo test --locked -p radio -p radio-client -p radio-rooms
 else
     missing cargo 'the Rust checks'
 fi

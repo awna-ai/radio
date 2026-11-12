@@ -1,5 +1,6 @@
 //! The fixtures are an earlier copy's, with one field's name changed to `member`.
 //! Digests of that copy with the word masked prove every other byte is the same.
+//! A fixture added later has no earlier copy: list it with no offsets and its own file's SHA-256.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};

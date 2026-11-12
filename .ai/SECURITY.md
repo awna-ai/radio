@@ -77,6 +77,8 @@ None today. The link to other computers will be the first, and gets its own row 
 | An earlier import's path on a stalled network volume can hold the install while it checks that path | the open does not block on the file, but a stalled volume can stall the path lookup | install delta review, 2026-11-12 | if a store is ever imported from a network volume |
 | A newer version's folder left with no record (a newer install killed midway) makes every older install refuse | an older copy can't tell a half-installed newer Radio from a working one whose record was lost, and replacing it could leave the Radio down | install delta review, 2026-11-12 | if an older app is ever stuck: the newer app's install repairs it |
 | `radio.log` is not rotated | the daemon writes only fixed phrases, a few per start | install step, 2026-11-12 | if the log ever grows |
+| `radio-panels` renders member names into its markdown result unfenced, so a name holding a newline could forge a section | the daemon does not call the crate yet, and the rooms store already turns newlines in names into spaces | protocol move, 2026-11-12 | when the daemon renders a result: refuse control characters in names, or fence them |
+| A dissenting member whose name has a character outside the fence label's set (an apostrophe, an accent) stops the result from rendering | a refusal, not an injection: the label check holds; the daemon does not call the crate yet | protocol move, 2026-11-12 | when the daemon renders a result: give each member a safe label |
 | The term check's list lives outside the repo, so a contributor without it runs no term check | the list names private terms and cannot be published | founding design, 2026-11-10 | never, by design |
 | Commit and tag identities (author, committer, tagger) are not term-checked | they are the publishing account's own GitHub noreply identity, which GitHub shows on every push anyway | fix-up review, 2026-11-11 | if a second account publishes here |
 | Text stored as UTF-16 (a NUL between characters) is not matched | only deliberate evasion produces it in this repo; gitleaks still reads it | fix-up review, 2026-11-11 | if a UTF-16 file is ever added |
@@ -98,4 +100,5 @@ missing objects, and reads ref names.
 - 2026-11-12: the import checks the source's folders and side files; an older copy never replaces a newer
   install; mode-bit checks, hard-link re-imports, a failed restore, two slow clients, a stalled volume
   and a half-installed newer version noted as gaps.
-- 2026-11-12: the deliberation protocol is in (`radio-panels`): an entry point and its dependencies.
+- 2026-11-12: the deliberation protocol is in (`radio-panels`): an entry point, its dependencies and two
+  rendering gaps.
