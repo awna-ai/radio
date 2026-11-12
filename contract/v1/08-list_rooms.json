@@ -1,0 +1,26 @@
+{
+  "request": {
+    "v": 1,
+    "op": "list_rooms"
+  },
+  "response": {
+    "ok": true,
+    "rooms": [
+      {
+        "id": "garden",
+        "home": "test-host",
+        "title": "Garden",
+        "created": "<time>",
+        "last_seq": 4
+      },
+      {
+        "id": "test-host",
+        "home": "test-host",
+        "title": "Room on test-host",
+        "created": "<time>",
+        "last_seq": 0
+      }
+    ]
+  },
+  "exact": false
+}

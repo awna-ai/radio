@@ -1,0 +1,29 @@
+{
+  "request": {
+    "v": 1,
+    "op": "hello"
+  },
+  "response": {
+    "ok": true,
+    "radio": "<string>",
+    "protocol": {
+      "major": 1,
+      "minor": 0
+    },
+    "majors": [
+      1
+    ],
+    "ops": [
+      "hello",
+      "register",
+      "create_room",
+      "post",
+      "status_set",
+      "status_clear",
+      "list_rooms",
+      "read",
+      "status"
+    ]
+  },
+  "exact": false
+}

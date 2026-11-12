@@ -1,0 +1,57 @@
+{
+  "request": {
+    "v": 1,
+    "op": "read",
+    "room": "garden"
+  },
+  "response": {
+    "ok": true,
+    "messages": [
+      {
+        "seq": 1,
+        "kind": "post",
+        "author_host": "test-host",
+        "author": {
+          "kind": "helper",
+          "name": "juniper"
+        },
+        "body": "Hello garden",
+        "sent_at": "<time>"
+      },
+      {
+        "seq": 2,
+        "kind": "status_set",
+        "author_host": "test-host",
+        "author": {
+          "kind": "helper",
+          "name": "juniper"
+        },
+        "body": "mood: Ready",
+        "sent_at": "<time>"
+      },
+      {
+        "seq": 3,
+        "kind": "status_clear",
+        "author_host": "test-host",
+        "author": {
+          "kind": "helper",
+          "name": "juniper"
+        },
+        "body": "mood",
+        "sent_at": "<time>"
+      },
+      {
+        "seq": 4,
+        "kind": "status_set",
+        "author_host": "test-host",
+        "author": {
+          "kind": "human",
+          "name": "sam"
+        },
+        "body": "plan: Plant seeds",
+        "sent_at": "<time>"
+      }
+    ]
+  },
+  "exact": false
+}

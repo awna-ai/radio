@@ -1,7 +1,202 @@
 //! The client side of the Radio's socket contract, CONTRACT.md at the repo's root.
 //! The contract's numbers live here as constants; a test checks them against CONTRACT.md.
 
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+mod transport;
+/// Sends one request over the local socket and reads its answer.
+pub use transport::request;
+
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
 pub const PROTOCOL_MINOR: u32 = 0;
+
+/// The ops major 1, minor 0 serves, in this order.
+pub const OPS: &[&str] = &[
+    "hello",
+    "register",
+    "create_room",
+    "post",
+    "status_set",
+    "status_clear",
+    "list_rooms",
+    "read",
+    "status",
+];
+/// The maximum request line size, in bytes including its newline.
+pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
+/// The maximum answer line size is 8 MiB in bytes; 500 JSON-escaped messages of 4 KiB fit.
+pub const RESPONSE_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// An operation sent to the daemon; unknown request fields are refused.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Request {
+    /// Asks for the daemon version, supported majors and available operations.
+    Hello {},
+    /// Replaces an app's whole registered member list.
+    Register {
+        app: String,
+        /// The registering app's software version.
+        app_version: String,
+        members: Vec<Member>,
+    },
+    /// Creates a room homed on the serving computer.
+    CreateRoom { room: String, title: String },
+    /// Posts a message as a member.
+    Post {
+        room: String,
+        author: Member,
+        body: String,
+    },
+    /// Sets a status line and logs the change as a message.
+    StatusSet {
+        room: String,
+        key: String,
+        line: String,
+        author: Member,
+        /// When the status expires, in seconds since the Unix epoch, if set.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires_at: Option<f64>,
+    },
+    /// Clears a status line and logs its removal when present.
+    StatusClear {
+        room: String,
+        key: String,
+        author: Member,
+    },
+    /// Lists rooms in identifier order.
+    ListRooms {},
+    /// Reads the newest messages, or those after `since`, in ascending sequence order.
+    Read {
+        room: String,
+        /// Returns only messages with a sequence number strictly greater than this value.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<u64>,
+        /// The message count, from 1 to 500; defaults to 50 for newest messages or 500 with `since`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<u32>,
+    },
+    /// Lists live status lines in key order.
+    Status { room: String },
+}
+
+/// A member identified by a kind and a name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Member {
+    /// The member kind, with `human` reserved for the person at the computer.
+    pub kind: String,
+    /// The member name within its kind.
+    pub name: String,
+}
+
+/// The protocol major and minor announced by the daemon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Protocol {
+    /// The protocol major required on each request.
+    pub major: u32,
+    /// The additive protocol revision within this major.
+    pub minor: u32,
+}
+
+/// A daemon answer that deliberately ignores unknown fields so newer minors remain readable.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Response {
+    /// Whether the operation succeeded.
+    pub ok: bool,
+    /// A fixed error phrase when the operation failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// True for another user, an unregistered member, or a status ownership refusal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<bool>,
+    /// The supported majors when the requested version is unsupported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supported: Option<Vec<u32>>,
+    /// The daemon software version returned by hello.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radio: Option<String>,
+    /// The current protocol version returned by hello.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<Protocol>,
+    /// The protocol majors served by the daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub majors: Option<Vec<u32>>,
+    /// The operation names available on the daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ops: Option<Vec<String>>,
+    /// The message sequence number within its room, including logged status changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    /// Whether a status line was removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<bool>,
+    /// The rooms in identifier order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rooms: Option<Vec<Room>>,
+    /// The requested messages in ascending sequence order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<Message>>,
+    /// The live status lines in key order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<Vec<StatusLine>>,
+}
+
+/// A room returned by the daemon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Room {
+    /// The room identifier.
+    pub id: String,
+    /// The host where the room is homed.
+    pub home: String,
+    /// The room title.
+    pub title: String,
+    /// When the room was created, in seconds since the Unix epoch.
+    pub created: f64,
+    /// The latest message sequence number, or zero for an empty room.
+    pub last_seq: u64,
+}
+
+/// A room message returned by the daemon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Message {
+    /// The message sequence number within its room, including logged status changes.
+    pub seq: u64,
+    /// The message kind as an extensible word.
+    pub kind: String,
+    /// The host that wrote the message.
+    pub author_host: String,
+    /// The member who wrote the message.
+    pub author: Member,
+    /// The message text.
+    pub body: String,
+    /// When the message was sent, in seconds since the Unix epoch.
+    pub sent_at: f64,
+    /// When delivery was recorded, in seconds since the Unix epoch, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered_at: Option<f64>,
+}
+
+/// A live room status line returned by the daemon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StatusLine {
+    /// The status key within its room.
+    pub key: String,
+    /// The status text.
+    pub line: String,
+    /// The member who last set this status line.
+    pub set_by: Member,
+    /// When the status was set, in seconds since the Unix epoch.
+    pub set_at: f64,
+    /// When the status expires, in seconds since the Unix epoch, if set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<f64>,
+}
+
+/// Returns the default socket path beneath the given home directory.
+pub fn socket_path(home: &Path) -> PathBuf {
+    home.join(".local/state/radio/radio.sock")
+}

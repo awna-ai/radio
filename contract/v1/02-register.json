@@ -1,0 +1,18 @@
+{
+  "request": {
+    "v": 1,
+    "op": "register",
+    "app": "lantern",
+    "app_version": "1.0.0",
+    "members": [
+      {
+        "kind": "helper",
+        "name": "juniper"
+      }
+    ]
+  },
+  "response": {
+    "ok": true
+  },
+  "exact": false
+}

@@ -1,0 +1,22 @@
+{
+  "request": {
+    "v": 1,
+    "op": "status",
+    "room": "garden"
+  },
+  "response": {
+    "ok": true,
+    "status": [
+      {
+        "key": "plan",
+        "line": "Plant seeds",
+        "set_by": {
+          "kind": "human",
+          "name": "sam"
+        },
+        "set_at": "<time>"
+      }
+    ]
+  },
+  "exact": false
+}

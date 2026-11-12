@@ -1,0 +1,18 @@
+{
+  "request": {
+    "v": 1,
+    "op": "status_set",
+    "room": "garden",
+    "key": "mood",
+    "author": {
+      "kind": "helper",
+      "name": "juniper"
+    },
+    "line": "Ready"
+  },
+  "response": {
+    "ok": true,
+    "seq": 2
+  },
+  "exact": false
+}

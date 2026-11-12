@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "create_room",
+    "room": "garden",
+    "title": "Garden"
+  },
+  "response": {
+    "ok": true
+  },
+  "exact": false
+}

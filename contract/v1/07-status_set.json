@@ -1,0 +1,18 @@
+{
+  "request": {
+    "v": 1,
+    "op": "status_set",
+    "room": "garden",
+    "key": "plan",
+    "author": {
+      "kind": "human",
+      "name": "sam"
+    },
+    "line": "Plant seeds"
+  },
+  "response": {
+    "ok": true,
+    "seq": 4
+  },
+  "exact": false
+}

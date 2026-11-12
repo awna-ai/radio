@@ -1,0 +1,17 @@
+{
+  "request": {
+    "v": 1,
+    "op": "post",
+    "room": "garden",
+    "author": {
+      "kind": "helper",
+      "name": "juniper"
+    },
+    "body": "Hello garden"
+  },
+  "response": {
+    "ok": true,
+    "seq": 1
+  },
+  "exact": false
+}

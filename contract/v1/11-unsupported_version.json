@@ -1,0 +1,14 @@
+{
+  "request": {
+    "v": 99,
+    "op": "hello"
+  },
+  "response": {
+    "ok": false,
+    "error": "unsupported_version",
+    "supported": [
+      1
+    ]
+  },
+  "exact": true
+}
