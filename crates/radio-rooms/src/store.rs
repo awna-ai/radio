@@ -101,6 +101,12 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (app, kind, name)
     ) STRICT, WITHOUT ROWID;
 ",
+    "
+    CREATE TABLE imports (
+        source TEXT PRIMARY KEY, imported_at REAL NOT NULL,
+        rooms INTEGER NOT NULL, messages INTEGER NOT NULL, statuses INTEGER NOT NULL, skipped INTEGER NOT NULL
+    ) STRICT;
+",
 ];
 
 /// The reserved kind for the person at the computer.
@@ -225,6 +231,10 @@ pub struct StatusLine {
     pub expires_at: Option<f64>,
 }
 
+#[path = "import.rs"]
+mod import;
+pub use import::{Import, ImportReport};
+
 /// A private SQLite rooms store with one writing daemon.
 pub struct RoomStore {
     conn: Connection,
@@ -310,15 +320,7 @@ impl RoomStore {
         title: &str,
         now: f64,
     ) -> Result<bool, String> {
-        if !is_key(id, 64) {
-            return Err("not a room id".into());
-        }
-        let home = name(home)?;
-        let now = finite(now)?;
-        let title = crate::text::clean(title, 120);
-        if title.is_empty() {
-            return Err("the room needs a title".into());
-        }
+        let (home, title, now) = clean_room(id, home, title, now)?;
         self.conn
             .prepare_cached(sql)
             .and_then(|mut stmt| stmt.execute(params![id, home, title, now]))
@@ -342,13 +344,7 @@ impl RoomStore {
         body: &str,
         now: f64,
     ) -> Result<u64, String> {
-        let author_host = name(author_host)?;
-        let author = clean_author(author)?;
-        let now = finite(now)?;
-        let body = crate::text::clean(body, usize::MAX);
-        if body.is_empty() || body.len() > BODY_MAX_BYTES {
-            return Err("the message is empty or too long".into());
-        }
+        let (author_host, author, body, now) = clean_message(author_host, author, body, now)?;
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -362,6 +358,7 @@ impl RoomStore {
             MessageKind::Post,
             &body,
             now,
+            None,
         )?;
         tx.commit().map_err(|_| UNWRITABLE)?;
         Ok(seq)
@@ -383,15 +380,15 @@ impl RoomStore {
             return Err("not a status key".into());
         }
         let author_host = name(author_host)?;
-        let by = clean_author(by)?;
-        let now = finite(now)?;
-        let expires_at = expires_at.map(finite).transpose()?;
+        let StatusLine {
+            line,
+            set_by: by,
+            set_at: now,
+            expires_at,
+            ..
+        } = clean_status(key, line, by, now, expires_at)?;
         if expires_at.is_some_and(|at| at <= now) {
             return Err("the expiry is not in the future".into());
-        }
-        let line = crate::text::clean(line, usize::MAX).replace(['\n', '\t'], " ");
-        if line.is_empty() || line.chars().count() > STATUS_LINE_MAX_CHARS {
-            return Err("the status line is empty or too long".into());
         }
         let tx = self
             .conn
@@ -419,6 +416,7 @@ impl RoomStore {
             MessageKind::StatusSet,
             &event,
             now,
+            None,
         )?;
         tx.commit().map_err(|_| UNWRITABLE)?;
         Ok(seq)
@@ -461,6 +459,7 @@ impl RoomStore {
                 MessageKind::StatusClear,
                 key,
                 now,
+                None,
             )?)
         };
         tx.commit().map_err(|_| UNWRITABLE)?;
@@ -592,6 +591,66 @@ impl RoomStore {
     }
 }
 
+fn clean_room(
+    id: &str,
+    home: &str,
+    title: &str,
+    now: f64,
+) -> Result<(String, String, f64), String> {
+    if !is_key(id, 64) {
+        return Err("not a room id".into());
+    }
+    let home = name(home)?;
+    let now = finite(now)?;
+    let title = crate::text::clean(title, 120);
+    if title.is_empty() {
+        return Err("the room needs a title".into());
+    }
+    Ok((home, title, now))
+}
+
+fn clean_message(
+    host: &str,
+    author: &Author,
+    body: &str,
+    now: f64,
+) -> Result<(String, Author, String, f64), String> {
+    let author_host = name(host)?;
+    let author = clean_author(author)?;
+    let now = finite(now)?;
+    let body = crate::text::clean(body, usize::MAX);
+    if body.is_empty() || body.len() > BODY_MAX_BYTES {
+        return Err("the message is empty or too long".into());
+    }
+    Ok((author_host, author, body, now))
+}
+
+fn clean_status(
+    key: &str,
+    line: &str,
+    by: &Author,
+    now: f64,
+    expires_at: Option<f64>,
+) -> Result<StatusLine, String> {
+    if !is_key(key, KEY_MAX_CHARS) {
+        return Err("not a status key".into());
+    }
+    let by = clean_author(by)?;
+    let now = finite(now)?;
+    let expires_at = expires_at.map(finite).transpose()?;
+    let line = crate::text::clean(line, usize::MAX).replace(['\n', '\t'], " ");
+    if line.is_empty() || line.chars().count() > STATUS_LINE_MAX_CHARS {
+        return Err("the status line is empty or too long".into());
+    }
+    Ok(StatusLine {
+        key: key.into(),
+        line,
+        set_by: by,
+        set_at: now,
+        expires_at,
+    })
+}
+
 fn name(text: &str) -> Result<String, String> {
     let text = crate::text::clean(text, usize::MAX).replace(['\n', '\t'], " ");
     if text.is_empty() || text.chars().count() > NAME_MAX_CHARS {
@@ -632,6 +691,7 @@ fn message_row(row: &Row) -> rusqlite::Result<Message> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append(
     conn: &Connection,
     room: &str,
@@ -640,6 +700,7 @@ fn append(
     kind: MessageKind,
     body: &str,
     now: f64,
+    delivered_at: Option<f64>,
 ) -> Result<u64, String> {
     let last: i64 = conn
         .prepare_cached("SELECT COALESCE(MAX(seq), 0) FROM messages WHERE room = ?1")
@@ -650,8 +711,8 @@ fn append(
         .filter(|seq| *seq > 0)
         .ok_or("the room has too many messages")?;
     let (author_kind, author_name) = author.parts();
-    conn.prepare_cached("INSERT INTO messages (room, seq, kind, author_host, author_kind, author, body, sent_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
-        .and_then(|mut stmt| stmt.execute(params![room, seq, kind.word(), author_host, author_kind, author_name, body, now]))
+    conn.prepare_cached("INSERT INTO messages (room, seq, kind, author_host, author_kind, author, body, sent_at, delivered_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
+        .and_then(|mut stmt| stmt.execute(params![room, seq, kind.word(), author_host, author_kind, author_name, body, now, delivered_at]))
         .map_err(|_| UNWRITABLE)?;
     Ok(seq as u64)
 }

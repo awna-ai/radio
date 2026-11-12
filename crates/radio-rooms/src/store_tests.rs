@@ -74,7 +74,7 @@ fn fresh_store_is_private_and_reopens_without_repeating_migrations() {
         .unwrap()
         .collect::<rusqlite::Result<_>>()
         .unwrap();
-    assert_eq!(versions, [3]);
+    assert_eq!(versions, [MIGRATIONS.len() as u32]);
 }
 
 #[test]
@@ -997,7 +997,7 @@ fn check_earlier(version: usize) {
             .query_row("SELECT version FROM schema_version", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        3
+        MIGRATIONS.len() as i64
     );
     assert_eq!(
         store.rooms(None, READ_MAX).unwrap(),
@@ -1634,4 +1634,585 @@ fn invisible_formats_and_fillers_are_spaces_in_bodies_statuses_and_names() {
     let status = store.status("room", 5.0).unwrap().remove(0);
     assert_eq!(status.line, ordinary);
     assert_eq!(status.set_by.name, ordinary);
+}
+
+// An independent older schema: do not build fixtures with this store's migrations.
+fn import_source(fixture: &Store, version: usize) -> Connection {
+    fs::create_dir_all(fixture.path().parent().unwrap()).unwrap();
+    let conn = Connection::open(fixture.path()).unwrap();
+    conn.execute_batch("PRAGMA journal_mode = WAL;
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        CREATE TABLE rooms (id TEXT PRIMARY KEY, home TEXT NOT NULL, title TEXT NOT NULL, created REAL NOT NULL) STRICT;
+        CREATE TABLE messages (
+            room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+            seq INTEGER NOT NULL, author_host TEXT NOT NULL,
+            author_kind TEXT NOT NULL CHECK (author_kind IN ('human','gardener')),
+            author TEXT NOT NULL, body TEXT NOT NULL, sent_at REAL NOT NULL, delivered_at REAL,
+            PRIMARY KEY (room, seq)
+        ) STRICT, WITHOUT ROWID;
+        CREATE TABLE room_status (
+            room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+            key TEXT NOT NULL, line TEXT NOT NULL, set_by TEXT NOT NULL,
+            set_at REAL NOT NULL, expires_at REAL, PRIMARY KEY (room, key)
+        ) STRICT, WITHOUT ROWID;
+        CREATE TABLE outbox (
+            id INTEGER PRIMARY KEY, room TEXT NOT NULL, home TEXT NOT NULL,
+            author_kind TEXT NOT NULL CHECK (author_kind IN ('human','gardener')),
+            author TEXT NOT NULL, body TEXT NOT NULL, queued_at REAL NOT NULL
+        ) STRICT;
+        INSERT INTO rooms VALUES ('porch', 'node-b', ' Porch ', 1.0);
+        INSERT INTO messages VALUES ('porch', 7, 'node-b', 'gardener', ' Bramble ', ' hello ', 2.0, 3.0);
+        INSERT INTO room_status VALUES ('porch', 'work', ' Ready ', 'Wren', 4.0, 20.0);
+        INSERT INTO outbox VALUES (1, 'porch', 'node-b', 'gardener', 'Bramble', 'queued', 5.0);").unwrap();
+    if version == 2 {
+        conn.execute_batch("ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'post' CHECK (kind IN ('post','status_set','status_clear'));
+            ALTER TABLE room_status ADD COLUMN set_by_kind TEXT NOT NULL DEFAULT 'human' CHECK (set_by_kind IN ('human','gardener'));
+            UPDATE room_status SET set_by_kind = 'gardener';
+            INSERT INTO rooms VALUES ('yard', 'node-c', 'Yard', 6.0);
+            INSERT INTO messages VALUES ('porch', 9, 'node-b', 'gardener', 'Bramble', 'work: Ready', 4.0, NULL, 'status_set');
+            INSERT INTO messages VALUES ('yard', 2, 'node-c', 'human', 'Wren', 'outside', 7.0, NULL, 'post');").unwrap();
+    }
+    conn.execute("INSERT INTO schema_version VALUES (?1)", [version as i64])
+        .unwrap();
+    conn
+}
+
+fn imported(
+    added: u64,
+    merged: u64,
+    messages: u64,
+    statuses: u64,
+    skipped: u64,
+) -> Result<Import, String> {
+    Ok(Import::Imported(ImportReport {
+        rooms_added: added,
+        rooms_merged: merged,
+        messages,
+        statuses,
+        skipped,
+    }))
+}
+
+fn import_count(store: &RoomStore) -> i64 {
+    store
+        .conn()
+        .query_row("SELECT COUNT(*) FROM imports", [], |r| r.get(0))
+        .unwrap()
+}
+
+#[test]
+fn imports_rooms_messages_and_status_into_an_empty_store() {
+    let source = Store::new("import-source");
+    let _source = import_source(&source, 2);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        imported(2, 0, 3, 1, 0)
+    );
+    assert_eq!(
+        store.rooms(None, READ_MAX).unwrap(),
+        [
+            RoomRow {
+                id: "porch".into(),
+                home: "node-b".into(),
+                title: "Porch".into(),
+                created: 1.0,
+                last_seq: 2
+            },
+            RoomRow {
+                id: "yard".into(),
+                home: "node-c".into(),
+                title: "Yard".into(),
+                created: 6.0,
+                last_seq: 1
+            },
+        ]
+    );
+    assert_eq!(
+        store.tail("porch", 10).unwrap(),
+        [
+            Message {
+                seq: 1,
+                kind: MessageKind::Post,
+                author_host: "node-b".into(),
+                author: Author::member("gardener", "Bramble"),
+                body: "hello".into(),
+                sent_at: 2.0,
+                delivered_at: Some(3.0)
+            },
+            Message {
+                seq: 2,
+                kind: MessageKind::StatusSet,
+                author_host: "node-b".into(),
+                author: Author::member("gardener", "Bramble"),
+                body: "work: Ready".into(),
+                sent_at: 4.0,
+                delivered_at: None
+            },
+        ]
+    );
+    assert_eq!(
+        store.tail("yard", 10).unwrap(),
+        [Message {
+            seq: 1,
+            kind: MessageKind::Post,
+            author_host: "node-c".into(),
+            author: Author::human("Wren"),
+            body: "outside".into(),
+            sent_at: 7.0,
+            delivered_at: None
+        }]
+    );
+    assert_eq!(
+        store.status("porch", 10.0).unwrap(),
+        [StatusLine {
+            key: "work".into(),
+            line: "Ready".into(),
+            set_by: Author::member("gardener", "Wren"),
+            set_at: 4.0,
+            expires_at: Some(20.0)
+        }]
+    );
+    let record: (String, f64, i64, i64, i64, i64) = store
+        .conn()
+        .query_row(
+            "SELECT source, imported_at, rooms, messages, statuses, skipped FROM imports",
+            [],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        record,
+        (
+            source
+                .path()
+                .canonicalize()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .into(),
+            10.0,
+            2,
+            3,
+            1,
+            0
+        )
+    );
+    assert_eq!(
+        store
+            .conn()
+            .query_row("SELECT COUNT(*) FROM outbox", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn a_version_one_store_imports_with_default_kinds() {
+    let source = Store::new("import-one");
+    let _source = import_source(&source, 1);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        imported(1, 0, 1, 1, 0)
+    );
+    assert_eq!(store.tail("porch", 10).unwrap()[0].kind, MessageKind::Post);
+    assert_eq!(
+        store.status("porch", 10.0).unwrap()[0].set_by,
+        Author::human("Wren")
+    );
+}
+
+#[test]
+fn rooms_that_exist_here_are_merged_after_this_stores_messages() {
+    let source = Store::new("import-merge");
+    let conn = import_source(&source, 2);
+    conn.execute_batch("INSERT INTO messages VALUES ('porch', 8, 'node-b', 'human', 'Wren', 'middle', 3.0, NULL, 'post');").unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    store.create_room("porch", "node-a", "Here", 0.0).unwrap();
+    store
+        .post("porch", "node-a", &Author::human("Wren"), "first", 1.0)
+        .unwrap();
+    store
+        .set_status(
+            "porch",
+            "work",
+            "Local",
+            "node-a",
+            &Author::human("Wren"),
+            None,
+            2.0,
+        )
+        .unwrap();
+    let before = store.tail("porch", 10).unwrap();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        imported(1, 1, 4, 0, 0)
+    );
+    let room = store.room("porch").unwrap().unwrap();
+    assert_eq!(
+        (
+            room.home.as_str(),
+            room.title.as_str(),
+            room.created,
+            room.last_seq
+        ),
+        ("node-a", "Here", 0.0, 5)
+    );
+    let messages = store.tail("porch", 10).unwrap();
+    assert_eq!(&messages[..2], before);
+    assert_eq!(
+        messages
+            .iter()
+            .map(|m| (m.seq, m.body.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (1, "first"),
+            (2, "work: Local"),
+            (3, "hello"),
+            (4, "middle"),
+            (5, "work: Ready")
+        ]
+    );
+    assert_eq!(store.status("porch", 10.0).unwrap()[0].line, "Local");
+    assert_eq!(
+        store
+            .conn()
+            .query_row("SELECT rooms FROM imports", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
+fn the_same_source_imports_once() {
+    let source = Store::new("import-once");
+    let conn = import_source(&source, 2);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        imported(2, 0, 3, 1, 0)
+    );
+    let rooms = store.rooms(None, READ_MAX).unwrap();
+    let messages = store.tail("porch", 10).unwrap();
+    assert_eq!(
+        store.import_rooms(&source.path(), 11.0),
+        Ok(Import::AlreadyImported)
+    );
+    drop(conn);
+    fs::remove_file(source.path()).unwrap();
+    assert_eq!(
+        store.import_rooms(&source.path(), 11.0),
+        Ok(Import::AlreadyImported)
+    );
+    assert_eq!(store.rooms(None, READ_MAX).unwrap(), rooms);
+    assert_eq!(store.tail("porch", 10).unwrap(), messages);
+    assert_eq!(import_count(&store), 1);
+}
+
+#[test]
+fn only_versions_one_and_two_are_imported() {
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    for version in [0, 3, 4, 99] {
+        let source = Store::new("import-version");
+        fs::create_dir_all(source.path().parent().unwrap()).unwrap();
+        let conn = Connection::open(source.path()).unwrap();
+        if version != 0 {
+            conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+                .unwrap();
+            conn.execute("INSERT INTO schema_version VALUES (?1)", [version])
+                .unwrap();
+        }
+        assert_eq!(
+            store.import_rooms(&source.path(), 10.0),
+            Err("the store to import is not a version this build can import".into()),
+            "version {version}"
+        );
+        assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+        assert_eq!(import_count(&store), 0);
+    }
+}
+
+#[test]
+fn invalid_rows_are_skipped_and_counted() {
+    let source = Store::new("import-invalid");
+    let conn = import_source(&source, 2);
+    conn.execute_batch("PRAGMA ignore_check_constraints = ON;
+        INSERT INTO rooms VALUES ('bad id', 'node-b', 'Bad', 1.0);
+        INSERT INTO messages VALUES ('bad id', 1, 'node-b', 'human', 'Wren', 'lost', 1.0, NULL, 'post');
+        INSERT INTO room_status VALUES ('bad id', 'lost', 'lost', 'Wren', 1.0, NULL, 'human');
+        INSERT INTO messages VALUES ('porch', 11, 'node-b', 'human', 'Wren', '', 1.0, NULL, 'post');
+        INSERT INTO messages VALUES ('porch', 12, 'node-b', 'human', 'Wren', 'bad', 1.0, NULL, 'nonsense');
+        INSERT INTO room_status VALUES ('porch', 'gone', 'Old', 'Wren', 1.0, 10.0, 'human');").unwrap();
+    conn.execute(
+        "INSERT INTO room_status VALUES ('porch', 'long', ?1, 'Wren', 1.0, NULL, 'human')",
+        ["x".repeat(300)],
+    )
+    .unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        imported(2, 0, 3, 1, 6)
+    );
+    assert_eq!(store.rooms(None, READ_MAX).unwrap().len(), 2);
+    assert_eq!(store.tail("porch", 20).unwrap().len(), 2);
+    assert_eq!(store.status("porch", 10.0).unwrap().len(), 1);
+    assert_eq!(
+        store
+            .conn()
+            .query_row("SELECT skipped FROM imports", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        6
+    );
+}
+
+#[test]
+fn the_source_is_never_written() {
+    let source = Store::new("import-readonly");
+    let conn = import_source(&source, 2);
+    let wal = source.path().with_file_name("rooms.db-wal");
+    let before = (fs::read(source.path()).unwrap(), fs::read(&wal).unwrap());
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        imported(2, 0, 3, 1, 0)
+    );
+    assert_eq!(
+        (fs::read(source.path()).unwrap(), fs::read(&wal).unwrap()),
+        before
+    );
+    assert_eq!(schema_version(&conn), Ok(2));
+}
+
+#[test]
+fn a_link_or_a_missing_source_is_refused() {
+    let source = Store::new("import-paths");
+    let _source = import_source(&source, 2);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    let link = source.0.join("link");
+    symlink(source.path(), &link).unwrap();
+    for (path, error) in [
+        (link, "the store to import could not be opened"),
+        (
+            source.0.join("missing"),
+            "the store to import could not be opened",
+        ),
+        (source.0.clone(), "the store to import is not a file"),
+        (
+            PathBuf::from("relative.db"),
+            "the store to import is not an absolute path",
+        ),
+    ] {
+        assert_eq!(store.import_rooms(&path, 10.0), Err(error.into()));
+        assert_eq!(import_count(&store), 0);
+    }
+}
+
+#[test]
+fn a_wal_source_includes_its_uncheckpointed_rows() {
+    let source = Store::new("import-wal");
+    let conn = import_source(&source, 2);
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .unwrap();
+    let writer = Connection::open(source.path()).unwrap();
+    writer.execute_batch("INSERT INTO messages VALUES ('porch', 20, 'node-b', 'human', 'Wren', 'in the wal', 8.0, NULL, 'post')").unwrap();
+    assert!(
+        fs::metadata(source.path().with_file_name("rooms.db-wal"))
+            .unwrap()
+            .len()
+            > 0
+    );
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        imported(2, 0, 4, 1, 0)
+    );
+    assert_eq!(store.tail("porch", 10).unwrap()[2].body, "in the wal");
+}
+
+#[test]
+fn a_failed_write_records_nothing() {
+    let source = Store::new("import-rollback");
+    let _source = import_source(&source, 2);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    store.conn().execute_batch("CREATE TRIGGER refuse_import BEFORE INSERT ON messages BEGIN SELECT RAISE(ABORT, 'x'); END;").unwrap();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        Err(UNWRITABLE.into())
+    );
+    assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+    assert_eq!(
+        store
+            .conn()
+            .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(import_count(&store), 0);
+    store
+        .conn()
+        .execute_batch("DROP TRIGGER refuse_import")
+        .unwrap();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        imported(2, 0, 3, 1, 0)
+    );
+}
+
+#[test]
+fn a_version_three_store_migrates_to_four_keeping_its_rows() {
+    let target = Store::new("import-upgrade");
+    let mut store = target.room();
+    store
+        .post("room", "node-a", &Author::human("Wren"), "kept", 2.0)
+        .unwrap();
+    store.conn().execute_batch("DELETE FROM schema_version; INSERT INTO schema_version VALUES (3); DROP TABLE IF EXISTS imports;").unwrap();
+    drop(store);
+    let store = target.open();
+    assert_eq!(schema_version(store.conn()), Ok(4));
+    assert_eq!(store.tail("room", 10).unwrap()[0].body, "kept");
+    assert_eq!(import_count(&store), 0);
+}
+
+#[test]
+fn import_checks_time_plain_paths_and_canonical_parent_aliases() {
+    use std::os::unix::ffi::OsStringExt;
+    let source = Store::new("import-boundaries");
+    let _source = import_source(&source, 2);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    for now in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(
+            store.import_rooms(&source.path(), now),
+            Err("not a time".into())
+        );
+    }
+    let non_plain = source.0.join(std::ffi::OsString::from_vec(vec![0xff]));
+    assert_eq!(
+        store.import_rooms(&non_plain, 10.0),
+        Err("the store to import is not a plain path".into())
+    );
+    let alias = source.0.join("alias");
+    symlink(source.path().parent().unwrap(), &alias).unwrap();
+    assert_eq!(
+        store.import_rooms(&alias.join(DB_FILE), 10.0),
+        imported(2, 0, 3, 1, 0)
+    );
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        Ok(Import::AlreadyImported)
+    );
+    assert_eq!(import_count(&store), 1);
+}
+
+#[test]
+fn unreadable_source_rows_and_versions_use_fixed_errors() {
+    let source = Store::new("import-unreadable");
+    let conn = import_source(&source, 2);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    conn.execute_batch("DROP TABLE messages").unwrap();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        Err("the store to import could not be read".into())
+    );
+    conn.execute_batch("INSERT INTO schema_version VALUES (2)")
+        .unwrap();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        Err("the store to import is not a version this build can import".into())
+    );
+    assert_eq!(import_count(&store), 0);
+    assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+}
+
+#[test]
+fn imported_fields_follow_the_shared_validation_rules() {
+    for (sql, expected) in [
+        (
+            "UPDATE rooms SET home = '' WHERE id = 'porch'",
+            imported(1, 0, 1, 0, 4),
+        ),
+        (
+            "UPDATE rooms SET title = '' WHERE id = 'porch'",
+            imported(1, 0, 1, 0, 4),
+        ),
+        (
+            "UPDATE rooms SET created = 1e999 WHERE id = 'porch'",
+            imported(1, 0, 1, 0, 4),
+        ),
+        (
+            "UPDATE messages SET author_host = '' WHERE room = 'porch'",
+            imported(2, 0, 1, 1, 2),
+        ),
+        (
+            "UPDATE messages SET author_kind = 'Bad' WHERE room = 'porch'",
+            imported(2, 0, 1, 1, 2),
+        ),
+        (
+            "UPDATE messages SET author = '' WHERE room = 'porch'",
+            imported(2, 0, 1, 1, 2),
+        ),
+        (
+            "UPDATE messages SET body = replace(hex(zeroblob(4097)), '00', 'x') WHERE room = 'porch'",
+            imported(2, 0, 1, 1, 2),
+        ),
+        (
+            "UPDATE messages SET sent_at = 1e999 WHERE room = 'porch'",
+            imported(2, 0, 1, 1, 2),
+        ),
+        (
+            "UPDATE messages SET delivered_at = 1e999 WHERE room = 'porch'",
+            imported(2, 0, 1, 1, 2),
+        ),
+        (
+            "UPDATE room_status SET key = 'bad key'",
+            imported(2, 0, 3, 0, 1),
+        ),
+        ("UPDATE room_status SET line = ''", imported(2, 0, 3, 0, 1)),
+        (
+            "UPDATE room_status SET set_by = ''",
+            imported(2, 0, 3, 0, 1),
+        ),
+        (
+            "UPDATE room_status SET set_by_kind = 'Bad'",
+            imported(2, 0, 3, 0, 1),
+        ),
+        (
+            "UPDATE room_status SET set_at = 1e999",
+            imported(2, 0, 3, 0, 1),
+        ),
+        (
+            "UPDATE room_status SET expires_at = 1e999",
+            imported(2, 0, 3, 0, 1),
+        ),
+    ] {
+        let source = Store::new("import-fields");
+        let conn = import_source(&source, 2);
+        conn.execute_batch("PRAGMA ignore_check_constraints = ON")
+            .unwrap();
+        conn.execute_batch(sql).unwrap();
+        let target = Store::new("import-target");
+        let mut store = target.open();
+        assert_eq!(store.import_rooms(&source.path(), 10.0), expected, "{sql}");
+    }
 }
