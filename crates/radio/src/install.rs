@@ -268,9 +268,12 @@ pub fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
     let mut parts = text.split('.');
     let mut part = || {
         let value = parts.next()?;
-        (value.len() <= 20 && !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()))
-            .then(|| value.parse().ok())
-            .flatten()
+        (value.len() <= 20
+            && !value.is_empty()
+            && (value.len() == 1 || !value.starts_with('0'))
+            && value.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| value.parse().ok())
+        .flatten()
     };
     let result = (part()?, part()?, part()?);
     parts.next().is_none().then_some(result)
@@ -398,10 +401,10 @@ struct ClientRecord {
 fn app_name(app: &str) -> bool {
     !app.is_empty()
         && app.len() <= 64
-        && app.as_bytes()[0].is_ascii_alphanumeric()
-        && app
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        && (app.as_bytes()[0].is_ascii_lowercase() || app.as_bytes()[0].is_ascii_digit())
+        && app.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+        })
 }
 
 fn app_version(version: &str) -> bool {
@@ -476,7 +479,6 @@ fn read_install(paths: &Paths) -> ReadInstall {
     if !read_plain(&paths.binary(&record.version)).is_ok_and(|bytes| hash(&bytes) == record.sha256)
     {
         result.binary_changed = true;
-        return result;
     }
     result.record = Some(record);
     result
@@ -552,14 +554,41 @@ fn public_dir(path: &Path) -> Result<(), String> {
     }
 }
 
+// An absent directory is safe to create later; a link is never a directory here.
+fn real_directory(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ => Err(FILES.into()),
+    }
+}
+
+fn numbered_temp(name: &str, prefix: &str) -> bool {
+    name.strip_prefix(prefix)
+        .and_then(|name| name.strip_suffix(".tmp"))
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
+fn remove_temps(dir: &Path, matches: impl Fn(&str) -> bool) -> Result<(), String> {
+    real_directory(dir)?;
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(FILES.into()),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|_| FILES)?;
+        if entry.file_name().to_str().is_some_and(&matches)
+            && entry.file_type().map_err(|_| FILES)?.is_file()
+        {
+            remove_file(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 // O_EXCL protects a stale temp file; never unlink a file we did not create.
-fn atomic_write(
-    path: &Path,
-    temp: &Path,
-    bytes: &[u8],
-    mode: u32,
-    verify: bool,
-) -> Result<(), String> {
+fn atomic_write(path: &Path, temp: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -571,9 +600,6 @@ fn atomic_write(
         file.set_permissions(fs::Permissions::from_mode(mode))?;
         file.write_all(bytes)?;
         file.sync_all()?;
-        if verify && hash(&read_plain(temp)?) != hash(bytes) {
-            return Err(std::io::ErrorKind::InvalidData.into());
-        }
         fs::rename(temp, path)
     })();
     if result.is_err() {
@@ -593,7 +619,6 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
         &temp,
         &serde_json::to_vec(value).map_err(|_| FILES)?,
         0o600,
-        false,
     )
 }
 
@@ -617,6 +642,12 @@ fn store_location(path: &Path) -> Option<PathBuf> {
     Some(canonical_missing(path.parent()?)?.join(path.file_name()?))
 }
 
+fn handler_folder_safe(owner: u32, group: u32, mode: u32, uid: u32) -> bool {
+    (owner == uid || owner == 0)
+        && (mode & 0o020 == 0 || matches!(group, 0 | 80))
+        && (mode & 0o002 == 0 || mode & 0o1000 != 0)
+}
+
 fn validate(args: &InstallArgs, paths: &Paths, uid: u32) -> Result<String, Failure> {
     let refuse = |phrase| Failure::new(2, phrase);
     if !app_name(&args.app) {
@@ -628,22 +659,35 @@ fn validate(args: &InstallArgs, paths: &Paths, uid: u32) -> Result<String, Failu
     if !args.handler.is_absolute() {
         return Err(refuse("the handler is not an absolute path"));
     }
-    let meta =
-        fs::metadata(&args.handler).map_err(|_| refuse("the handler is not an executable file"))?;
+    let canonical = args
+        .handler
+        .canonicalize()
+        .map_err(|_| refuse("the handler is not an executable file"))?;
+    let handler = canonical
+        .to_str()
+        .ok_or_else(|| refuse("the handler is not a plain path"))?
+        .to_owned();
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&canonical)
+        .map_err(|_| refuse("the handler is not an executable file"))?;
+    let meta = file
+        .metadata()
+        .map_err(|_| refuse("the handler is not an executable file"))?;
     if !meta.is_file() || meta.mode() & 0o100 == 0 {
         return Err(refuse("the handler is not an executable file"));
     }
     if meta.mode() & 0o022 != 0 || (meta.uid() != uid && meta.uid() != 0) {
         return Err(refuse("the handler can be changed by another user"));
     }
-    let handler = args
-        .handler
-        .canonicalize()
-        .map_err(|_| refuse("the handler is not a plain path"))?;
-    let handler = handler
-        .to_str()
-        .ok_or_else(|| refuse("the handler is not a plain path"))?
-        .to_owned();
+    for folder in canonical.ancestors().skip(1) {
+        let meta = fs::symlink_metadata(folder)
+            .map_err(|_| refuse("the handler can be changed by another user"))?;
+        if !meta.is_dir() || !handler_folder_safe(meta.uid(), meta.gid(), meta.mode(), uid) {
+            return Err(refuse("the handler can be changed by another user"));
+        }
+    }
     if let Some(rooms) = &args.rooms {
         if !rooms.is_absolute() {
             return Err(refuse("the store to import is not an absolute path"));
@@ -651,6 +695,10 @@ fn validate(args: &InstallArgs, paths: &Paths, uid: u32) -> Result<String, Failu
         if store_location(rooms)
             .zip(store_location(&paths.rooms))
             .is_some_and(|(a, b)| a == b)
+            || fs::metadata(rooms)
+                .ok()
+                .zip(fs::metadata(&paths.rooms).ok())
+                .is_some_and(|(a, b)| a.dev() == b.dev() && a.ino() == b.ino())
         {
             return Err(refuse("the store to import is the Radio's own"));
         }
@@ -673,9 +721,31 @@ impl Installer<'_> {
             return Err(Failure::new(3, "no GUI session for this user"));
         }
         let _lock = lock(&self.paths, self.timing)?;
+        self.binary_directories()?;
+        self.clean_temps()?;
         let read = read_install(&self.paths);
-        let installed = match read.record {
+        if read.binary_changed
+            && read.record.as_ref().is_some_and(|record| {
+                parse_version(&record.version).is_some_and(|old| old > version)
+            })
+        {
+            return Err(Failure::new(
+                1,
+                "the installed Radio is newer than this copy and its binary is missing or changed",
+            ));
+        }
+        let installed = match read.record.filter(|_| !read.binary_changed) {
             None => {
+                let created = match fs::symlink_metadata(
+                    self.paths
+                        .binary(&self.version)
+                        .parent()
+                        .ok_or(FILES.to_owned())?,
+                ) {
+                    Ok(_) => false,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+                    Err(_) => return Err(Failure::new(1, FILES)),
+                };
                 let result = self
                     .place_binary(&self.source, &self.version)
                     .and_then(|sha| {
@@ -688,22 +758,22 @@ impl Installer<'_> {
                 let sha256 = match result {
                     Ok(sha) => sha,
                     Err(_) => {
-                        self.clean_fresh();
+                        self.clean_fresh(created)?;
                         return Err(Failure::new(1, FRESH_FAILED));
                     }
                 };
                 let record = self.new_record(args, now, sha256, None);
                 if write_json(&self.paths.record, &record).is_err() {
-                    self.clean_fresh();
+                    self.clean_fresh(created)?;
                     return Err(Failure::new(1, FRESH_FAILED));
                 }
-                self.clean_versions(&[&self.version])?;
+                self.clean_versions(&[&self.version], Some(version))?;
                 Installed::Fresh {
                     version: self.version.clone(),
                 }
             }
             Some(record) if parse_version(&record.version).is_some_and(|old| old >= version) => {
-                if self.probe.hello(&self.paths.socket).as_deref() != Some(&record.version) {
+                if !self.wait_hello(&record.version) {
                     let target = self.target();
                     let started = match self.launchd.run(&["print", &target]) {
                         Ok(true) => {
@@ -728,21 +798,55 @@ impl Installer<'_> {
             }
             Some(record) => {
                 let sha256 = self.place_binary(&self.source, &self.version)?;
-                let started = self
-                    .write_agent(&self.version)
-                    .and_then(|()| self.create_log())
+                let snapshot = self.paths.state.join("rooms.db.before-upgrade");
+                let mut had_store = None;
+                let stopped = self.bootout();
+                let started = stopped
+                    && (|| {
+                        remove_file(&snapshot)?;
+                        let exists = match fs::symlink_metadata(&self.paths.rooms) {
+                            Ok(_) => true,
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                            Err(_) => return Err(FILES.to_owned()),
+                        };
+                        if exists {
+                            radio_rooms::snapshot_store(&self.paths.rooms, &snapshot)?;
+                        }
+                        had_store = Some(exists);
+                        self.write_agent(&self.version)?;
+                        self.create_log()?;
+                        Ok(())
+                    })()
                     .is_ok()
-                    && self.restart(&self.version);
+                    && self.bootstrap()
+                    && self.wait_hello(&self.version);
                 let new = self.new_record(args, now, sha256, Some(record.binary()));
                 if !started || write_json(&self.paths.record, &new).is_err() {
-                    let restored =
-                        self.write_agent(&record.version).is_ok() && self.restart(&record.version);
-                    let _ = fs::remove_dir_all(
-                        self.paths
-                            .binary(&self.version)
-                            .parent()
-                            .ok_or_else(|| Failure::new(1, FILES))?,
-                    );
+                    let rollback_stopped = (stopped && had_store.is_none()) || self.bootout();
+                    let restored = rollback_stopped
+                        && match had_store {
+                            Some(true) => {
+                                radio_rooms::restore_store(&snapshot, &self.paths.rooms).is_ok()
+                            }
+                            Some(false) => self.remove_store().is_ok(),
+                            None => true,
+                        }
+                        && self.write_agent(&record.version).is_ok()
+                        && self.bootstrap()
+                        && self.wait_hello(&record.version);
+                    if rollback_stopped {
+                        self.binary_directories()?;
+                        let _ = fs::remove_dir_all(
+                            self.paths
+                                .binary(&self.version)
+                                .parent()
+                                .ok_or_else(|| Failure::new(1, FILES))?,
+                        );
+                    }
+                    // A failed snapshot can leave a partial copy, never used for rollback.
+                    if had_store.is_none() {
+                        let _ = remove_file(&snapshot);
+                    }
                     return Err(Failure::new(
                         1,
                         if restored {
@@ -752,7 +856,8 @@ impl Installer<'_> {
                         },
                     ));
                 }
-                self.clean_versions(&[&self.version, &record.version])?;
+                remove_file(&snapshot)?;
+                self.clean_versions(&[&self.version, &record.version], None)?;
                 Installed::Upgraded {
                     from: record.version,
                     to: self.version.clone(),
@@ -820,6 +925,7 @@ impl Installer<'_> {
         if parse_version(version).is_none() {
             return Err("this build has no valid version".into());
         }
+        self.binary_directories()?;
         let bytes = fs::read(source).map_err(|_| FILES)?;
         public_dir(self.paths.binaries.parent().ok_or(FILES)?)?;
         radio_rooms::private_dir(&self.paths.binaries, false).map_err(|_| FILES)?;
@@ -827,7 +933,7 @@ impl Installer<'_> {
         let dir = binary.parent().ok_or(FILES)?;
         radio_rooms::private_dir(dir, false).map_err(|_| FILES)?;
         let temp = dir.join(format!("radio.{}.tmp", std::process::id()));
-        atomic_write(&binary, &temp, &bytes, 0o700, true)?;
+        atomic_write(&binary, &temp, &bytes, 0o700)?;
         Ok(hash(&bytes))
     }
 
@@ -842,7 +948,6 @@ impl Installer<'_> {
             &temp,
             plist(&self.paths.binary(version), &self.paths.log).as_bytes(),
             0o644,
-            false,
         )
     }
 
@@ -913,15 +1018,85 @@ impl Installer<'_> {
         self.bootout() && self.bootstrap() && self.wait_hello(version)
     }
 
-    fn clean_fresh(&self) {
-        let _ = self.launchd.run(&["bootout", &self.target()]);
-        let _ = remove_file(&self.paths.agent);
-        if let Some(dir) = self.paths.binary(&self.version).parent() {
-            let _ = fs::remove_dir_all(dir);
+    fn binary_directories(&self) -> Result<(), String> {
+        for path in [
+            self.paths.binaries.parent().ok_or(FILES)?,
+            &self.paths.binaries,
+        ] {
+            real_directory(path)?;
         }
+        Ok(())
     }
 
-    fn clean_versions(&self, keep: &[&str]) -> Result<(), String> {
+    fn clean_temps(&self) -> Result<(), String> {
+        remove_temps(&self.paths.state, |name| {
+            numbered_temp(name, ".install.json.")
+        })?;
+        remove_temps(&self.paths.clients, |name| {
+            let Some((app, tail)) = name
+                .strip_prefix('.')
+                .and_then(|name| name.rsplit_once(".json."))
+            else {
+                return false;
+            };
+            app_name(app) && numbered_temp(tail, "")
+        })?;
+        remove_temps(self.paths.agent.parent().ok_or(FILES)?, |name| {
+            numbered_temp(name, ".ai.awna.radio.plist.")
+        })?;
+        if !self.paths.binaries.exists() {
+            return Ok(());
+        }
+        for entry in fs::read_dir(&self.paths.binaries).map_err(|_| FILES)? {
+            let entry = entry.map_err(|_| FILES)?;
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| parse_version(name).is_some())
+                && entry.file_type().map_err(|_| FILES)?.is_dir()
+            {
+                remove_temps(&entry.path(), |name| numbered_temp(name, "radio."))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_store(&self) -> Result<(), String> {
+        for name in ["rooms.db", "rooms.db-wal", "rooms.db-shm"] {
+            remove_file(&self.paths.state.join(name))?;
+        }
+        Ok(())
+    }
+
+    fn clean_fresh(&self, created: bool) -> Result<(), Failure> {
+        self.binary_directories()?;
+        if !self.bootout() {
+            return Err(Failure::new(
+                1,
+                "the Radio did not start and could not be stopped; nothing was removed",
+            ));
+        }
+        remove_file(&self.paths.agent)?;
+        if created && let Some(dir) = self.paths.binary(&self.version).parent() {
+            fs::remove_dir_all(dir)
+                .or_else(|e| {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        Ok(())
+                    } else {
+                        Err(e)
+                    }
+                })
+                .map_err(|_| Failure::new(1, FILES))?;
+        }
+        Ok(())
+    }
+
+    fn clean_versions(
+        &self,
+        keep: &[&str],
+        older_than: Option<(u64, u64, u64)>,
+    ) -> Result<(), String> {
+        self.binary_directories()?;
         let entries = match fs::read_dir(&self.paths.binaries) {
             Ok(entries) => entries,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -933,7 +1108,8 @@ impl Installer<'_> {
             let Some(name) = name.to_str() else {
                 continue;
             };
-            if parse_version(name).is_some()
+            if parse_version(name)
+                .is_some_and(|version| older_than.is_none_or(|ours| version < ours))
                 && !keep.contains(&name)
                 && fs::symlink_metadata(entry.path())
                     .map_err(|_| FILES)?
@@ -951,6 +1127,8 @@ impl Installer<'_> {
             return Err(Failure::new(2, "not an app name"));
         }
         let _lock = lock(&self.paths, self.timing)?;
+        self.binary_directories()?;
+        self.clean_temps()?;
         let client = self.paths.clients.join(format!("{app}.json"));
         match fs::symlink_metadata(&client) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -977,7 +1155,7 @@ impl Installer<'_> {
         remove_file(&client)?;
         if last {
             remove_file(&self.paths.agent)?;
-            self.clean_versions(&[])?;
+            self.clean_versions(&[], None)?;
             remove_file(&self.paths.record)?;
             match fs::read_dir(&self.paths.binaries) {
                 Ok(mut entries) => {
@@ -1005,6 +1183,7 @@ pub fn status(paths: &Paths, probe: &dyn Probe) -> StatusReport {
     let read = read_install(paths);
     let installation = read
         .record
+        .filter(|_| !read.binary_changed)
         .map(|record| (record.version, record.installed_by, record.at));
     let mut clients = Vec::new();
     if let Ok(entries) = fs::read_dir(&paths.clients) {

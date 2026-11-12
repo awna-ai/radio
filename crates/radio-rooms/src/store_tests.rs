@@ -1916,7 +1916,7 @@ fn the_same_source_imports_once() {
     fs::remove_file(source.path()).unwrap();
     assert_eq!(
         store.import_rooms(&source.path(), 11.0),
-        Ok(Import::AlreadyImported)
+        Err("the store to import could not be opened".into())
     );
     assert_eq!(store.rooms(None, READ_MAX).unwrap(), rooms);
     assert_eq!(store.tail("porch", 10).unwrap(), messages);
@@ -2014,7 +2014,10 @@ fn a_link_or_a_missing_source_is_refused() {
             source.0.join("missing"),
             "the store to import could not be opened",
         ),
-        (source.0.clone(), "the store to import is not a file"),
+        (
+            source.0.clone(),
+            "the store to import can be changed by another user",
+        ),
         (
             PathBuf::from("relative.db"),
             "the store to import is not an absolute path",
@@ -2023,6 +2026,47 @@ fn a_link_or_a_missing_source_is_refused() {
         assert_eq!(store.import_rooms(&path, 10.0), Err(error.into()));
         assert_eq!(import_count(&store), 0);
     }
+}
+
+#[test]
+fn a_fifo_source_is_refused_without_blocking() {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::sync::mpsc;
+
+    let source = Store::new("import-fifo");
+    fs::create_dir_all(&source.0).unwrap();
+    let fifo = source.0.join("source.db");
+    let path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: path is a valid NUL-terminated path for the duration of this call.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    let (send, receive) = mpsc::channel();
+    let source_path = fifo.clone();
+    let worker = std::thread::spawn(move || {
+        let _ = send.send(store.import_rooms(&source_path, 10.0));
+    });
+    let result = receive.recv_timeout(Duration::from_secs(2));
+    if result.is_err() {
+        // Release a blocked reader before asserting so the regression leaves no thread behind.
+        let _writer = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo)
+            .unwrap();
+        let _ = receive.recv_timeout(Duration::from_secs(2)).unwrap();
+    }
+    worker.join().unwrap();
+    assert!(
+        result.is_ok(),
+        "a FIFO source blocked import for more than 2 seconds"
+    );
+    assert_eq!(
+        result.unwrap(),
+        Err("the store to import can be changed by another user".into())
+    );
 }
 
 #[test]
@@ -2133,7 +2177,7 @@ fn unreadable_source_rows_and_versions_use_fixed_errors() {
     conn.execute_batch("DROP TABLE messages").unwrap();
     assert_eq!(
         store.import_rooms(&source.path(), 10.0),
-        Err("the store to import could not be read".into())
+        Err("the store to import is not a version this build can import".into())
     );
     conn.execute_batch("INSERT INTO schema_version VALUES (2)")
         .unwrap();
@@ -2215,4 +2259,270 @@ fn imported_fields_follow_the_shared_validation_rules() {
         let mut store = target.open();
         assert_eq!(store.import_rooms(&source.path(), 10.0), expected, "{sql}");
     }
+}
+
+#[test]
+fn a_source_writable_by_another_user_is_refused() {
+    let source = Store::new("import-writable");
+    let _conn = import_source(&source, 2);
+    fs::set_permissions(source.path(), fs::Permissions::from_mode(0o666)).unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        Err("the store to import can be changed by another user".into())
+    );
+    assert_eq!(import_count(&store), 0);
+    assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+}
+
+#[test]
+fn a_case_alias_is_already_imported() {
+    let source = Store::new("import-case");
+    let conn = import_source(&source, 2);
+    fs::write(source.0.join("a"), b"").unwrap();
+    if !source.0.join("A").exists() {
+        return;
+    }
+    drop(conn);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert!(matches!(
+        store.import_rooms(&source.path(), 10.0),
+        Ok(Import::Imported(_))
+    ));
+    assert_eq!(
+        store.import_rooms(&source.path().with_file_name("ROOMS.DB"), 10.0),
+        Ok(Import::AlreadyImported)
+    );
+    assert_eq!(import_count(&store), 1);
+}
+
+#[test]
+fn a_hard_link_is_already_imported() {
+    let source = Store::new("import-hard-link");
+    drop(import_source(&source, 2));
+    let alias = source.0.join("alias.db");
+    fs::hard_link(source.path(), &alias).unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert!(matches!(
+        store.import_rooms(&source.path(), 10.0),
+        Ok(Import::Imported(_))
+    ));
+    assert_eq!(
+        store.import_rooms(&alias, 10.0),
+        Ok(Import::AlreadyImported)
+    );
+    assert_eq!(import_count(&store), 1);
+}
+
+#[test]
+fn a_hard_link_to_this_store_is_refused() {
+    let target = Store::new("import-self");
+    let mut store = target.open();
+    let alias = target.0.join("alias.db");
+    fs::hard_link(target.path(), &alias).unwrap();
+    assert_eq!(
+        store.import_rooms(&alias, 10.0),
+        Err("the store to import is this store".into())
+    );
+    assert_eq!(import_count(&store), 0);
+}
+
+#[test]
+fn the_source_deadline_rolls_back_the_import() {
+    let source = Store::new("import-deadline");
+    let conn = import_source(&source, 2);
+    conn.execute_batch("WITH RECURSIVE n(i) AS (SELECT 100 UNION ALL SELECT i+1 FROM n WHERE i<2099)
+        INSERT INTO messages SELECT 'porch', i, 'node-b', 'human', 'Wren', 'hello', 1.0, NULL, 'post' FROM n;").unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    let began = Instant::now();
+    assert_eq!(
+        store.import_rooms_with_deadline(&source.path(), 10.0, Duration::from_millis(1), 1_000_000),
+        Err("the store to import could not be read".into())
+    );
+    assert!(began.elapsed() < Duration::from_secs(2));
+    assert_eq!(import_count(&store), 0);
+    assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+}
+
+#[test]
+fn a_recursive_rooms_view_is_refused_before_reading() {
+    let source = Store::new("import-view");
+    let conn = import_source(&source, 2);
+    conn.execute_batch(
+        "DROP TABLE rooms;
+        CREATE VIEW rooms AS WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n)
+        SELECT 'porch' AS id, 'node-b' AS home, 'Porch' AS title, i * 1.0 AS created FROM n;",
+    )
+    .unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    let began = Instant::now();
+    assert_eq!(
+        store.import_rooms_with_deadline(
+            &source.path(),
+            10.0,
+            Duration::from_millis(200),
+            1_000_000
+        ),
+        Err("the store to import is not a version this build can import".into())
+    );
+    assert!(began.elapsed() < Duration::from_millis(200));
+    assert_eq!(import_count(&store), 0);
+    assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+}
+
+#[test]
+fn an_oversized_source_value_rolls_back_the_import() {
+    let source = Store::new("import-large-value");
+    let conn = import_source(&source, 2);
+    conn.execute(
+        "UPDATE messages SET body = ?1 WHERE room = 'yard'",
+        ["x".repeat(2 << 20)],
+    )
+    .unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        Err("the store to import could not be read".into())
+    );
+    assert_eq!(import_count(&store), 0);
+    assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+}
+
+#[test]
+fn the_source_message_cap_rolls_back_the_import() {
+    let source = Store::new("import-cap");
+    let conn = import_source(&source, 2);
+    conn.execute_batch("INSERT INTO messages VALUES ('yard', 3, 'node-c', 'human', 'Wren', 'fourth', 8.0, NULL, 'post')").unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms_with_deadline(&source.path(), 10.0, Duration::from_secs(30), 3),
+        Err("the store to import is too large".into())
+    );
+    assert_eq!(import_count(&store), 0);
+    assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+}
+
+#[test]
+fn a_snapshot_restores_rooms_messages_and_schema_without_migrating() {
+    let fixture = Store::new("snapshot");
+    let mut store = fixture.room();
+    store
+        .post("room", "node-a", &Author::human("Wren"), "first", 2.0)
+        .unwrap();
+    store
+        .post("room", "node-a", &Author::human("Wren"), "second", 3.0)
+        .unwrap();
+    let rooms = store.rooms(None, READ_MAX).unwrap();
+    let messages = store.tail("room", 10).unwrap();
+    assert_eq!(schema_version(store.conn()), Ok(4));
+    let snapshot = fixture.0.join("snapshot.db");
+    assert_eq!(snapshot_store(&fixture.path(), &snapshot), Ok(()));
+    assert_eq!(
+        fs::metadata(&snapshot).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    store
+        .conn()
+        .execute_batch("UPDATE schema_version SET version = 5; DELETE FROM rooms")
+        .unwrap();
+    drop(store);
+    assert_eq!(
+        RoomStore::open(&fixture.path()).map(|_| ()),
+        Err("the room store is newer than this build".into())
+    );
+    for suffix in ["-wal", "-shm"] {
+        fs::write(
+            fixture.path().with_file_name(format!("rooms.db{suffix}")),
+            b"stale",
+        )
+        .unwrap();
+    }
+    assert_eq!(restore_store(&snapshot, &fixture.path()), Ok(()));
+    assert!(!snapshot.exists());
+    for suffix in ["-wal", "-shm"] {
+        assert!(
+            !fixture
+                .path()
+                .with_file_name(format!("rooms.db{suffix}"))
+                .exists()
+        );
+    }
+    let restored = fixture.open();
+    assert_eq!(schema_version(restored.conn()), Ok(4));
+    assert_eq!(restored.rooms(None, READ_MAX).unwrap(), rooms);
+    assert_eq!(restored.tail("room", 10).unwrap(), messages);
+}
+
+#[test]
+fn an_existing_snapshot_is_refused_even_when_empty_or_linked() {
+    let fixture = Store::new("snapshot-existing");
+    let _store = fixture.room();
+    let snapshot = fixture.0.join("snapshot.db");
+    fs::write(&snapshot, b"").unwrap();
+    assert_eq!(
+        snapshot_store(&fixture.path(), &snapshot),
+        Err("the snapshot already exists".into())
+    );
+    fs::remove_file(&snapshot).unwrap();
+    symlink(fixture.0.join("missing"), &snapshot).unwrap();
+    assert_eq!(
+        snapshot_store(&fixture.path(), &snapshot),
+        Err("the snapshot already exists".into())
+    );
+}
+
+#[test]
+fn a_symlinked_snapshot_is_refused_before_touching_the_store() {
+    let fixture = Store::new("snapshot-link");
+    drop(fixture.room());
+    let before = fs::read(fixture.path()).unwrap();
+    let snapshot = fixture.0.join("snapshot.db");
+    symlink(fixture.path(), &snapshot).unwrap();
+    let wal = fixture.path().with_file_name("rooms.db-wal");
+    fs::write(&wal, b"keep").unwrap();
+    assert_eq!(
+        restore_store(&snapshot, &fixture.path()),
+        Err("the snapshot is not a file".into())
+    );
+    assert_eq!(fs::read(fixture.path()).unwrap(), before);
+    assert_eq!(fs::read(wal).unwrap(), b"keep");
+}
+
+#[test]
+fn snapshotting_a_missing_store_does_not_create_it() {
+    let fixture = Store::new("snapshot-missing");
+    fs::create_dir_all(&fixture.0).unwrap();
+    let snapshot = fixture.0.join("snapshot.db");
+    assert_eq!(
+        snapshot_store(&fixture.path(), &snapshot),
+        Err("the room store could not be opened".into())
+    );
+    assert!(!fixture.path().exists());
+    assert!(!snapshot.exists());
+}
+
+#[test]
+fn a_deadline_during_the_version_query_uses_the_read_error() {
+    let source = Store::new("import-schema-deadline");
+    let conn = import_source(&source, 2);
+    conn.execute_batch(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<10000)
+        INSERT INTO schema_version SELECT 2 FROM n",
+    )
+    .unwrap();
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    assert_eq!(
+        store.import_rooms_with_deadline(&source.path(), 10.0, Duration::ZERO, 1_000_000),
+        Err("the store to import could not be read".into())
+    );
+    assert_eq!(import_count(&store), 0);
+    assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
 }

@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::Read,
     os::{
@@ -19,13 +19,18 @@ use std::{
     time::Instant,
 };
 
+type BootstrapCallback = Arc<dyn Fn() + Send + Sync>;
+
 #[derive(Default)]
 struct State {
     loaded: Option<PathBuf>,
+    on_bootstrap: BTreeMap<String, BootstrapCallback>,
     calls: Vec<Vec<String>>,
     fail_bootstrap: BTreeSet<String>,
     never_answers: BTreeSet<String>,
-    quiet_once: bool,
+    quiet_until_kickstart: bool,
+    stale: bool,
+    quiet_calls: usize,
     no_gui: bool,
     delay: bool,
     bootstrap_attempts: usize,
@@ -119,17 +124,24 @@ impl Launchd for Fake {
                 {
                     return Ok(false);
                 }
+                let callback = state.on_bootstrap.get(&binary_version(&binary)).cloned();
                 let delay = state.delay;
                 drop(state);
                 assert_eq!(self.in_flight.fetch_add(1, Ordering::SeqCst), 0);
                 if delay {
                     thread::sleep(Duration::from_millis(50));
                 }
+                if let Some(callback) = callback {
+                    callback();
+                }
                 self.state.lock().unwrap().loaded = Some(binary);
                 assert_eq!(self.in_flight.fetch_sub(1, Ordering::SeqCst), 1);
                 true
             }
-            ["kickstart", "-k", _] => state.loaded.is_some() && !state.failed_kickstart,
+            ["kickstart", "-k", _] => {
+                state.quiet_until_kickstart = false;
+                state.loaded.is_some() && !state.failed_kickstart
+            }
             _ => panic!("unexpected launchd arguments"),
         })
     }
@@ -138,11 +150,17 @@ impl Launchd for Fake {
 impl Probe for Fake {
     fn hello(&self, _socket: &Path) -> Option<String> {
         let mut state = self.state.lock().unwrap();
-        if state.quiet_once {
-            state.quiet_once = false;
+        if state.quiet_calls > 0 {
+            state.quiet_calls -= 1;
+            return None;
+        }
+        if state.quiet_until_kickstart {
             return None;
         }
         let version = binary_version(state.loaded.as_ref()?);
+        if state.stale {
+            return Some("1.0.0".into());
+        }
         (!state.never_answers.contains(&version)).then_some(version)
     }
 }
@@ -493,7 +511,7 @@ fn a_quiet_daemon_is_kickstarted_once() {
     let f = Fixture::new();
     f.install("2.0.0", "kiteapp");
     f.clear_calls();
-    f.fake.state.lock().unwrap().quiet_once = true;
+    f.fake.state.lock().unwrap().quiet_until_kickstart = true;
     f.install("1.0.0", "gardenapp");
     assert_eq!(f.calls().iter().filter(|c| c[0] == "kickstart").count(), 1);
     assert!(
@@ -578,7 +596,7 @@ fn a_changed_or_missing_binary_or_bad_record_reinstalls() {
 
 #[test]
 fn argument_refusals_write_nothing() {
-    for name in ["", ".hidden", "a/b", &"a".repeat(65)] {
+    for name in ["", ".hidden", "a/b", "Garden", &"a".repeat(65)] {
         let f = Fixture::new();
         error(
             f.installer("1.0.0").install(&f.args(name), 1),
@@ -810,13 +828,16 @@ fn utc_dates_include_the_epoch_and_a_leap_day() {
 #[test]
 fn versions_are_exact_ascii_triples() {
     assert_eq!(parse_version("1.2.3"), Some((1, 2, 3)));
-    assert_eq!(parse_version("0001.02.0"), Some((1, 2, 0)));
+    assert_eq!(parse_version("0.0.0"), Some((0, 0, 0)));
     assert_eq!(
         parse_version("18446744073709551615.0.0"),
         Some((u64::MAX, 0, 0))
     );
     for v in [
         "",
+        "0.0.01",
+        "1.02.3",
+        "0001.02.0",
         "1.2",
         "1.2.3.4",
         "+1.2.3",
@@ -916,7 +937,7 @@ fn a_kickstart_exit_does_not_override_an_answering_daemon() {
     f.install("2.0.0", "kiteapp");
     {
         let mut state = f.fake.state.lock().unwrap();
-        state.quiet_once = true;
+        state.quiet_until_kickstart = true;
         state.failed_kickstart = true;
     }
     assert!(
@@ -1079,4 +1100,408 @@ fn a_failed_stop_keeps_the_last_client_for_a_retry() {
     assert!(!p.agent.exists());
     assert!(!p.binaries.exists());
     assert!(f.fake.state.lock().unwrap().loaded.is_none());
+}
+
+#[test]
+fn uppercase_uninstall_is_refused() {
+    let f = Fixture::new();
+    assert_eq!(
+        f.installer("1.0.0").uninstall("Garden").unwrap_err(),
+        Failure::new(2, "not an app name")
+    );
+    assert!(!f.paths().state.exists());
+}
+
+fn write_upgrade_message(path: &Path) {
+    let mut store = radio_rooms::RoomStore::open(path).unwrap();
+    store.ensure_room("porch", "node-a", "Porch", 1.0).unwrap();
+    store
+        .post(
+            "porch",
+            "node-a",
+            &radio_rooms::Author::human("Wren"),
+            "newer daemon's write",
+            2.0,
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_failed_upgrade_restores_the_rooms_store() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let path = f.paths().rooms;
+    {
+        let mut store = radio_rooms::RoomStore::open(&path).unwrap();
+        store.create_room("porch", "node-a", "Porch", 1.0).unwrap();
+        store
+            .post(
+                "porch",
+                "node-a",
+                &radio_rooms::Author::human("Wren"),
+                "before",
+                1.0,
+            )
+            .unwrap();
+    }
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || write_upgrade_message(&path)),
+    );
+    f.quiet(&["2.0.0"]);
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed; the version before it is running again",
+    );
+    let store = radio_rooms::RoomStore::open(&f.paths().rooms).unwrap();
+    let messages = store.tail("porch", 10).unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].body, "before");
+    assert!(!f.paths().state.join("rooms.db.before-upgrade").exists());
+    assert_installed(&f, "1.0.0");
+}
+
+#[test]
+fn a_failed_upgrade_removes_a_store_that_did_not_exist_before() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let path = f.paths().rooms;
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || write_upgrade_message(&path)),
+    );
+    f.quiet(&["2.0.0"]);
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed; the version before it is running again",
+    );
+    for name in [
+        "rooms.db",
+        "rooms.db-wal",
+        "rooms.db-shm",
+        "rooms.db.before-upgrade",
+    ] {
+        assert!(
+            !f.paths().state.join(name).exists(),
+            "{name} was left behind"
+        );
+    }
+    assert_installed(&f, "1.0.0");
+}
+
+#[test]
+fn an_upgrade_answered_only_by_the_old_version_rolls_back() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    f.fake.state.lock().unwrap().stale = true;
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed; the version before it is running again",
+    );
+    assert_installed(&f, "1.0.0");
+    assert!(!f.paths().clients.join("gardenapp.json").exists());
+}
+
+#[test]
+fn handlers_in_folders_other_users_can_write_are_refused() {
+    for mode in [0o777, 0o775] {
+        let f = Fixture::new();
+        let dir = f.home.join("writable");
+        fs::create_dir(&dir).unwrap();
+        let handler = dir.join("handler");
+        fs::copy(f.home.join("handler"), &handler).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(mode)).unwrap();
+        let mut args = f.args("kiteapp");
+        args.handler = handler;
+        error(
+            f.installer("1.0.0").install(&args, 1),
+            2,
+            "the handler can be changed by another user",
+        );
+        assert!(!f.paths().state.exists());
+    }
+}
+
+#[test]
+fn handler_folder_permissions() {
+    for (owner, group, mode, allowed) in [
+        (501, 20, 0o755, true),
+        (0, 80, 0o775, true),
+        (0, 20, 0o775, false),
+        (502, 20, 0o755, false),
+        (0, 0, 0o1777, true),
+        (0, 0, 0o777, false),
+    ] {
+        assert_eq!(handler_folder_safe(owner, group, mode, 501), allowed);
+    }
+}
+
+#[test]
+fn a_newer_record_with_a_missing_or_changed_binary_refuses_older_installs() {
+    for missing in [true, false] {
+        let f = Fixture::new();
+        f.install("2.0.0", "kiteapp");
+        let p = f.paths();
+        if missing {
+            fs::remove_file(p.binary("2.0.0")).unwrap();
+        } else {
+            fs::write(p.binary("2.0.0"), b"changed").unwrap();
+        }
+        let record = fs::read(&p.record).unwrap();
+        let agent = fs::read(&p.agent).unwrap();
+        f.clear_calls();
+        error(
+            f.installer("1.0.0").install(&f.args("gardenapp"), 2),
+            1,
+            "the installed Radio is newer than this copy and its binary is missing or changed",
+        );
+        assert_eq!(fs::read(&p.record).unwrap(), record);
+        assert_eq!(fs::read(&p.agent).unwrap(), agent);
+        assert!(!p.binary("1.0.0").exists());
+        assert!(!p.clients.join("gardenapp.json").exists());
+        assert!(f.calls().iter().all(|c| c[0] == "print"));
+    }
+}
+
+#[test]
+fn a_fresh_repair_keeps_newer_version_directories() {
+    for record in [false, true] {
+        let f = Fixture::new();
+        f.install("2.0.0", "kiteapp");
+        let p = f.paths();
+        if record {
+            fs::write(&p.record, b"unreadable").unwrap();
+        } else {
+            fs::remove_file(&p.record).unwrap();
+        }
+        fs::create_dir_all(p.binary("0.1.0").parent().unwrap()).unwrap();
+        f.install("1.0.0", "gardenapp");
+        assert!(p.binary("2.0.0").exists());
+        assert!(!p.binary("0.1.0").parent().unwrap().exists());
+    }
+}
+
+#[test]
+fn a_failed_fresh_start_that_cannot_stop_removes_nothing() {
+    let f = Fixture::new();
+    f.quiet(&["1.0.0"]);
+    let path = f.paths().binary("1.0.0");
+    let state = Arc::downgrade(&f.fake.state);
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "1.0.0".into(),
+        Arc::new(move || {
+            state.upgrade().unwrap().lock().unwrap().stuck = true;
+        }),
+    );
+    error(
+        f.installer("1.0.0").install(&f.args("kiteapp"), 1),
+        1,
+        "the Radio did not start and could not be stopped; nothing was removed",
+    );
+    assert!(path.exists());
+    assert!(f.paths().agent.exists());
+}
+
+#[test]
+fn a_failed_fresh_start_keeps_a_preexisting_version_directory() {
+    let f = Fixture::new();
+    let dir = f.paths().binary("1.0.0").parent().unwrap().to_owned();
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("keep"), b"keep").unwrap();
+    f.quiet(&["1.0.0"]);
+    error(
+        f.installer("1.0.0").install(&f.args("kiteapp"), 1),
+        1,
+        FRESH_FAILED,
+    );
+    assert_eq!(fs::read(dir.join("keep")).unwrap(), b"keep");
+}
+
+#[test]
+fn a_busy_daemon_is_given_the_whole_wait_before_kickstart() {
+    let f = Fixture::new();
+    f.install("2.0.0", "kiteapp");
+    f.clear_calls();
+    f.fake.state.lock().unwrap().quiet_calls = 2;
+    f.install("1.0.0", "gardenapp");
+    assert!(
+        f.calls().iter().all(|c| c[0] == "print"),
+        "a busy daemon was restarted"
+    );
+    assert_installed(&f, "2.0.0");
+}
+
+#[test]
+fn linked_binary_parents_are_refused_without_touching_the_target() {
+    for parent in [false, true] {
+        let f = Fixture::new();
+        f.install("1.0.0", "kiteapp");
+        let p = f.paths();
+        let original = if parent {
+            p.binaries.parent().unwrap().to_owned()
+        } else {
+            p.binaries.clone()
+        };
+        let target = f.home.join("saved-binaries");
+        fs::rename(&original, &target).unwrap();
+        symlink(&target, &original).unwrap();
+        let saved_binary = if parent {
+            target.join("radio/1.0.0/radio")
+        } else {
+            target.join("1.0.0/radio")
+        };
+        let before = fs::read(&saved_binary).unwrap();
+        error(
+            f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+            1,
+            FILES,
+        );
+        assert_eq!(
+            f.installer("1.0.0").uninstall("kiteapp").unwrap_err(),
+            Failure::new(1, FILES)
+        );
+        assert_eq!(fs::read(&saved_binary).unwrap(), before);
+        assert!(p.clients.join("kiteapp.json").exists());
+    }
+}
+
+#[test]
+fn leftover_owned_temps_are_removed_but_other_files_and_links_stay() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let p = f.paths();
+    let temps = [
+        p.state.join(".install.json.123.tmp"),
+        p.clients.join(".kiteapp.json.123.tmp"),
+        p.agent
+            .parent()
+            .unwrap()
+            .join(".ai.awna.radio.plist.123.tmp"),
+        p.binary("1.0.0").parent().unwrap().join("radio.123.tmp"),
+    ];
+    for path in &temps {
+        fs::write(path, b"stale").unwrap();
+    }
+    let other = p.state.join(".install.json.abc.tmp");
+    fs::write(&other, b"keep").unwrap();
+    let linked = p.state.join(".install.json.124.tmp");
+    symlink(&other, &linked).unwrap();
+    f.install("1.0.0", "gardenapp");
+    for path in &temps {
+        assert!(!path.exists(), "leftover temp remains: {}", path.display());
+    }
+    assert_eq!(fs::read(&other).unwrap(), b"keep");
+    assert!(fs::symlink_metadata(&linked).unwrap().is_symlink());
+    // Uninstall performs the same cleanup after taking the lock.
+    fs::write(&temps[0], b"stale").unwrap();
+    f.installer("1.0.0").uninstall("gardenapp").unwrap();
+    assert!(!temps[0].exists());
+}
+
+#[test]
+fn a_hard_link_to_the_own_store_is_refused() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let p = f.paths();
+    drop(radio_rooms::RoomStore::open(&p.rooms).unwrap());
+    let alias = f.home.join("rooms-alias.db");
+    fs::hard_link(&p.rooms, &alias).unwrap();
+    let mut args = f.args("gardenapp");
+    args.rooms = Some(alias);
+    error(
+        f.installer("1.0.0").install(&args, 2),
+        2,
+        "the store to import is the Radio's own",
+    );
+    assert!(!p.clients.join("gardenapp.json").exists());
+}
+
+#[test]
+fn a_failed_snapshot_never_bootstraps_the_new_version() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    fs::write(f.paths().rooms, b"not a store").unwrap();
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(|| panic!("started without a snapshot")),
+    );
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed; the version before it is running again",
+    );
+    assert_eq!(fs::read(f.paths().rooms).unwrap(), b"not a store");
+    assert!(!f.paths().binary("2.0.0").exists());
+    assert!(!f.paths().state.join("rooms.db.before-upgrade").exists());
+    assert_installed(&f, "1.0.0");
+}
+
+#[test]
+fn a_successful_upgrade_replaces_a_stale_snapshot_and_removes_it() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    drop(radio_rooms::RoomStore::open(&f.paths().rooms).unwrap());
+    let snapshot = f.paths().state.join("rooms.db.before-upgrade");
+    fs::write(&snapshot, b"stale").unwrap();
+    let saved = snapshot.clone();
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || {
+            assert!(fs::read(&saved).unwrap().starts_with(b"SQLite format 3"));
+        }),
+    );
+    f.install("2.0.0", "gardenapp");
+    assert!(!snapshot.exists());
+    assert_installed(&f, "2.0.0");
+}
+
+#[test]
+fn rollback_refuses_a_binary_parent_linked_during_bootstrap() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let binaries = f.paths().binaries;
+    let target = f.home.join("moved-binaries");
+    let saved = target.clone();
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || {
+            fs::rename(&binaries, &target).unwrap();
+            symlink(&target, &binaries).unwrap();
+        }),
+    );
+    f.quiet(&["2.0.0"]);
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        FILES,
+    );
+    assert!(saved.join("2.0.0/radio").exists());
+    assert!(saved.join("1.0.0/radio").exists());
+}
+
+#[test]
+fn rollback_keeps_the_new_binary_when_it_cannot_stop_the_daemon() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let state = Arc::downgrade(&f.fake.state);
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || {
+            state.upgrade().unwrap().lock().unwrap().stuck = true;
+        }),
+    );
+    f.quiet(&["2.0.0"]);
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed, and the version before it did not start again",
+    );
+    assert!(f.paths().binary("2.0.0").exists());
+    assert_eq!(
+        f.fake.state.lock().unwrap().loaded,
+        Some(f.paths().binary("2.0.0"))
+    );
 }

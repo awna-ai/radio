@@ -2,7 +2,7 @@ use rusqlite::{Connection, OpenFlags, Row, TransactionBehavior, params};
 use std::{
     fs,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
-    path::Path,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -235,9 +235,14 @@ pub struct StatusLine {
 mod import;
 pub use import::{Import, ImportReport};
 
+#[path = "snapshot.rs"]
+mod snapshot;
+pub use snapshot::{restore_store, snapshot_store};
+
 /// A private SQLite rooms store with one writing daemon.
 pub struct RoomStore {
     conn: Connection,
+    path: PathBuf,
 }
 
 impl RoomStore {
@@ -274,7 +279,7 @@ impl RoomStore {
         conn.pragma_update(None, "foreign_keys", true)
             .map_err(|_| UNWRITABLE)?;
         migrate(&mut conn)?;
-        Ok(Self { conn })
+        Ok(Self { conn, path })
     }
 
     /// Creates a room; an existing identifier is an error.

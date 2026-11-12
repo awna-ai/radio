@@ -454,10 +454,15 @@ fn argument_refusals_exit_2() {
         (0, "the handler is not an absolute path"),
         (1, "the handler can be changed by another user"),
         (2, "not an app name"),
+        (3, "not an app name"),
     ] {
         let f = Fixture::new();
         let mut command = f.command();
-        let app = if case == 2 { ".x" } else { "gardenapp" };
+        let app = match case {
+            2 => ".x",
+            3 => "Garden",
+            _ => "gardenapp",
+        };
         let handler = if case == 0 {
             PathBuf::from("handler")
         } else {
