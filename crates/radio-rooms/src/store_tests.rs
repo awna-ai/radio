@@ -2076,6 +2076,9 @@ fn a_wal_source_includes_its_uncheckpointed_rows() {
     conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
         .unwrap();
     let writer = Connection::open(source.path()).unwrap();
+    writer
+        .execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;")
+        .unwrap();
     writer.execute_batch("INSERT INTO messages VALUES ('porch', 20, 'node-b', 'human', 'Wren', 'in the wal', 8.0, NULL, 'post')").unwrap();
     assert!(
         fs::metadata(source.path().with_file_name("rooms.db-wal"))
@@ -2525,4 +2528,67 @@ fn a_deadline_during_the_version_query_uses_the_read_error() {
     );
     assert_eq!(import_count(&store), 0);
     assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+}
+
+#[test]
+fn unsafe_import_side_files_are_refused() {
+    for linked in [true, false] {
+        let source = Store::new("unsafe-side");
+        drop(import_source(&source, 2));
+        let wal = source.path().with_file_name("rooms.db-wal");
+        if linked {
+            symlink(source.path(), &wal).unwrap();
+        } else {
+            fs::write(&wal, b"").unwrap();
+            fs::set_permissions(&wal, fs::Permissions::from_mode(0o666)).unwrap();
+        }
+        let target = Store::new("import-target");
+        let mut store = target.open();
+        assert_eq!(
+            store.import_rooms(&source.path(), 10.0),
+            Err("the store to import can be changed by another user".into()),
+            "linked={linked}"
+        );
+        assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+        assert_eq!(import_count(&store), 0);
+    }
+}
+
+#[test]
+fn unsafe_import_folders_are_refused() {
+    for mode in [0o1777, 0o777] {
+        let source = Store::new("unsafe-folder");
+        drop(import_source(&source, 2));
+        let folder = source.path().parent().unwrap().to_owned();
+        fs::set_permissions(&folder, fs::Permissions::from_mode(mode)).unwrap();
+        let target = Store::new("import-target");
+        let mut store = target.open();
+        let result = store.import_rooms(&source.path(), 10.0);
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            result,
+            Err("the store to import can be changed by another user".into()),
+            "mode={mode:o}"
+        );
+        assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
+        assert_eq!(import_count(&store), 0);
+    }
+}
+
+#[test]
+fn checking_store_versions_never_changes_the_file() {
+    let fixture = Store::new("version-check");
+    assert_eq!(store_is_newer(&fixture.path()), Ok(false));
+    assert!(!fixture.path().exists());
+    drop(fixture.open());
+    let before = fs::read(fixture.path()).unwrap();
+    assert_eq!(store_is_newer(&fixture.path()), Ok(false));
+    assert_eq!(fs::read(fixture.path()).unwrap(), before);
+    let conn = Connection::open(fixture.path()).unwrap();
+    conn.execute("UPDATE schema_version SET version = version + 1", [])
+        .unwrap();
+    drop(conn);
+    let before = fs::read(fixture.path()).unwrap();
+    assert_eq!(store_is_newer(&fixture.path()), Ok(true));
+    assert_eq!(fs::read(fixture.path()).unwrap(), before);
 }

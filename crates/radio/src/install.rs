@@ -736,6 +736,34 @@ impl Installer<'_> {
         }
         let installed = match read.record.filter(|_| !read.binary_changed) {
             None => {
+                match fs::read_dir(&self.paths.binaries) {
+                    Ok(entries) => {
+                        for entry in entries {
+                            let entry = entry.map_err(|_| Failure::new(1, FILES))?;
+                            if fs::symlink_metadata(entry.path())
+                                .map_err(|_| Failure::new(1, FILES))?
+                                .is_dir()
+                                && entry
+                                    .file_name()
+                                    .to_str()
+                                    .and_then(parse_version)
+                                    .is_some_and(|old| old > version)
+                            {
+                                return Err(Failure::new(
+                                    1,
+                                    "a newer Radio is installed here and its record is missing or damaged",
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => return Err(Failure::new(1, FILES)),
+                }
+                if radio_rooms::store_is_newer(&self.paths.rooms)
+                    .map_err(|_| Failure::new(1, FILES))?
+                {
+                    return Err(Failure::new(1, "the room store is newer than this build"));
+                }
                 let created = match fs::symlink_metadata(
                     self.paths
                         .binary(&self.version)

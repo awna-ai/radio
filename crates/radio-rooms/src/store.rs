@@ -775,6 +775,31 @@ fn require_room(conn: &Connection, room: &str) -> Result<(), String> {
     }
 }
 
+/// Checks whether an existing store needs a newer build, without creating or migrating it.
+pub fn store_is_newer(path: &Path) -> Result<bool, String> {
+    match fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err(UNREADABLE.into()),
+        Ok(_) => {}
+    }
+    let path = path
+        .parent()
+        .and_then(|parent| parent.canonicalize().ok())
+        .and_then(|parent| path.file_name().map(|name| parent.join(name)))
+        .ok_or(UNREADABLE)?;
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .map_err(|_| UNREADABLE)?;
+    conn.busy_timeout(BUSY_TIMEOUT).map_err(|_| UNREADABLE)?;
+    match schema_version(&conn) {
+        Ok(_) => Ok(false),
+        Err(e) if e == NEWER => Ok(true),
+        Err(e) => Err(e),
+    }
+}
+
 fn schema_version(conn: &Connection) -> Result<usize, String> {
     let exists: bool = conn.prepare_cached("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'schema_version')")
         .and_then(|mut stmt| stmt.query_row([], |row| row.get(0)))

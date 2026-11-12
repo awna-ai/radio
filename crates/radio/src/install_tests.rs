@@ -168,6 +168,8 @@ impl Probe for Fake {
 struct Fixture {
     home: PathBuf,
     fake: Fake,
+    hello_wait: Duration,
+    hello_poll: Duration,
 }
 
 impl Fixture {
@@ -185,7 +187,15 @@ impl Fixture {
         Self {
             home,
             fake: Fake::default(),
+            hello_wait: Duration::from_millis(12),
+            hello_poll: Duration::from_millis(1),
         }
+    }
+
+    fn with_hello_wait(mut self, wait: Duration, poll: Duration) -> Self {
+        self.hello_wait = wait;
+        self.hello_poll = poll;
+        self
     }
 
     fn paths(&self) -> Paths {
@@ -202,8 +212,8 @@ impl Fixture {
             timing: Timing {
                 lock_wait: Duration::from_secs(2),
                 lock_poll: Duration::from_millis(1),
-                hello_wait: Duration::from_millis(12),
-                hello_poll: Duration::from_millis(1),
+                hello_wait: self.hello_wait,
+                hello_poll: self.hello_poll,
                 bootout_checks: 3,
                 bootout_pause: Duration::from_millis(1),
                 bootstrap_tries: 3,
@@ -1267,21 +1277,61 @@ fn a_newer_record_with_a_missing_or_changed_binary_refuses_older_installs() {
 }
 
 #[test]
-fn a_fresh_repair_keeps_newer_version_directories() {
-    for record in [false, true] {
+fn a_missing_or_damaged_record_with_a_newer_version_refuses_older_installs() {
+    for damage in 0..3 {
         let f = Fixture::new();
         f.install("2.0.0", "kiteapp");
         let p = f.paths();
-        if record {
-            fs::write(&p.record, b"unreadable").unwrap();
-        } else {
-            fs::remove_file(&p.record).unwrap();
+        match damage {
+            0 => fs::remove_file(&p.record).unwrap(),
+            1 => fs::write(&p.record, b"unreadable").unwrap(),
+            _ => {
+                let mut record = f.record();
+                record["future"] = json!(true);
+                fs::write(&p.record, serde_json::to_vec(&record).unwrap()).unwrap();
+            }
         }
-        fs::create_dir_all(p.binary("0.1.0").parent().unwrap()).unwrap();
-        f.install("1.0.0", "gardenapp");
+        let agent = fs::read(&p.agent).unwrap();
+        error(
+            f.installer("1.0.0").install(&f.args("gardenapp"), 2),
+            1,
+            "a newer Radio is installed here and its record is missing or damaged",
+        );
         assert!(p.binary("2.0.0").exists());
-        assert!(!p.binary("0.1.0").parent().unwrap().exists());
+        assert_eq!(fs::read(&p.agent).unwrap(), agent);
+        assert!(!p.binary("1.0.0").parent().unwrap().exists());
     }
+}
+
+#[test]
+fn a_fresh_repair_removes_older_leftover_directories() {
+    let f = Fixture::new();
+    let p = f.paths();
+    fs::create_dir_all(p.binary("0.1.0").parent().unwrap()).unwrap();
+    f.install("1.0.0", "gardenapp");
+    assert_installed(&f, "1.0.0");
+    assert!(!p.binary("0.1.0").parent().unwrap().exists());
+}
+
+#[test]
+fn a_store_newer_than_this_build_refuses_a_fresh_install() {
+    let f = Fixture::new();
+    let p = f.paths();
+    drop(radio_rooms::RoomStore::open(&p.rooms).unwrap());
+    let conn = rusqlite::Connection::open(&p.rooms).unwrap();
+    conn.execute("UPDATE schema_version SET version = version + 1", [])
+        .unwrap();
+    drop(conn);
+    let before = fs::read(&p.rooms).unwrap();
+    error(
+        f.installer("1.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the room store is newer than this build",
+    );
+    assert_eq!(fs::read(&p.rooms).unwrap(), before);
+    assert!(!p.binary("1.0.0").parent().unwrap().exists());
+    assert!(!p.agent.exists());
+    assert!(!p.record.exists());
 }
 
 #[test]
@@ -1322,7 +1372,7 @@ fn a_failed_fresh_start_keeps_a_preexisting_version_directory() {
 
 #[test]
 fn a_busy_daemon_is_given_the_whole_wait_before_kickstart() {
-    let f = Fixture::new();
+    let f = Fixture::new().with_hello_wait(Duration::from_secs(2), Duration::from_millis(10));
     f.install("2.0.0", "kiteapp");
     f.clear_calls();
     f.fake.state.lock().unwrap().quiet_calls = 2;

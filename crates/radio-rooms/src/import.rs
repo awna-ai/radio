@@ -2,6 +2,7 @@ use super::*;
 use rusqlite::limits::Limit;
 use std::os::unix::fs::MetadataExt;
 
+const CHANGE_SOURCE: &str = "the store to import can be changed by another user";
 const OPEN_SOURCE: &str = "the store to import could not be opened";
 const READ_SOURCE: &str = "the store to import could not be read";
 const VERSION_SOURCE: &str = "the store to import is not a version this build can import";
@@ -77,7 +78,7 @@ impl RoomStore {
         let meta = file.metadata().map_err(|_| OPEN_SOURCE)?;
         // SAFETY: geteuid takes no arguments and has no preconditions.
         if !owner_only(&meta, unsafe { libc::geteuid() }) {
-            return Err("the store to import can be changed by another user".into());
+            return Err(CHANGE_SOURCE.into());
         }
         let own_file = fs::OpenOptions::new()
             .read(true)
@@ -89,6 +90,38 @@ impl RoomStore {
             return Err("the store to import is this store".into());
         }
         let canonical = opened_path(&file, &canonical)?;
+        // SQLite reopens the source by path and may read either side file.
+        // A sticky folder still lets another user plant a side file first.
+        for folder in canonical.ancestors().skip(1) {
+            let folder = fs::symlink_metadata(folder).map_err(|_| CHANGE_SOURCE)?;
+            // SAFETY: geteuid takes no arguments and has no preconditions.
+            if !folder.is_dir()
+                || !folder_safe(folder.uid(), folder.gid(), folder.mode(), unsafe {
+                    libc::geteuid()
+                })
+            {
+                return Err(CHANGE_SOURCE.into());
+            }
+        }
+        for suffix in ["-wal", "-shm"] {
+            let mut path = canonical.as_os_str().to_os_string();
+            path.push(suffix);
+            match fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(path)
+            {
+                Ok(side) => {
+                    let meta = side.metadata().map_err(|_| CHANGE_SOURCE)?;
+                    // SAFETY: geteuid takes no arguments and has no preconditions.
+                    if !owner_only(&meta, unsafe { libc::geteuid() }) {
+                        return Err(CHANGE_SOURCE.into());
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err(CHANGE_SOURCE.into()),
+            }
+        }
         let key = canonical
             .to_str()
             .ok_or("the store to import is not a plain path")?;
@@ -102,6 +135,10 @@ impl RoomStore {
                 | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )
         .map_err(|_| OPEN_SOURCE)?;
+        let reopened = fs::symlink_metadata(&canonical).map_err(|_| OPEN_SOURCE)?;
+        if !reopened.is_file() || (reopened.dev(), reopened.ino()) != (meta.dev(), meta.ino()) {
+            return Err(OPEN_SOURCE.into());
+        }
         source.busy_timeout(BUSY_TIMEOUT).map_err(|_| OPEN_SOURCE)?;
         source
             .pragma_update(None, "trusted_schema", false)
@@ -304,6 +341,12 @@ fn source_status(r: &Row<'_>) -> rusqlite::Result<StatusLine> {
     })
 }
 
+fn folder_safe(owner: u32, group: u32, mode: u32, uid: u32) -> bool {
+    (owner == uid || owner == 0)
+        && (mode & 0o020 == 0 || matches!(group, 0 | 80))
+        && mode & 0o002 == 0
+}
+
 fn owner_only(meta: &fs::Metadata, uid: u32) -> bool {
     meta.is_file() && meta.uid() == uid && meta.mode() & 0o022 == 0
 }
@@ -329,6 +372,21 @@ fn opened_path(_file: &fs::File, fallback: &Path) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_folder_permissions() {
+        for (owner, group, mode, allowed) in [
+            (501, 20, 0o755, true),
+            (0, 0, 0o777, false),
+            (0, 0, 0o1777, false),
+            (501, 20, 0o775, false),
+            (0, 80, 0o775, true),
+            (0, 0, 0o775, true),
+            (502, 20, 0o755, false),
+        ] {
+            assert_eq!(folder_safe(owner, group, mode, 501), allowed);
+        }
+    }
 
     #[test]
     fn another_owner_is_refused() {

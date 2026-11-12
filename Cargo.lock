@@ -203,6 +203,7 @@ dependencies = [
  "libc",
  "radio-client",
  "radio-rooms",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",
