@@ -17,9 +17,9 @@ if [ "$#" -eq 2 ]; then
     publish=1
 fi
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
-unset GIT_ALTERNATE_OBJECT_DIRECTORIES GH_REPO GH_HOST RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
+unset GIT_ALTERNATE_OBJECT_DIRECTORIES GH_REPO GH_HOST RUSTC RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
 while IFS= read -r variable; do
-    case "$variable" in CARGO_PROFILE_*) unset "$variable" ;; esac
+    case "$variable" in CARGO_PROFILE_*|CARGO_BUILD_*|CARGO_TARGET_*) unset "$variable" ;; esac
 done < <(compgen -e)
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 fail() {
@@ -31,7 +31,9 @@ terms=${RADIO_TERMS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/radio-dev/terms.txt}
 [ -f "$terms" ] && [ -r "$terms" ] || fail "no term list at $terms"
 
 # Keep the list private and remove every temporary file, including on a refusal.
-list=$(mktemp)
+temp_dir=${TMPDIR:-/tmp}
+temp_dir=${temp_dir%/}
+list=$(mktemp "$temp_dir/radio-release.XXXXXX")
 work=''
 long=''
 short=''
@@ -45,9 +47,9 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
-long=$(mktemp)
-short=$(mktemp)
-sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*#/d' -e '/^$/d' "$terms" > "$list" || fail "no term list at $terms"
+long=$(mktemp "$temp_dir/radio-release.XXXXXX")
+short=$(mktemp "$temp_dir/radio-release.XXXXXX")
+sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' -e '/^[[:space:]]*#/d' -e '/^$/d' "$terms" > "$list" || fail "no term list at $terms"
 [ -s "$list" ] || fail "no term list at $terms"
 awk 'length($0) >= 5' "$list" > "$long" || fail 'could not split the term list'
 awk 'length($0) < 5' "$list" > "$short" || fail 'could not split the term list'
@@ -70,6 +72,28 @@ for target in "${targets[@]}"; do
     fi
 done
 [ "$missing" -eq 0 ] || exit 1
+# Resolve annotated tags on the same repository that receives the release.
+tag_on_github() {
+    local object kind sha depth=0 endpoint="repos/$repo/git/ref/tags/$tag"
+    local diagnostic="$tag is not on $repo at $commit${1:-}"
+    while :; do
+        gh api "$endpoint" --jq '.object.type + " " + .object.sha' > "$gh_error" 2>&1 || fail "$diagnostic"
+        object=$(cat "$gh_error") || fail "$diagnostic"
+        kind=${object%% *}
+        sha=${object#* }
+        case "$kind" in
+            commit)
+                [ "$sha" = "$commit" ] || fail "$diagnostic"
+                return ;;
+            tag)
+                [ "$depth" -lt 4 ] || fail "$diagnostic"
+                depth=$((depth + 1))
+                endpoint="repos/$repo/git/tags/$sha"
+                ;;
+            *) fail "$diagnostic" ;;
+        esac
+    done
+}
 if [ "$publish" -eq 1 ]; then
     url=$(git -C "$root" config --get remote.origin.url) || fail 'origin is not a GitHub repository'
     case "$url" in
@@ -80,10 +104,8 @@ if [ "$publish" -eq 1 ]; then
     esac
     repo=${repo%.git}
     [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || fail 'origin is not a GitHub repository'
-    remote=$(git -C "$root" ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}" 2> /dev/null) || fail "$tag is not on origin"
-    remote_commit=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$tag" '$2 == ref { plain=$1 } $2 == ref "^{}" { peeled=$1 } END { print (peeled != "" ? peeled : plain) }')
-    [ "$remote_commit" = "$commit" ] || fail "$tag is not on origin"
-    gh_error=$(mktemp)
+    gh_error=$(mktemp "$temp_dir/radio-release.XXXXXX")
+    tag_on_github
     if gh release view "$tag" -R "$repo" --json tagName > /dev/null 2> "$gh_error"; then
         fail "$tag already has a release (a draft counts); remove it with: gh release delete $tag -R $repo --yes"
     else
@@ -93,7 +115,7 @@ if [ "$publish" -eq 1 ]; then
         fi
     fi
 fi
-work=$(mktemp -d)
+work=$(mktemp -d "$temp_dir/radio-release.XXXXXX")
 work=$(cd "$work" && pwd -P)
 git -C "$root" worktree add -q --detach "$work/src" "$commit" 2> /dev/null || fail 'could not copy the tag'
 cd "$work/src"
@@ -179,7 +201,8 @@ shasum -a 256 -c SHA256SUMS > /dev/null 2>&1 || fail 'archive checksums differ'
 out="$root/target/release-dist/$tag"
 mkdir -p "$(dirname "$out")"
 rm -rf "$out"
-mv "$work/dist" "$out"
+mkdir -p "$out"
+cp -p "$work/dist/"* "$out/"
 cd "$root"
 if [ "$publish" -eq 0 ]; then
     printf 'release: built %s in %s\n  radio-%s-macos-arm64.tar.gz\n  radio-%s-macos-x86_64.tar.gz\n  SHA256SUMS\n' "$tag" "$out" "$tag" "$tag"
@@ -196,19 +219,23 @@ The \`radio\` daemon for macOS, built from $tag ($commit).
 Signed ad hoc, not notarised. Ship it inside your app, whose signature and notarisation cover it; see
 \`docs/app-developers.md\`.
 NOTES
-(cd "$out" && shasum -a 256 -c SHA256SUMS) > /dev/null 2>&1 || fail "$tag changed before upload"
+(cd "$work/dist" && shasum -a 256 -c SHA256SUMS) > /dev/null 2>&1 || fail "$tag changed before upload"
 gh release create "$tag" -R "$repo" --draft --verify-tag --title "radio $tag" --notes-file "$work/notes.md" \
-    "$out/radio-$tag-macos-arm64.tar.gz" "$out/radio-$tag-macos-x86_64.tar.gz" "$out/SHA256SUMS" > /dev/null 2>&1 || fail 'gh release create failed'
+    "$work/dist/radio-$tag-macos-arm64.tar.gz" "$work/dist/radio-$tag-macos-x86_64.tar.gz" "$work/dist/SHA256SUMS" > /dev/null 2>&1 || fail 'gh release create failed'
 readback_failure="$tag did not read back; the draft is still there: gh release delete $tag -R $repo --yes"
 gh release download "$tag" -R "$repo" --dir "$work/check" --pattern 'radio-*' --pattern SHA256SUMS > /dev/null 2>&1 || fail "$readback_failure"
 printf '%s\n' "radio-$tag-macos-arm64.tar.gz" "radio-$tag-macos-x86_64.tar.gz" SHA256SUMS | sort > "$work/expected"
 (cd "$work/check" && find . -mindepth 1 -maxdepth 1 -print | sed 's|^./||' | sort) > "$work/actual" || fail "$readback_failure"
 cmp -s "$work/expected" "$work/actual" || fail "$readback_failure"
 for file in "radio-$tag-macos-arm64.tar.gz" "radio-$tag-macos-x86_64.tar.gz" SHA256SUMS; do
-    if [ ! -f "$work/check/$file" ] || ! cmp -s "$out/$file" "$work/check/$file"; then
+    if [ ! -f "$work/check/$file" ] || ! cmp -s "$work/dist/$file" "$work/check/$file"; then
         fail "$readback_failure"
     fi
 done
+gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name' > "$work/assets" 2> /dev/null || fail "$readback_failure"
+sort "$work/assets" > "$work/actual" || fail "$readback_failure"
+cmp -s "$work/expected" "$work/actual" || fail "$readback_failure"
+tag_on_github "; the draft is still there: gh release delete $tag -R $repo --yes"
 gh release edit "$tag" -R "$repo" --draft=false > /dev/null 2>&1 || fail "could not publish the $tag draft"
 is_draft=$(gh release view "$tag" -R "$repo" --json isDraft --jq .isDraft 2> /dev/null) || fail "$tag is still a draft"
 [ "$is_draft" = false ] || fail "$tag is still a draft"

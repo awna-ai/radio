@@ -7,11 +7,24 @@ tmp=$(cd "$tmp" && pwd -P)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin" "$tmp/calls"
 export STUB_ROOT="$tmp"
+STUB_GIT=$(command -v git)
+export STUB_GIT
 export PATH="$tmp/bin:$PATH"
 term_title=Bramble'wick'
 printf '# invented terms\n\n  # comment\n%s  \r\n' "$term_title" > "$tmp/terms.txt"
 failed=0
 
+# Refuse any accidental remote lookup, including while testing the old script.
+cat > "$tmp/bin/git" <<'STUB'
+#!/usr/bin/env bash
+for arg in "$@"; do
+    if [ "$arg" = ls-remote ]; then
+        printf '%s\n' "$*" >> "$STUB_ROOT/calls/git-remote"
+        exit 1
+    fi
+done
+exec "$STUB_GIT" "$@"
+STUB
 cat > "$tmp/bin/cargo" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -42,6 +55,12 @@ else
     fi
     xattr -w com.example.test 1 "$dest/$target/release/radio"
     chmod 755 "$dest/$target/release/radio"
+    while IFS= read -r variable; do
+        case "$variable" in
+            RUSTC|CARGO_PROFILE_*|CARGO_BUILD_*|CARGO_TARGET_*)
+                printf '%s\n' "$variable" >> "$STUB_ROOT/calls/cargo-overrides" ;;
+        esac
+    done < <(compgen -e)
     flags=${CARGO_ENCODED_RUSTFLAGS:-}
     printf 'RUSTFLAGS=%s; CARGO_ENCODED_RUSTFLAGS=%s\n' "${RUSTFLAGS:-}" "${flags//$'\x1f'/ | }" >> "$STUB_ROOT/calls/cargo-env"
 fi
@@ -91,8 +110,39 @@ cat > "$tmp/bin/gh" <<'STUB'
 set -euo pipefail
 printf '%s\n' "$*" >> "$STUB_ROOT/calls/gh"
 printf 'GH_REPO=%s\n' "${GH_REPO:-}" >> "$STUB_ROOT/calls/gh-env"
+if [ "$1" = api ]; then
+    endpoint=$2
+    repository=${endpoint#repos/}
+    repository=${repository%%/git/*}
+    printf '%s\n' "$repository" >> "$STUB_ROOT/calls/api-repos"
+    case "$endpoint" in
+        repos/*/git/ref/tags/*)
+            tag=${endpoint#*/git/ref/tags/}
+            if ! sha=$(git -C "$STUB_ORIGIN" rev-parse --verify -q "refs/tags/$tag"); then
+                echo 'gh: Not Found (HTTP 404)' >&2
+                exit 1
+            fi
+            printf '%s %s\n' "$(git -C "$STUB_ORIGIN" cat-file -t "$sha")" "$sha"
+            ;;
+        repos/*/git/tags/*)
+            sha=${endpoint#*/git/tags/}
+            git -C "$STUB_ORIGIN" cat-file tag "$sha" | awk '
+                /^object / { object=$2 }
+                /^type / { type=$2 }
+                /^$/ { print type " " object; exit }
+            '
+            ;;
+        *) exit 1 ;;
+    esac
+    exit 0
+fi
 case "$2" in
     view)
+        if [[ " $* " == *' --json assets '* ]]; then
+            find "$STUB_ROOT/server" -type f -exec basename {} \;
+            if [ "${STUB_GH_EXTRA_ASSET:-0}" = 1 ]; then echo extra.txt; fi
+            exit 0
+        fi
         if [[ " $* " == *' --json isDraft '* ]]; then
             if [ "${STUB_GH_STILL_DRAFT:-0}" = 1 ]; then echo true; else echo false; fi
             exit 0
@@ -121,6 +171,7 @@ case "$2" in
         ;;
     edit) ;;
     download)
+        tag=$3
         shift 3
         dest=''
         while [ "$#" -gt 0 ]; do
@@ -130,6 +181,11 @@ case "$2" in
             esac
             shift
         done
+        if [ "${STUB_GH_MOVE_TAG:-0}" = 1 ]; then
+            tree=$(git -C "$STUB_ORIGIN" rev-parse 'HEAD^{tree}')
+            moved=$(git -C "$STUB_ORIGIN" commit-tree "$tree" -m moved)
+            git -C "$STUB_ORIGIN" tag -f -a -m moved "$tag" "$moved" > /dev/null
+        fi
         mkdir -p "$dest"
         cp "$STUB_ROOT/server/"* "$dest/"
         if [ "${STUB_GH_CORRUPT:-0}" = 1 ]; then
@@ -163,6 +219,8 @@ new_case() {
     rm -rf "$tmp/tmpdir"
     mkdir "$tmp/calls" "$tmp/tmpdir"
     export TMPDIR="$tmp/tmpdir"
+    unset STUB_ORIGIN STUB_GH_EXTRA_ASSET STUB_GH_MOVE_TAG
+    unset CARGO_HOME RUSTUP_HOME RUSTC CARGO_BUILD_JOBS CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER CARGO_PROFILE_RELEASE_LTO
     unset STUB_EMBED_WORK STUB_GREP_FAIL STUB_GH_STILL_DRAFT STUB_GH_VIEW_ERROR
     unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
     unset STUB_BINARY_TEXT STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
@@ -213,10 +271,14 @@ refused() {
 origin() {
     git init --bare -q "$tmp/origin-$case_number.git" || exit 1
     git -C "$repo" remote add origin git@github.com:example-org/example-repo.git
-    git -C "$repo" config url."$tmp/origin-$case_number.git".insteadOf git@github.com:example-org/example-repo.git
-    git -C "$repo" push -q origin main || exit 1
+    export STUB_ORIGIN="$tmp/origin-$case_number.git"
+    git -C "$STUB_ORIGIN" config user.name Test
+    git -C "$STUB_ORIGIN" config user.email test@example.invalid
+    git -C "$STUB_ORIGIN" config commit.gpgsign false
+    git -C "$STUB_ORIGIN" symbolic-ref HEAD refs/heads/main
+    git -C "$repo" push -q "$STUB_ORIGIN" main || exit 1
     if [ "$1" = tag ]; then
-        git -C "$repo" push -q origin v0.1.0 || exit 1
+        git -C "$repo" push -q "$STUB_ORIGIN" v0.1.0 || exit 1
     fi
 }
 
@@ -266,6 +328,8 @@ refused 1 'release: no term list' v0.1.0
 
 new_case 6
 export RUSTFLAGS=--bogus
+export CARGO_HOME="$tmp/cargo-home" RUSTUP_HOME="$tmp/rustup-home"
+export RUSTC=bogus CARGO_BUILD_JOBS=1 CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=bogus CARGO_PROFILE_RELEASE_LTO=true
 expect 0 'release: to publish it, run: bash scripts/release.sh v0.1.0 --publish' v0.1.0
 printf '%s\n' radio-v0.1.0-macos-arm64.tar.gz radio-v0.1.0-macos-x86_64.tar.gz SHA256SUMS | sort > "$tmp/expected"
 if [ -d "$out" ]; then
@@ -328,6 +392,7 @@ if [ -f "$tmp/calls/strip" ]; then
 else
     fail 'strip calls absent'
 fi
+[ ! -f "$tmp/calls/cargo-overrides" ] || fail 'inherited build overrides'
 [ ! -f "$tmp/calls/gh" ] || fail 'local build called gh'
 [ "$(git -C "$repo" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ] || fail 'worktree not removed'
 [ -f "$repo/scratch.txt" ] || fail 'dirty file removed'
@@ -363,7 +428,7 @@ origin main
 expect 0 'release: built v0.1.0' v0.1.0
 cp "$out/SHA256SUMS" "$tmp/prior-sums"
 builds_before=$(grep -c '^build ' "$tmp/calls/cargo")
-expect 1 'release: v0.1.0 is not on origin' v0.1.0 --publish
+expect 1 'is not on example-org/example-repo at' v0.1.0 --publish
 cmp -s "$tmp/prior-sums" "$out/SHA256SUMS" || fail 'publish refusal changed prior dist'
 [ "$(grep -c '^build ' "$tmp/calls/cargo")" -eq "$builds_before" ] || fail 'built after tag refusal'
 no_create
@@ -379,13 +444,21 @@ origin tag
 export GH_REPO=other/repo
 expect 0 'release: published v0.1.0 to example-org/example-repo (3 files, read back)' v0.1.0 --publish
 if [ -f "$tmp/calls/gh" ]; then
+    [ ! -f "$tmp/calls/git-remote" ] || fail 'used ls-remote'
     grep -F -q "release create v0.1.0 -R example-org/example-repo --draft --verify-tag --title radio v0.1.0 --notes-file " "$tmp/calls/gh" || fail 'create options differ'
-    grep -F -q "$out/radio-v0.1.0-macos-arm64.tar.gz $out/radio-v0.1.0-macos-x86_64.tar.gz $out/SHA256SUMS" "$tmp/calls/gh" || fail 'upload order differs'
-    [ "$(grep -F -c -- '-R example-org/example-repo' "$tmp/calls/gh")" -eq "$(wc -l < "$tmp/calls/gh")" ] || fail 'gh repository differs'
+    create_line=$(sed -n '/^release create /p' "$tmp/calls/gh")
+    upload_work=$(printf '%s\n' "$create_line" | sed -n 's|.*--notes-file \(.*\)/notes.md .*|\1|p')
+    [[ "$upload_work" == "$tmp/tmpdir/"* ]] || fail 'upload is not from the private temp folder'
+    printf '%s\n' "$create_line" | grep -F -q "$upload_work/dist/radio-v0.1.0-macos-arm64.tar.gz $upload_work/dist/radio-v0.1.0-macos-x86_64.tar.gz $upload_work/dist/SHA256SUMS" || fail 'upload paths or order differ'
+    [ "$(grep -v '^api ' "$tmp/calls/gh" | grep -F -c -- '-R example-org/example-repo')" -eq "$(grep -v -c '^api ' "$tmp/calls/gh")" ] || fail 'gh repository differs'
+    [ -f "$tmp/calls/api-repos" ] && [ "$(grep -F -x -c example-org/example-repo "$tmp/calls/api-repos")" -eq "$(wc -l < "$tmp/calls/api-repos")" ] || fail 'api repository differs'
+    [ "$(grep -c '^api repos/example-org/example-repo/git/ref/tags/v0.1.0 ' "$tmp/calls/gh")" -eq 2 ] || fail 'tag lookup count differs'
     grep -F -x -q 'release edit v0.1.0 -R example-org/example-repo --draft=false' "$tmp/calls/gh" || fail 'draft publish absent'
     download_line=$(sed -n '/^release download /=' "$tmp/calls/gh")
     edit_line=$(sed -n '/^release edit /=' "$tmp/calls/gh")
     [ -n "$edit_line" ] && [ "$edit_line" -gt "$download_line" ] || fail 'published before download'
+    tag_line=$(sed -n '\|^api repos/example-org/example-repo/git/ref/tags/v0.1.0 |=' "$tmp/calls/gh" | tail -1)
+    [ -n "$tag_line" ] && [ "$tag_line" -gt "$download_line" ] && [ "$tag_line" -lt "$edit_line" ] || fail 'tag not rechecked before publishing'
     [ "$(find "$tmp/server" -type f | wc -l)" -eq 3 ] || fail 'uploaded file count differs'
     [ "$(grep -c '^GH_REPO=$' "$tmp/calls/gh-env")" -eq "$(wc -l < "$tmp/calls/gh-env")" ] || fail 'inherited gh repository'
 else
@@ -484,14 +557,12 @@ expect 1 'is still a draft' v0.1.0 --publish
 new_case 29
 origin tag
 git -C "$repo" config remote.origin.url https://github.com/example-org/example-repo
-git -C "$repo" config url."$tmp/origin-$case_number.git".insteadOf https://github.com/example-org/example-repo
 expect 0 'release: published v0.1.0 to example-org/example-repo' v0.1.0 --publish
 grep -F -q -- '-R example-org/example-repo' "$tmp/calls/gh" || fail 'gh repository absent'
 
 new_case 30
 origin tag
 git -C "$repo" config remote.origin.url git@gitlab.example:example-org/example-repo.git
-git -C "$repo" config url."$tmp/origin-$case_number.git".insteadOf git@gitlab.example:example-org/example-repo.git
 refused 1 'origin is not a GitHub repository' v0.1.0 --publish
 no_build
 
@@ -507,6 +578,38 @@ origin tag
 export STUB_GH_EXTRA=1
 expect 1 'did not read back' v0.1.0 --publish
 no_edit
+
+new_case 33
+printf 'zq\n' > "$tmp/normalized-terms.txt"
+export RADIO_TERMS_FILE="$tmp/normalized-terms.txt" STUB_BINARY_TEXT=ZqThing
+refused 1 'names a private term' v0.1.0
+
+new_case 34
+printf '   %s\n' "$term_title" > "$tmp/indented-terms.txt"
+export RADIO_TERMS_FILE="$tmp/indented-terms.txt" STUB_BINARY_TEXT="$term_title"
+refused 1 'names a private term' v0.1.0
+
+new_case 35
+origin tag
+export STUB_GH_MOVE_TAG=1
+expect 1 'is not on example-org/example-repo at' v0.1.0 --publish
+printf '%s\n' "$output" | grep -F -q 'gh release delete' || fail 'draft removal command absent'
+no_edit
+
+new_case 36
+origin tag
+export STUB_GH_EXTRA_ASSET=1
+expect 1 'did not read back' v0.1.0 --publish
+no_edit
+
+new_case 37
+origin tag
+tree=$(git -C "$STUB_ORIGIN" rev-parse 'HEAD^{tree}')
+moved=$(git -C "$STUB_ORIGIN" commit-tree "$tree" -m moved)
+git -C "$STUB_ORIGIN" tag -f -a -m moved v0.1.0 "$moved" > /dev/null
+refused 1 'is not on example-org/example-repo at' v0.1.0 --publish
+no_build
+no_create
 
 if [ "$failed" -ne 0 ]; then
     exit 1
