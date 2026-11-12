@@ -17,15 +17,21 @@ independent of the repo's semver tags.
 ## Framing
 
 - One request per connection: one line of JSON in, one line of JSON out, then the daemon closes.
-- A request is at most 16 KiB. The daemon answers within 5 seconds or drops the connection.
-- Unknown fields are refused (`deny_unknown_fields`), so a client sends only what the daemon announced.
+- A request is at most 16 KiB. A request not fully sent within 5 seconds of connecting is answered
+  `the request took too long`.
+- An answer is at most 8 MiB, which holds the largest read.
+- Unknown request fields are refused (`deny_unknown_fields`), so a client sends only what the daemon
+  announced. A client reading an answer ignores fields it doesn't know: a newer minor adds them.
+- A failure answers `{"ok": false, "error": "<phrase>"}`, plus `"refused": true` when the request was
+  refused (another user, not a member, someone else's status line) rather than failed. Phrases are
+  fixed words, never a message's text.
 
 ## Versions
 
 - **Every request carries `"v": <major>`.** For a major the daemon doesn't serve, the answer is
   `{"ok": false, "error": "unsupported_version", "supported": [<majors>]}` and nothing else.
 - **`hello`** needs no registration. It answers
-  `{"radio": "<semver>", "protocol": {"major": <n>, "minor": <n>}, "majors": [<n>, …], "ops": [<op>, …]}`.
+  `{"ok": true, "radio": "<semver>", "protocol": {"major": <n>, "minor": <n>}, "majors": [<n>, …], "ops": [<op>, …]}`.
   A client calls it once per process and then uses only the ops and optional fields that minor lists.
 - **Within a major, change is additive only.** A new op or a new optional field is a minor bump. Nothing
   is removed, and nothing changes meaning.
@@ -35,21 +41,37 @@ independent of the repo's semver tags.
   computer is never older than the copy an app bundles. The only skew left is an app older than the
   daemon, and the previous-major rule covers it.
 
+## Members
+
+- An author or member is `{"kind": "<kind>", "name": "<name>"}`.
+- The kind `human` is the person at the computer, who is always a member, under any name.
+- Every other kind is a word an app chose and registered: 1 to 40 characters, a lowercase ASCII letter
+  first, then lowercase letters, digits, `_` or `-`. The daemon gives no kind but `human` a meaning.
+- `register` replaces that app's whole list. A post or status change by anyone but the human is refused
+  `not a member` unless some registered app lists that kind and name. Registrations are kept across
+  restarts of the daemon.
+- A member who isn't the human changes only the status lines it set (same kind and name); the human
+  changes any line.
+
 ## Ops in major 1
 
-| Op | Request fields | What it does |
-| --- | --- | --- |
-| `hello` | none | Names the daemon's version, protocol and ops (above) |
-| `register` | `app`, `app_version`, `members: [{kind, name}]` | An app says who its local members are. The person at the computer is always one |
-| `create_room` | the room's fields | Opens a room |
-| `post` | a room, an author, the message | Adds a message to a room |
-| `status_set` | a room, an author, the status | Sets an author's status in a room |
-| `status_clear` | a room, an author | Clears it |
-| `list_rooms` | none | Lists the rooms |
-| `read` | `room`, optional `since`, optional `limit` | Reads a room's messages |
-| `status` | `room` | Reads a room's statuses |
+| Op | Request fields | Answer fields | What it does |
+| --- | --- | --- | --- |
+| `hello` | none | `radio`, `protocol`, `majors`, `ops` | Names the daemon's version, protocol and ops (above) |
+| `register` | `app`, `app_version`, `members: [member]` | none | An app says who its local members are (at most 256) |
+| `create_room` | `room`, `title` | none | Opens a room homed on this computer |
+| `post` | `room`, `author: member`, `body` | `seq` | Adds a message (at most 4 KiB) to a room |
+| `status_set` | `room`, `key`, `line`, `author: member`, optional `expires_at` | `seq` | Sets one status line in a room, and logs it as a message |
+| `status_clear` | `room`, `key`, `author: member` | `removed`, `seq` when removed | Clears it, and logs that |
+| `list_rooms` | none | `rooms: [{id, home, title, created, last_seq}]` | Lists the rooms |
+| `read` | `room`, optional `since`, optional `limit` (1 to 500) | `messages: [{seq, kind, author_host, author, body, sent_at, delivered_at?}]` | The newest `limit` messages (50 by default), or with `since` those numbered after it (500 by default), oldest first |
+| `status` | `room` | `status: [{key, line, set_by, set_at, expires_at?}]` | The room's live status lines |
+
+A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
+client reads it as a word. Times are seconds since the Unix epoch.
 
 Every read goes through the socket: the daemon is the only process that opens its rooms store. The
-exact field names and types of each op are `radio-client`'s types, and a fixture per op per major
-replays them, so a minor that would break an older client fails its test. Ops for deliberations,
-seats and the link between computers arrive as minors of major 1 when they are built.
+exact field names and types of each op are `radio-client`'s types. `contract/v1/` holds a fixture per
+op, replayed against a real daemon and through `radio-client`'s types, so a minor that would break an
+older client fails its test. Ops for deliberations, seats and the link between computers arrive as
+minors of major 1 when they are built.

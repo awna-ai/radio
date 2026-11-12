@@ -1,7 +1,7 @@
 # Security: radio
 
-**Last reviewed:** 2026-11-11, when the repo was founded. Nothing is built yet: this model describes the
-design every step is held to, and each step that builds a boundary updates its row.
+**Last reviewed:** 2026-11-11, when the socket was built. This model describes the design every step is
+held to, and each step that builds a boundary updates its row.
 
 ## What this system is
 
@@ -15,8 +15,8 @@ admission is a hole in that app's remote control, even though the Radio never re
 
 | Boundary | What crosses it | Control (designed) | Proven how |
 | --- | --- | --- | --- |
-| Local process → socket | one JSON request line | 0600 socket in a 0700 folder; peer uid must equal the daemon's; 16 KiB cap; 5 s deadline; unknown fields refused; `"v"` checked first | tests in the step that builds the socket (not built yet) |
-| A client app → the daemon's records | `register` (app name, version, members) | stored as data only; nothing a request names is ever run | tests in the socket step (not built yet) |
+| Local process → socket | one JSON request line | 0600 socket in a 0700 folder; peer uid must equal the daemon's; 16 KiB cap; 5 s for the request and 5 s for the answer; unknown fields refused; `"v"` checked first | `crates/radio/src/server_tests.rs`: another uid refused before reading, cap, request and answer deadlines, unknown fields, `v` first; `contract/v1/` |
+| A client app → the daemon's records | `register` (app name, version, members) | stored as data only; nothing a request names is ever run; kinds and names checked and cleaned; at most 256 members | `crates/radio-rooms/src/store_tests.rs` (register), the daemon's membership tests |
 | Another computer → the Radio | link messages | an accepted member's signed records, freshness, replay and size checks on every message, before any handler sees it | tests in the link steps (not built yet) |
 | The Radio → an app's handler | an app's own message, passed on unread | the handler's path comes only from that app's install record, run with fixed arguments; never from a request or a peer | tests in the install step (not built yet) |
 | An app's installer → the launch agent and binaries | a new `radio` binary | an exclusive install lock; newer wins; copy to a temp file, then rename; roll back on a failed start | tests in the install step (not built yet) |
@@ -25,7 +25,7 @@ admission is a hole in that app's remote control, even though the Radio never re
 
 | Class | Examples | Where stored | Exposure impact | Retention |
 | --- | --- | --- | --- | --- |
-| Conversations | room messages and statuses | `~/.local/state/radio/rooms.db`, 0600 (not built yet) | private words of the people in a room | kept until the user deletes them; uninstall keeps them |
+| Conversations | room messages and statuses, registered members | `~/.local/state/radio/rooms.db`, 0600, in a 0700 folder, opened without following a link | private words of the people in a room | kept until the user deletes them; uninstall keeps them |
 | Identity | the computer's link key | `~/.config/radio/` (not built yet) | anyone holding it can speak as this computer | rotated on loss |
 | Client records | each app's name, version, handler path | `~/.local/state/radio/clients/` (not built yet) | a forged record could make the daemon run the wrong handler | removed on that app's uninstall |
 | Operational | the daemon's log | `~/.local/state/radio/radio.log` (not built yet) | low, unless it carries the above (it must not) | short |
@@ -37,7 +37,7 @@ password belongs in the repo; gitleaks runs in `scripts/ci-local.sh`.
 
 ## Entry points that take untrusted input
 
-- The socket: every op in `CONTRACT.md`, from any process of the same user.
+- The socket: every op in `CONTRACT.md`, from any process of the same user (`crates/radio/src/server.rs`).
 - The link (later): every message from another computer.
 - `radio install` arguments, from an app's installer.
 
@@ -56,6 +56,8 @@ None today. The link to other computers will be the first, and gets its own row 
 | Gap | Why accepted | Accepted by | Revisit |
 | --- | --- | --- | --- |
 | A process running as the same user can use the socket | the same rule as any per-user daemon; the user's own processes are trusted at this boundary | founding design, 2026-11-10 | when the link is built |
+| Any same-user process can `register` an app's members or post as any registered member | the socket can't tell which app is calling; membership keeps out names no app listed, not a hostile local process | socket step, 2026-11-11 | when install records name each app's handler |
+| The daemon serves one connection at a time, so a client holds others for up to 5 s while sending its request and 5 s while reading its answer | the same-user boundary above; both deadlines cover the whole request and the whole answer | socket step, 2026-11-11 | if a client ever needs more |
 | The term check's list lives outside the repo, so a contributor without it runs no term check | the list names private terms and cannot be published | founding design, 2026-11-10 | never, by design |
 | Commit and tag identities (author, committer, tagger) are not term-checked | they are the publishing account's own GitHub noreply identity, which GitHub shows on every push anyway | fix-up review, 2026-11-11 | if a second account publishes here |
 | Text stored as UTF-16 (a NUL between characters) is not matched | only deliberate evasion produces it in this repo; gitleaks still reads it | fix-up review, 2026-11-11 | if a UTF-16 file is ever added |
@@ -71,3 +73,4 @@ Report a security problem privately through GitHub's private vulnerability repor
 - 2026-11-11: the term check reads every object in the history once; identities and UTF-16 noted as gaps.
 - 2026-11-11: the term check runs under the C locale, ignores replace refs, refuses grafts and
 missing objects, and reads ref names.
+- 2026-11-11: the socket and the rooms store are built; their rows name their tests.

@@ -2,6 +2,14 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-11: D8. Member kinds are data
+
+An author is a kind and a name. The daemon knows one kind, `human`, the person at the computer, who is
+always a member; every other kind is a word an app registers with its members, stored and compared but
+never interpreted. So no app's vocabulary lives in the code (D3), and a rooms store written under
+another app's fixed words keeps its rows when it moves here: the store's third migration rebuilds its
+tables with the generic kind check.
+
 ## 2026-11-10: D7. The Radio owns each computer's one link and identity
 
 One identity per computer, held by the Radio, and the link to other computers is built here from now
