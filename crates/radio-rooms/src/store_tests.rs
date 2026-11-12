@@ -2555,6 +2555,28 @@ fn unsafe_import_side_files_are_refused() {
 }
 
 #[test]
+fn a_fifo_import_journal_is_refused_without_blocking() {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let source = Store::new("import-journal-fifo");
+    drop(import_source(&source, 2));
+    let journal = source.path().with_file_name("rooms.db-journal");
+    let path = CString::new(journal.as_os_str().as_bytes()).unwrap();
+    // SAFETY: path is a valid NUL-terminated path in our test folder.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let target = Store::new("import-target");
+    let mut store = target.open();
+    let began = Instant::now();
+    assert_eq!(
+        store.import_rooms(&source.path(), 10.0),
+        Err("the store to import can be changed by another user".into())
+    );
+    assert!(began.elapsed() < Duration::from_secs(1));
+    assert_eq!(import_count(&store), 0);
+}
+
+#[test]
 fn unsafe_import_folders_are_refused() {
     for mode in [0o1777, 0o777] {
         let source = Store::new("unsafe-folder");
@@ -2573,6 +2595,21 @@ fn unsafe_import_folders_are_refused() {
         assert!(store.rooms(None, READ_MAX).unwrap().is_empty());
         assert_eq!(import_count(&store), 0);
     }
+}
+
+#[test]
+fn checking_a_fifo_store_version_is_refused_without_blocking() {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let fixture = Store::new("version-fifo");
+    fs::create_dir_all(fixture.path().parent().unwrap()).unwrap();
+    let path = CString::new(fixture.path().as_os_str().as_bytes()).unwrap();
+    // SAFETY: path is a valid NUL-terminated path in our test folder.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let began = Instant::now();
+    assert_eq!(store_is_newer(&fixture.path()), Err(UNREADABLE.into()));
+    assert!(began.elapsed() < Duration::from_secs(1));
 }
 
 #[test]

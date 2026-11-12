@@ -90,7 +90,7 @@ impl RoomStore {
             return Err("the store to import is this store".into());
         }
         let canonical = opened_path(&file, &canonical)?;
-        // SQLite reopens the source by path and may read either side file.
+        // SQLite reopens the source by path and may read these side files.
         // A sticky folder still lets another user plant a side file first.
         for folder in canonical.ancestors().skip(1) {
             let folder = fs::symlink_metadata(folder).map_err(|_| CHANGE_SOURCE)?;
@@ -103,7 +103,7 @@ impl RoomStore {
                 return Err(CHANGE_SOURCE.into());
             }
         }
-        for suffix in ["-wal", "-shm"] {
+        for suffix in ["-wal", "-shm", "-journal"] {
             let mut path = canonical.as_os_str().to_os_string();
             path.push(suffix);
             match fs::OpenOptions::new()

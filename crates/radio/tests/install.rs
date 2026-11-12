@@ -1,5 +1,6 @@
 use radio_client::{Request, request, socket_path};
 use std::{
+    cell::RefCell,
     fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
@@ -79,6 +80,7 @@ esac
 
 struct Fixture {
     home: PathBuf,
+    old: RefCell<Option<PathBuf>>,
 }
 
 impl Fixture {
@@ -90,7 +92,10 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&home).unwrap();
-        let fixture = Self { home };
+        let fixture = Self {
+            home,
+            old: RefCell::new(None),
+        };
         fixture.script("launchctl", LAUNCHCTL);
         fixture.script("handler", "#!/bin/sh\nexit 0\n");
         fixture
@@ -160,8 +165,15 @@ impl Fixture {
     }
 
     fn old_store(&self) -> PathBuf {
-        let dir = self.home.join("old");
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "rd-old-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
         fs::create_dir(&dir).unwrap();
+        *self.old.borrow_mut() = Some(dir.clone());
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         let path = dir.join("rooms.db");
         sql(&path, "CREATE TABLE schema_version (version INTEGER); INSERT INTO schema_version VALUES (2);
             CREATE TABLE rooms (id TEXT, home TEXT, title TEXT, created REAL);
@@ -185,6 +197,9 @@ impl Drop for Fixture {
             }
         }
         let _ = fs::remove_dir_all(&self.home);
+        if let Some(old) = self.old.get_mut().take() {
+            let _ = fs::remove_dir_all(old);
+        }
     }
 }
 
@@ -347,7 +362,7 @@ fn install_imports_an_older_rooms_store() {
         ["hello", "welcome"]
     );
     let mut command = f.install_command("kiteapp");
-    command.arg("--rooms").arg(source);
+    command.arg("--rooms").arg(&source);
     assert_output(
         &output(command),
         0,
@@ -356,7 +371,7 @@ fn install_imports_an_older_rooms_store() {
         ),
         "",
     );
-    let invalid = f.home.join("new.db");
+    let invalid = source.with_file_name("new.db");
     sql(
         &invalid,
         "CREATE TABLE schema_version (version INTEGER); INSERT INTO schema_version VALUES (3);",
@@ -370,6 +385,24 @@ fn install_imports_an_older_rooms_store() {
         "radio: installed, but the rooms were not imported: the store to import is not a version this build can import\n",
     );
     f.hello();
+}
+
+#[test]
+fn install_refuses_an_older_store_under_the_tmp_home() {
+    let f = Fixture::new();
+    let source = f.old_store();
+    let dir = f.home.join("old");
+    fs::create_dir(&dir).unwrap();
+    let unsafe_source = dir.join("rooms.db");
+    fs::copy(source, &unsafe_source).unwrap();
+    let mut command = f.install_command("gardenapp");
+    command.arg("--rooms").arg(unsafe_source);
+    assert_output(
+        &output(command),
+        4,
+        &format!("radio {VERSION} installed for gardenapp\n"),
+        "radio: installed, but the rooms were not imported: the store to import can be changed by another user\n",
+    );
 }
 
 #[test]

@@ -775,12 +775,13 @@ fn require_room(conn: &Connection, room: &str) -> Result<(), String> {
     }
 }
 
-/// Checks whether an existing store needs a newer build, without creating or migrating it.
+/// Checks whether an existing store needs a newer build, without migrating or writing it.
 pub fn store_is_newer(path: &Path) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(_) => return Err(UNREADABLE.into()),
-        Ok(_) => {}
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => return Err(UNREADABLE.into()),
     }
     let path = path
         .parent()
