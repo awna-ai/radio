@@ -22,8 +22,10 @@ The decisions this repo was founded on (2026-11-10). Newer decisions go above th
   one fails; a release that adds a store migration bumps the version.
 - **App names are lowercase,** so two spellings never share one client record on a case-insensitive
   disk. A failed install records no client; the app runs the install again.
-- **The source of an import** must belong to this user and be writable by no one else; SQLite may
-  create `-wal` and `-shm` beside it when it opens a WAL file, but nothing writes the store itself.
+- **The source of an import** must belong to this user and be writable by no one else, and so must
+  its folders and any `-wal` and `-shm` beside it, since SQLite reads those too and reopens the file
+  by its path. SQLite may create `-wal` and `-shm` when it opens a WAL file; nothing writes the store
+  itself.
   Its version-1 status lines read as set by the person at the computer, as this store's own second
   migration defaulted them.
 - **A test can never load a real launch agent:** the real `launchctl` is used only for the account's

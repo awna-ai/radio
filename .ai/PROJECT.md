@@ -47,7 +47,8 @@ install logic every app calls with the `radio` binary it bundles (D6, D9):
    it does not answer.
 4. An older one installed: it copies itself beside it, restarts the agent on the new copy, and on
    any failure puts the older copy and the rooms store as they were. One previous version is kept;
-   older ones are deleted. A copy older than a damaged newer install refuses to repair it.
+   older ones are deleted. A copy older than a newer install never replaces it, even when that install's record or binary is
+   missing or damaged, and never starts on a rooms store newer than itself.
 5. It records the app (a lowercase name) in `clients/<app>.json` with its handler, the only program
    the daemon will ever run for that app.
 6. `--rooms` names an older rooms store to bring in, once per path.
