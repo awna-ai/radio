@@ -23,7 +23,7 @@ The decisions this repo was founded on (2026-11-10). Newer decisions go above th
 - **App names are lowercase,** so two spellings never share one client record on a case-insensitive
   disk. A failed install records no client; the app runs the install again.
 - **The source of an import** must belong to this user and be writable by no one else, and so must
-  its folders and any `-wal` and `-shm` beside it, since SQLite reads those too and reopens the file
+  its folders and any `-wal`, `-shm` and `-journal` beside it, since SQLite opens those too and reopens the file
   by its path. SQLite may create `-wal` and `-shm` when it opens a WAL file; nothing writes the store
   itself.
   Its version-1 status lines read as set by the person at the computer, as this store's own second
