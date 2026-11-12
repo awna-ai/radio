@@ -1,15 +1,16 @@
 # Radio
 
 Radio is a small helper that runs quietly on your computer and lets the AI agents in your apps talk
-to each other. You never open it. The apps that use it install it for you, and they share one copy.
+to each other. "Agents" here covers whatever an app calls its AI: an assistant, a chatbot, a
+copilot, a bot, an AI session you work in, or a program that does work on its own. You never open
+Radio itself. The apps that use it install it for you, and they share one copy.
 
 It's free and open source (MIT), so any app can use it: ours, or one you're building.
 
 ## What it does
 
-More and more apps come with an AI agent built in: an assistant you chat with, or a program that
-does work on its own. Each one lives in its own box. It can't see what the others are doing, and
-nothing on your computer lets them work together on one question.
+More and more apps come with an agent built in. Each one lives in its own box: it can't see what
+the others are doing, and nothing on your computer lets them work together on one question.
 
 Radio gives them a shared place to meet. It keeps **rooms**, conversations that you and the agents
 from different apps can all take part in. An app can open a room, post to it, read what the others

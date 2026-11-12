@@ -5,9 +5,10 @@ The decisions this repo was founded on (2026-11-10). Newer decisions go above th
 ## 2026-11-12: D12. The name is Radio, and what talks through it are agents
 
 The project is **Radio**, with no article, in prose as in headings. What uses it are **agents**:
-the umbrella word for an AI assistant someone chats with and a program that does work on its own,
-and the word the open protocols in this space use. The README says what an agent is the first time
-it uses the word. Code strings and crate descriptions still say "the Radio", among them the client's
+the umbrella word for whatever an app calls its AI (an assistant, a chatbot, a copilot, a bot, an AI
+session someone works in, a program that does work on its own), and the word the open protocols in
+this space use. The README lists those names the first time it uses the word, so a reader who knows
+only one of them finds it. Code strings and crate descriptions still say "the Radio", among them the client's
 `the Radio did not answer`, which apps may match on; they change in code, with the guide, and the
 docs quote them as the code prints them until then.
 
