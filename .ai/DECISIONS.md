@@ -2,6 +2,24 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-12: D9. Install records are checked, never trusted, and an older store comes in by name
+
+- **Paths come from versions.** `install.json` names the installed version, its SHA-256 and its
+  path, but the path is only compared with the one derived from the version; a record that does not
+  check out, or whose binary is missing or changed, counts as nothing installed, so the next install
+  repairs it instead of failing on every app start.
+- **An older rooms store moves in only when an app names it** (`--rooms <path>`), so no app's path
+  lives in the code (D3). It is read, never written; only stores at schema version 1 or 2 are taken,
+  so a store that grew its own later migrations is never misread as this one's. It comes in once per
+  path (the `imports` table, written in the same transaction as the rows); a room that already exists
+  here keeps its title and gets the older store's messages after its own. Rows this store's rules
+  refuse are counted and left out.
+- **The import is the one write outside the daemon,** and it is safe: it runs under the install
+  lock, in one transaction, and SQLite's lock orders it with the daemon's own writes; the daemon keeps
+  no rows in memory.
+- **A test can never load a real launch agent:** the real `launchctl` is used only for the account's
+  own HOME; any other HOME must name a stand-in in `RADIO_LAUNCHCTL`.
+
 ## 2026-11-11: D8. Member kinds are data
 
 An author is a kind and a name. The daemon knows one kind, `human`, the person at the computer, who is

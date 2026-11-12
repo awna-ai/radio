@@ -1,6 +1,6 @@
 # Security: radio
 
-**Last reviewed:** 2026-11-11, when the socket was built. This model describes the design every step is
+**Last reviewed:** 2026-11-12, when the install step was built. This model describes the design every step is
 held to, and each step that builds a boundary updates its row.
 
 ## What this system is
@@ -18,8 +18,9 @@ admission is a hole in that app's remote control, even though the Radio never re
 | Local process → socket | one JSON request line | 0600 socket in a 0700 folder; peer uid must equal the daemon's; 16 KiB cap; 5 s for the request and 5 s for the answer; unknown fields refused; `"v"` checked first | `crates/radio/src/server_tests.rs`: another uid refused before reading, cap, request and answer deadlines, unknown fields, `v` first; `contract/v1/` |
 | A client app → the daemon's records | `register` (app name, version, members) | stored as data only; nothing a request names is ever run; kinds and names checked and cleaned; at most 256 members | `crates/radio-rooms/src/store_tests.rs` (register), the daemon's membership tests |
 | Another computer → the Radio | link messages | an accepted member's signed records, freshness, replay and size checks on every message, before any handler sees it | tests in the link steps (not built yet) |
-| The Radio → an app's handler | an app's own message, passed on unread | the handler's path comes only from that app's install record, run with fixed arguments; never from a request or a peer | tests in the install step (not built yet) |
-| An app's installer → the launch agent and binaries | a new `radio` binary | an exclusive install lock; newer wins; copy to a temp file, then rename; roll back on a failed start | tests in the install step (not built yet) |
+| The Radio → an app's handler | an app's own message, passed on unread | the handler's path comes only from that app's install record, run with fixed arguments; never from a request or a peer. At install the handler must be an absolute path to a regular executable file that only its owner (this user or root) can write; the record keeps its canonical path | `crates/radio/src/install_tests.rs` (argument refusals); running a handler arrives with the link steps |
+| An app's installer → the launch agent and binaries | a new `radio` binary | an exclusive install lock; newer wins; the bytes copied to a new temp file, checked by SHA-256, then renamed (never written over); a start counts only when `hello` answers with the new version; a failed upgrade puts the older copy back; paths derived from versions, never read from a record; the real `launchctl` only for the account's own HOME | `crates/radio/src/install_tests.rs` (`two_installs_at_once_queue`, `an_older_build_never_replaces_a_newer_one`, `a_failed_bootstrap_rolls_back`, the record and binary checks); `crates/radio/tests/install.rs` (the real daemon under a stand-in `launchctl`) |
+| An older rooms store → the Radio's store | another program's SQLite file, named by an app's installer | opened read-only without following a link; only schema versions 1 and 2; every row checked by the store's own rules, refused rows counted and left out; one transaction; once per path | `crates/radio-rooms/src/store_tests.rs` (the import tests) |
 
 ## Data classes
 
@@ -27,8 +28,9 @@ admission is a hole in that app's remote control, even though the Radio never re
 | --- | --- | --- | --- | --- |
 | Conversations | room messages and statuses, registered members | `~/.local/state/radio/rooms.db`, 0600, in a 0700 folder, opened without following a link | private words of the people in a room | kept until the user deletes them; uninstall keeps them |
 | Identity | the computer's link key | `~/.config/radio/` (not built yet) | anyone holding it can speak as this computer | rotated on loss |
-| Client records | each app's name, version, handler path | `~/.local/state/radio/clients/` (not built yet) | a forged record could make the daemon run the wrong handler | removed on that app's uninstall |
-| Operational | the daemon's log | `~/.local/state/radio/radio.log` (not built yet) | low, unless it carries the above (it must not) | short |
+| Client records | each app's name, version, handler path | `~/.local/state/radio/clients/<app>.json`, 0600, in a 0700 folder | a forged record could make the daemon run the wrong handler | removed on that app's uninstall |
+| Install record | the installed version, its SHA-256, who installed it | `~/.local/state/radio/install.json`, 0600 | a forged record can only name a version whose binary already checks out | removed when the last app uninstalls |
+| Operational | the daemon's log (its stderr) | `~/.local/state/radio/radio.log`, 0600 | low, unless it carries the above (it must not: every error is a fixed phrase) | kept on uninstall; no rotation yet |
 
 ## Where secrets live
 
@@ -39,7 +41,8 @@ password belongs in the repo; gitleaks runs in `scripts/ci-local.sh`.
 
 - The socket: every op in `CONTRACT.md`, from any process of the same user (`crates/radio/src/server.rs`).
 - The link (later): every message from another computer.
-- `radio install` arguments, from an app's installer.
+- `radio install`, `uninstall` and `status` arguments, from an app's installer, and the files they read
+  back (`install.json`, `clients/`), each checked again on every read.
 
 ## External integrations
 
@@ -60,6 +63,10 @@ None today. The link to other computers will be the first, and gets its own row 
 | A write can be applied after its client timed out, so a blind retry posts twice | the client reads back before retrying (`CONTRACT.md`); one connection at a time keeps the store simple | socket review, 2026-11-11 | when connections are served concurrently |
 | A raw insert into the store can put a NUL byte inside a kind, past the database's check | only the daemon writes the store, and its code refuses NUL before any insert | socket review, 2026-11-11 | if anything else ever writes the store |
 | The daemon serves one connection at a time, so a client holds others for up to 5 s while sending its request and 5 s while reading its answer | the same-user boundary above; both deadlines cover the whole request and the whole answer | socket step, 2026-11-11 | if a client ever needs more |
+| Any same-user process can run `radio install` with any handler it can write, or point `RADIO_LAUNCHCTL` at another program | the same-user boundary above; the handler check keeps out files other users can change | install step, 2026-11-12 | when the daemon starts running handlers |
+| The handler's own file is checked, not the folders above it | the apps' handlers live inside their own app bundles; a folder another user can write is the app's own install problem | install step, 2026-11-12 | when the daemon starts running handlers |
+| Uninstalling an app keeps the members it registered in `rooms.db` | data stays on uninstall (D6); the members are names, and the app is no longer a client | install step, 2026-11-12 | when registration is tied to install records |
+| `radio.log` is not rotated | the daemon writes only fixed phrases, a few per start | install step, 2026-11-12 | if the log ever grows |
 | The term check's list lives outside the repo, so a contributor without it runs no term check | the list names private terms and cannot be published | founding design, 2026-11-10 | never, by design |
 | Commit and tag identities (author, committer, tagger) are not term-checked | they are the publishing account's own GitHub noreply identity, which GitHub shows on every push anyway | fix-up review, 2026-11-11 | if a second account publishes here |
 | Text stored as UTF-16 (a NUL between characters) is not matched | only deliberate evasion produces it in this repo; gitleaks still reads it | fix-up review, 2026-11-11 | if a UTF-16 file is ever added |
@@ -76,3 +83,5 @@ Report a security problem privately through GitHub's private vulnerability repor
 - 2026-11-11: the term check runs under the C locale, ignores replace refs, refuses grafts and
 missing objects, and reads ref names.
 - 2026-11-11: the socket and the rooms store are built; their rows name their tests.
+- 2026-11-12: the install step is built: the installer, client and install records, the import of an
+  older store.
