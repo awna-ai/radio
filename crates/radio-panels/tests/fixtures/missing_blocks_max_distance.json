@@ -1,0 +1,66 @@
+{
+  "expect": {
+    "result": {
+      "dissent": [
+        {
+          "member": "b",
+          "holdout": false,
+          "objections": ""
+        }
+      ],
+      "groups": [
+        {
+          "answer": [],
+          "members": [
+            "a"
+          ],
+          "weight": 0.5
+        },
+        {
+          "answer": [],
+          "members": [
+            "b"
+          ],
+          "weight": 0.5
+        }
+      ]
+    },
+    "rounds": [
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "n": 1,
+    "rounds": [
+      {}
+    ]
+  },
+  "name": "missing_blocks_max_distance",
+  "rule": "Members with no valid block have maximum list distance and no group answer items.",
+  "type": "rounds"
+}

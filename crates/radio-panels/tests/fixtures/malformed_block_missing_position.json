@@ -1,0 +1,22 @@
+{
+  "expect": {
+    "malformed": true
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\ndraft: plan\n```",
+    "round": 1
+  },
+  "name": "malformed_block_missing_position",
+  "rule": "Invalid typed text fields produce no movement.",
+  "type": "parse"
+}

@@ -1,0 +1,8029 @@
+{
+ "markdown": [
+  {
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: deadlock\n\n## Answer\n\n```text answer\n[\"Ünï \\\"q\\\"\", \"tab\\tz\"]\n```\n\n## Groups\n\nMembers: a, b; weight: 0.06\n\n```text group answer\n[\"Ünï \\\"q\\\"\", \"tab\\tz\"]\n```\n\n## Dissent\n\n````text objections from b\nno ``` way\n````\n\n## Trajectory\n\nRounds: 8\nD: [1.0, 0.5, 0.8666666666666667, 1e-05, 0.0001, 0.0, 1e+16, 123456.789]\n",
+   "result": {
+    "answer": [
+     "Ünï \"q\"",
+     "tab\tz"
+    ],
+    "dissent": [
+     {
+      "member": "b",
+      "holdout": true,
+      "objections": "no ``` way"
+     }
+    ],
+    "groups": [
+     {
+      "answer": [
+       "Ünï \"q\"",
+       "tab\tz"
+      ],
+      "members": [
+       "a",
+       "b"
+      ],
+      "weight": 0.0625
+     }
+    ],
+    "kind": "list:2",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "deadlock",
+    "trajectory": {
+     "D": [
+      1.0,
+      0.5,
+      0.8666666666666667,
+      1e-05,
+      0.0001,
+      0.0,
+      1e+16,
+      123456.789
+     ],
+     "rounds": 8
+    }
+   }
+  },
+  {
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: deadlock\n\n## Answer\n\n```text answer\na text\nanswer\n```\n\n## Groups\n\nMembers: a, b; weight: 0.12\n\n```text group answer\na text\nanswer\n```\n\n## Dissent\n\n````text objections from b\nno ``` way\n````\n\n## Trajectory\n\nRounds: 1\nD: [0.30000000000000004]\n",
+   "result": {
+    "answer": "a text\nanswer",
+    "dissent": [
+     {
+      "member": "b",
+      "holdout": true,
+      "objections": "no ``` way"
+     }
+    ],
+    "groups": [
+     {
+      "answer": "a text\nanswer",
+      "members": [
+       "a",
+       "b"
+      ],
+      "weight": 0.125
+     }
+    ],
+    "kind": "list:2",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "deadlock",
+    "trajectory": {
+     "D": [
+      0.30000000000000004
+     ],
+     "rounds": 1
+    }
+   }
+  },
+  {
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: deadlock\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: a, b; weight: 0.38\n\n```text group answer\nNone\n```\n\n## Dissent\n\n````text objections from b\nno ``` way\n````\n\n## Trajectory\n\nRounds: 0\nD: []\n",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "b",
+      "holdout": true,
+      "objections": "no ``` way"
+     }
+    ],
+    "groups": [
+     {
+      "answer": null,
+      "members": [
+       "a",
+       "b"
+      ],
+      "weight": 0.375
+     }
+    ],
+    "kind": "list:2",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "deadlock",
+    "trajectory": {
+     "D": [],
+     "rounds": 0
+    }
+   }
+  }
+ ],
+ "note": "Expected values produced by the Python reference protocol at commit a7f31d72 under Python 3.12 or later (compensated float sum); never edit by hand.",
+ "parse": [
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "plan",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {
+      "b": 0
+     }
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\": -0}\n```",
+    "round": 2
+   },
+   "name": "negative_zero_rating"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\": -0.0}\n```",
+    "round": 2
+   },
+   "name": "negative_zero_float_rating"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "plan",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {
+      "b": 0,
+      "c": 1
+     }
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b",
+     "c"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\": -0, \"c\": 1}\n```",
+    "round": 2
+   },
+   "name": "negative_zero_in_list_after_string"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nobjections: NaN\n```",
+    "round": 2
+   },
+   "name": "unquoted_nan_objections"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: Infinity\n```",
+    "round": 2
+   },
+   "name": "unquoted_infinity_draft"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\": Infinity}\n```",
+    "round": 2
+   },
+   "name": "json_infinity_rating"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "plan",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {
+      "b": 3
+     }
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\": 12, \"b\": 3}\n```",
+    "round": 2
+   },
+   "name": "duplicate_rating_key_last_wins_valid"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\": 1, \"b\": 12}\n```",
+    "round": 2
+   },
+   "name": "duplicate_rating_key_last_wins_invalid"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\": 7.0}\n```",
+    "round": 2
+   },
+   "name": "float_rating"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\": 99999999999999999999}\n```",
+    "round": 2
+   },
+   "name": "huge_rating"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "p\tq",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\r\nposition: propose\r\ndraft: \"p\tq\"\r\n```\r\n",
+    "round": 2
+   },
+   "name": "crlf_lines_raw_tab"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "line\nnext",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \"line\\nnext\"\n```",
+    "round": 2
+   },
+   "name": "raw_newline_escape_in_json"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "a b",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \"a\u0001b\"\n```",
+    "round": 2
+   },
+   "name": "raw_control_in_json_string"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: 1e400\n```",
+    "round": 2
+   },
+   "name": "unquoted_overflow_draft"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: x\nobjections: -1e999\n```",
+    "round": 2
+   },
+   "name": "unquoted_negative_overflow_objections"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: x\nobjections: 1E+400 # c\n```",
+    "round": 2
+   },
+   "name": "unquoted_overflow_with_comment"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "1e400x",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: 1e400x\n```",
+    "round": 2
+   },
+   "name": "unquoted_number_like_text_kept"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: 12\n```",
+    "round": 2
+   },
+   "name": "unquoted_number_draft"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "a plain draft",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: a plain draft # note\n```",
+    "round": 2
+   },
+   "name": "unquoted_text_with_comment"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "a#b",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: a#b\n```",
+    "round": 2
+   },
+   "name": "unquoted_hash_without_space_kept"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "first",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: first\n```\n```deliberation\nposition: object\ndraft: second\n",
+    "round": 2
+   },
+   "name": "unclosed_after_complete_uses_complete"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "x",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "````deliberation\nposition: propose\ndraft: x\n``````  ",
+    "round": 2
+   },
+   "name": "longer_closing_fence"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "````deliberation\nposition: propose\ndraft: x\n```\n",
+    "round": 2
+   },
+   "name": "shorter_closing_fence_does_not_close"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\t\nposition: propose\ndraft: x\n```",
+    "round": 2
+   },
+   "name": "opening_with_trailing_tab_not_a_fence"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: x\njust words\n```",
+    "round": 2
+   },
+   "name": "no_colon_line"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "x",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\n\n  \nposition: propose\n\ndraft: x\n\n```",
+    "round": 2
+   },
+   "name": "blank_lines_ignored"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \"x\" trailing\n```",
+    "round": 2
+   },
+   "name": "json_value_then_text"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "x",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \"x\"   # fine\n```",
+    "round": 2
+   },
+   "name": "json_value_then_comment"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: {\"a\": 1}\ndraft: x\n```",
+    "round": 2
+   },
+   "name": "object_position_value"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": "b.r1",
+     "draft": null,
+     "draft_id": null,
+     "items": [],
+     "objections": "",
+     "position": "agree",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: agree\nagree_with: b.r1\n```",
+    "round": 2
+   },
+   "name": "agree_known"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": "b.r1",
+     "draft": "mine",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "agree",
+     "ratings": {
+      "b": 10
+     }
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: agree\nagree_with: b.r1\ndraft: mine\nratings: {\"b\": 10}\n```",
+    "round": 2
+   },
+   "name": "agree_with_draft_and_ratings"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\n```",
+    "round": 2
+   },
+   "name": "propose_without_draft"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "x",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "too vague",
+     "position": "object",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: object\ndraft: x\nobjections: too vague\n```",
+    "round": 2
+   },
+   "name": "object_with_draft"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: x\nratings: {\"a\": 5}\n```",
+    "round": 2
+   },
+   "name": "rating_self"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: x\nratings: {\"b\": false}\n```",
+    "round": 2
+   },
+   "name": "rating_bool"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"\n```",
+    "round": 2
+   },
+   "name": "draft_exactly_1500"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"\n```",
+    "round": 2
+   },
+   "name": "draft_1501"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "hi there",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \" \\u200bhi\\u2028there\\ufeff \"\n```",
+    "round": 2
+   },
+   "name": "draft_hidden_chars_cleaned"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "x",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: x\nobjections: \"🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂\"\n```",
+    "round": 2
+   },
+   "name": "objections_600_astral"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "plan",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\u001f\ndraft: plan\n```",
+    "round": 2
+   },
+   "name": "position_with_trailing_unit_separator"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "plan",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\n\u001cposition: propose\ndraft: plan\n```",
+    "round": 2
+   },
+   "name": "key_with_leading_file_separator"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "plan",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \u001d plan \u001e\n```",
+    "round": 2
+   },
+   "name": "value_with_group_separators"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "plan",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\n\u001e\u001f\ndraft: plan\n```",
+    "round": 2
+   },
+   "name": "line_of_only_record_separators"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "plan",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \"plan\"\u001f\n```",
+    "round": 2
+   },
+   "name": "json_value_then_unit_separator"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": "a         \t                     z",
+     "draft_id": "a.r2",
+     "items": [],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: \"a\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001fz\"\n```",
+    "round": 2
+   },
+   "name": "raw_every_control_in_json_string"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": null,
+     "draft_id": null,
+     "items": [
+      "STRAẞE"
+     ],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 3,
+    "post": "```deliberation\nposition: propose\nitems: [\"STRAẞE\", \"strasse\", \"Straße\"]\n```",
+    "round": 2
+   },
+   "name": "list_casefold_dedupe"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": null,
+     "draft_id": null,
+     "items": [
+      "ΟΔΟΣ"
+     ],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 3,
+    "post": "```deliberation\nposition: propose\nitems: [\"ΟΔΟΣ\", \"οδος\", \"οδοσ\"]\n```",
+    "round": 2
+   },
+   "name": "list_sigma_dedupe"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": null,
+     "draft_id": null,
+     "items": [
+      "ﬁne"
+     ],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 2,
+    "post": "```deliberation\nposition: propose\nitems: [\"ﬁne\", \"fine\"]\n```",
+    "round": 2
+   },
+   "name": "list_ligature_dedupe"
+  },
+  {
+   "expect": {
+    "block": {
+     "agree_with": null,
+     "draft": null,
+     "draft_id": null,
+     "items": [
+      "a  b"
+     ],
+     "objections": "",
+     "position": "propose",
+     "ratings": {}
+    }
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 3,
+    "post": "```deliberation\nposition: propose\nitems: [\"a  b\", \" a\\tb \", \"a\\u00a0b\"]\n```",
+    "round": 2
+   },
+   "name": "list_whitespace_dedupe"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 1,
+    "post": "```deliberation\nposition: propose\nitems: [\"x\", \"y\"]\n```",
+    "round": 2
+   },
+   "name": "list_too_many"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 0,
+    "post": "```deliberation\nposition: propose\nitems: [\"x\"]\n```",
+    "round": 2
+   },
+   "name": "list_n_zero"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 1,
+    "post": "```deliberation\nposition: propose\nitems: [\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\"]\n```",
+    "round": 2
+   },
+   "name": "list_item_121"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 1,
+    "post": "```deliberation\nposition: propose\nitems: [1]\n```",
+    "round": 2
+   },
+   "name": "list_item_non_string"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 1,
+    "post": "```deliberation\nposition: agree\nitems: [\"x\"]\nagree_with: b.r1\n```",
+    "round": 2
+   },
+   "name": "list_with_agree_with"
+  },
+  {
+   "expect": {
+    "malformed": true
+   },
+   "input": {
+    "author": "a",
+    "crew": [
+     "a",
+     "b"
+    ],
+    "kind": "tree",
+    "known_drafts": [
+     "b.r1"
+    ],
+    "n": 1,
+    "post": "```deliberation\nposition: propose\nitems: [\"x\"]\n```",
+    "round": 2
+   },
+   "name": "unknown_kind"
+  }
+ ],
+ "rounds": [
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+      "m5",
+      "m6"
+     ],
+     "kind": "list",
+     "n": 3,
+     "rounds": [
+      {
+       "m0": null,
+       "m1": {
+        "items": [
+         "alpha"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m2": null,
+       "m3": {
+        "items": [
+         "gamma"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "ALPHA ",
+         "beta"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m5": {
+        "items": [
+         "STRASSE",
+         "be ta",
+         "x"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m6": {
+        "items": [
+         "x",
+         "ALPHA "
+        ],
+        "objections": "no",
+        "position": "agree"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "y",
+         "Alpha"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "ALPHA ",
+         "Straße"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "STRASSE",
+         "gamma"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m3": {
+        "items": [
+         "beta",
+         "be ta",
+         "alpha"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "x",
+         "ALPHA "
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m5": {
+        "items": [
+         "alpha"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m6": {
+        "items": [
+         "x"
+        ],
+        "objections": "",
+        "position": "agree"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m1": {
+        "items": [
+         "alpha"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "ALPHA "
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "STRASSE",
+         "beta",
+         "x"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "alpha"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m5": {
+        "items": [
+         "STRASSE"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m6": {
+        "items": [
+         "be ta",
+         "ALPHA "
+        ],
+        "objections": "no",
+        "position": "propose"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "STRASSE"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m1": {
+        "items": [
+         "ALPHA ",
+         "y"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m2": {
+        "items": [
+         "x",
+         "Alpha",
+         "Straße"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m3": {
+        "items": [
+         "beta",
+         "y"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m4": {
+        "items": [
+         "x",
+         "Straße",
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m5": {
+        "items": [
+         "x",
+         "gamma",
+         "be ta"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m6": null
+      },
+      {
+       "m0": {
+        "items": [
+         "Alpha"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "be ta"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "Straße"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "be ta"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "gamma",
+         "be ta"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m5": {
+        "items": [
+         "y",
+         "Alpha",
+         "be ta"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m6": null
+      },
+      {
+       "m0": {
+        "items": [
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m1": null,
+       "m2": {
+        "items": [
+         "Alpha",
+         "be ta",
+         "y"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "Alpha",
+         "Straße"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "x"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m5": {
+        "items": [
+         "beta",
+         "Straße"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m6": {
+        "items": [
+         "STRASSE"
+        ],
+        "objections": "",
+        "position": "object"
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0; weight: 0.14\n\n```text group answer\n[\"ALPHA \"]\n```\n\nMembers: m1; weight: 0.14\n\n```text group answer\n[\"be ta\"]\n```\n\nMembers: m2; weight: 0.14\n\n```text group answer\n[\"Alpha\", \"be ta\", \"y\"]\n```\n\nMembers: m3; weight: 0.14\n\n```text group answer\n[\"Alpha\", \"Straße\"]\n```\n\nMembers: m4; weight: 0.14\n\n```text group answer\n[\"x\"]\n```\n\nMembers: m5; weight: 0.14\n\n```text group answer\n[\"beta\", \"Straße\"]\n```\n\nMembers: m6; weight: 0.14\n\n```text group answer\n[\"STRASSE\"]\n```\n\n## Dissent\n\n```text objections from m1\n\n```\n\n```text objections from m2\nno\n```\n\n```text objections from m3\nno\n```\n\n```text objections from m4\nno\n```\n\n```text objections from m5\n\n```\n\n```text objections from m6\n\n```\n\n## Trajectory\n\nRounds: 6\nD: [0.9365079365079365, 0.8095238095238095, 0.8253968253968254, 0.7777777777777777, 0.7936507936507937, 0.888888888888889]\n",
+   "name": "compensated_sum_0",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m4",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m5",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m6",
+      "holdout": false,
+      "objections": ""
+     }
+    ],
+    "groups": [
+     {
+      "answer": [
+       "ALPHA "
+      ],
+      "members": [
+       "m0"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": [
+       "be ta"
+      ],
+      "members": [
+       "m1"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": [
+       "Alpha",
+       "be ta",
+       "y"
+      ],
+      "members": [
+       "m2"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": [
+       "Alpha",
+       "Straße"
+      ],
+      "members": [
+       "m3"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": [
+       "x"
+      ],
+      "members": [
+       "m4"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": [
+       "beta",
+       "Straße"
+      ],
+      "members": [
+       "m5"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": [
+       "STRASSE"
+      ],
+      "members": [
+       "m6"
+      ],
+      "weight": 0.14285714285714285
+     }
+    ],
+    "kind": "list:3",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.9365079365079365,
+      0.8095238095238095,
+      0.8253968253968254,
+      0.7777777777777777,
+      0.7936507936507937,
+      0.888888888888889
+     ],
+     "rounds": 6
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+      "m5"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m3": 8,
+         "m5": 8
+        }
+       },
+       "m1": {
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m2": 10
+        }
+       },
+       "m2": {
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 9,
+         "m1": 9,
+         "m5": 10
+        }
+       },
+       "m3": {
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 2,
+         "m1": 5,
+         "m2": 10,
+         "m4": 2,
+         "m5": 6
+        }
+       },
+       "m4": {
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 0
+        }
+       },
+       "m5": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 4,
+         "m1": 0,
+         "m2": 10,
+         "m3": 1,
+         "m4": 4
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m5.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 10,
+         "m2": 10,
+         "m3": 3,
+         "m4": 5,
+         "m5": 5
+        }
+       },
+       "m1": {
+        "agree_with": "m5.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m2": 0
+        }
+       },
+       "m2": {
+        "agree_with": "m5.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 7,
+         "m5": 3
+        }
+       },
+       "m3": {
+        "agree_with": "m5.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 3
+        }
+       },
+       "m4": {
+        "agree_with": "m5.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 3,
+         "m1": 2,
+         "m2": 5,
+         "m5": 1
+        }
+       },
+       "m5": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m4": 0
+        }
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0, m2; weight: 0.33\n\n```text group answer\nok\n```\n\nMembers: m1; weight: 0.17\n\n```text group answer\nok\n```\n\nMembers: m3; weight: 0.17\n\n```text group answer\nok\n```\n\nMembers: m4; weight: 0.17\n\n```text group answer\nok\n```\n\nMembers: m5; weight: 0.17\n\n```text group answer\na longer draft\n```\n\n## Dissent\n\n```text objections from m1\nno\n```\n\n```text objections from m3\n\n```\n\n```text objections from m4\n\n```\n\n```text objections from m5\nno\n```\n\n## Trajectory\n\nRounds: 2\nD: [0.6733333333333333, 0.81]\n",
+   "name": "compensated_sum_1",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m4",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m5",
+      "holdout": false,
+      "objections": "no"
+     }
+    ],
+    "groups": [
+     {
+      "answer": "ok",
+      "members": [
+       "m0",
+       "m2"
+      ],
+      "weight": 0.3333333333333333
+     },
+     {
+      "answer": "ok",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.16666666666666666
+     },
+     {
+      "answer": "ok",
+      "members": [
+       "m3"
+      ],
+      "weight": 0.16666666666666666
+     },
+     {
+      "answer": "ok",
+      "members": [
+       "m4"
+      ],
+      "weight": 0.16666666666666666
+     },
+     {
+      "answer": "a longer draft",
+      "members": [
+       "m5"
+      ],
+      "weight": 0.16666666666666666
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.6733333333333333,
+      0.81
+     ],
+     "rounds": 2
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m2": 8,
+         "m3": 0,
+         "m4": 1
+        }
+       },
+       "m1": null,
+       "m2": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 2,
+         "m1": 7,
+         "m3": 5,
+         "m4": 3
+        }
+       },
+       "m3": {
+        "draft": "Plan",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m2": 2,
+         "m4": 5
+        }
+       },
+       "m4": {
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 0,
+         "m1": 10,
+         "m2": 2,
+         "m3": 10
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m3.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m3": 3
+        }
+       },
+       "m1": {
+        "draft": "plan",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m0": 7,
+         "m3": 5,
+         "m4": 0
+        }
+       },
+       "m2": null,
+       "m3": {
+        "agree_with": "m3.r1",
+        "draft": "plan b",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 4
+        }
+       },
+       "m4": {
+        "agree_with": "m3.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 10,
+         "m1": 5,
+         "m2": 10,
+         "m3": 2
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m3.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m1": 4,
+         "m2": 8,
+         "m3": 3,
+         "m4": 0
+        }
+       },
+       "m1": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m0": 0,
+         "m2": 8,
+         "m3": 1,
+         "m4": 4
+        }
+       },
+       "m2": {
+        "draft": "Plan",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 5,
+         "m3": 6
+        }
+       },
+       "m3": {
+        "draft": "plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 7,
+         "m2": 6,
+         "m4": 0
+        }
+       },
+       "m4": {
+        "agree_with": "m3.r2",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {}
+       }
+      },
+      {
+       "m0": {
+        "draft": "ok",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m3": 5,
+         "m4": 1
+        }
+       },
+       "m1": {
+        "draft": "plan",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 5,
+         "m3": 2,
+         "m4": 0
+        }
+       },
+       "m2": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m3": 7,
+         "m4": 2
+        }
+       },
+       "m3": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m2": 5
+        }
+       },
+       "m4": {
+        "agree_with": "m1.r3",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 1,
+         "m2": 4
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m1": 2,
+         "m2": 3,
+         "m4": 2
+        }
+       },
+       "m1": {
+        "draft": "plan",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {}
+       },
+       "m2": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m0": 0
+        }
+       },
+       "m3": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m0": 6,
+         "m1": 3,
+         "m2": 4
+        }
+       },
+       "m4": {
+        "agree_with": "m0.r4",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m3": 10
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m1.r3",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m4": 0
+        }
+       },
+       "m1": {
+        "agree_with": "m3.r4",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m2": 10,
+         "m4": 6
+        }
+       },
+       "m2": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 10,
+         "m1": 3,
+         "m4": 2
+        }
+       },
+       "m3": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 10,
+         "m1": 0,
+         "m2": 10,
+         "m4": 9
+        }
+       },
+       "m4": {
+        "agree_with": "m2.r5",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 3,
+         "m1": 3,
+         "m2": 7
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m1": 1,
+         "m2": 5
+        }
+       },
+       "m1": {
+        "agree_with": "m0.r5",
+        "objections": "",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m2": {
+        "agree_with": "m1.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 6,
+         "m1": 9,
+         "m3": 2,
+         "m4": 9
+        }
+       },
+       "m3": {
+        "agree_with": "m3.r2",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 2,
+         "m1": 6,
+         "m2": 10,
+         "m4": 3
+        }
+       },
+       "m4": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 5,
+         "m2": 7
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "object",
+        "ratings": {}
+       },
+       "m1": {
+        "agree_with": "m3.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m2": {
+        "agree_with": "m2.r5",
+        "draft": "plan",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m3": {
+        "agree_with": "m2.r3",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 2
+        }
+       },
+       "m4": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {}
+       }
+      },
+      {
+       "m0": null,
+       "m1": {
+        "agree_with": "m2.r3",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 2,
+         "m2": 5,
+         "m3": 1,
+         "m4": 5
+        }
+       },
+       "m2": {
+        "agree_with": "m3.r6",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 1,
+         "m1": 1,
+         "m3": 7,
+         "m4": 7
+        }
+       },
+       "m3": {
+        "agree_with": "m4.r8",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 10,
+         "m2": 4,
+         "m4": 0
+        }
+       },
+       "m4": null
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0; weight: 0.20\n\n```text group answer\nplan b\n```\n\nMembers: m1; weight: 0.20\n\n```text group answer\nPlan\n```\n\nMembers: m2; weight: 0.20\n\n```text group answer\nPlan\n```\n\nMembers: m3; weight: 0.20\n\n```text group answer\nPlan\n```\n\nMembers: m4; weight: 0.20\n\n```text group answer\nPlan\n```\n\n## Dissent\n\n```text objections from m1\n\n```\n\n```text objections from m2\nno\n```\n\n```text objections from m3\nno\n```\n\n```text objections from m4\n\n```\n\n## Trajectory\n\nRounds: 9\nD: [0.725, 0.6849999999999999, 0.74, 0.8400000000000001, 0.85, 0.635, 0.675, 0.99, 0.7849999999999999]\n",
+   "name": "compensated_sum_2",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m4",
+      "holdout": false,
+      "objections": ""
+     }
+    ],
+    "groups": [
+     {
+      "answer": "plan b",
+      "members": [
+       "m0"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m2"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m3"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m4"
+      ],
+      "weight": 0.2
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.725,
+      0.6849999999999999,
+      0.74,
+      0.8400000000000001,
+      0.85,
+      0.635,
+      0.675,
+      0.99,
+      0.7849999999999999
+     ],
+     "rounds": 9
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+      "m5",
+      "m6"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": {
+        "draft": "ok",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m2": 8,
+         "m3": 0,
+         "m4": 8,
+         "m5": 8,
+         "m6": 5
+        }
+       },
+       "m1": {
+        "draft": "ok",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 9,
+         "m2": 10,
+         "m3": 8,
+         "m4": 1,
+         "m5": 9,
+         "m6": 1
+        }
+       },
+       "m2": null,
+       "m3": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m1": 10,
+         "m4": 5,
+         "m6": 7
+        }
+       },
+       "m4": {
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m2": 4,
+         "m6": 4
+        }
+       },
+       "m5": {
+        "draft": "plan",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 4,
+         "m1": 8,
+         "m3": 5,
+         "m6": 7
+        }
+       },
+       "m6": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 7,
+         "m1": 5,
+         "m2": 8,
+         "m4": 9,
+         "m5": 9
+        }
+       }
+      },
+      {
+       "m0": null,
+       "m1": {
+        "agree_with": "m0.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 1,
+         "m2": 2,
+         "m4": 9,
+         "m5": 0,
+         "m6": 0
+        }
+       },
+       "m2": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m1": 3
+        }
+       },
+       "m3": {
+        "agree_with": "m1.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 8
+        }
+       },
+       "m4": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m1": 2,
+         "m5": 6
+        }
+       },
+       "m5": {
+        "agree_with": "m1.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m1": 4,
+         "m2": 8,
+         "m4": 8
+        }
+       },
+       "m6": {
+        "agree_with": "m5.r1",
+        "draft": "ok",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m1": 8,
+         "m2": 4
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m3.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m4": 4,
+         "m5": 0
+        }
+       },
+       "m1": {
+        "draft": "Plan",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m2": 10
+        }
+       },
+       "m2": null,
+       "m3": {
+        "agree_with": "m0.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m1": 4,
+         "m6": 9
+        }
+       },
+       "m4": {
+        "draft": "ok",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m2": 5
+        }
+       },
+       "m5": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "object",
+        "ratings": {}
+       },
+       "m6": {
+        "draft": "ok",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m0": 1,
+         "m2": 2,
+         "m3": 8,
+         "m4": 3
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m5.r3",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 1,
+         "m2": 3,
+         "m3": 9,
+         "m4": 2,
+         "m5": 9,
+         "m6": 4
+        }
+       },
+       "m1": {
+        "agree_with": "m6.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m4": 3
+        }
+       },
+       "m2": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {}
+       },
+       "m3": {
+        "agree_with": "m3.r1",
+        "draft": "ok",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m4": 1,
+         "m5": 9,
+         "m6": 9
+        }
+       },
+       "m4": {
+        "agree_with": "m1.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m2": 2,
+         "m5": 0,
+         "m6": 4
+        }
+       },
+       "m5": {
+        "agree_with": "m0.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 9
+        }
+       },
+       "m6": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 0,
+         "m1": 9,
+         "m4": 5,
+         "m5": 9
+        }
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0, m5; weight: 0.29\n\n```text group answer\nplan b\n```\n\nMembers: m1; weight: 0.14\n\n```text group answer\nok\n```\n\nMembers: m2; weight: 0.14\n\n```text group answer\nPlan\n```\n\nMembers: m3; weight: 0.14\n\n```text group answer\nPlan\n```\n\nMembers: m4; weight: 0.14\n\n```text group answer\nok\n```\n\nMembers: m6; weight: 0.14\n\n```text group answer\nplan b\n```\n\n## Dissent\n\n```text objections from m1\n\n```\n\n```text objections from m2\n\n```\n\n```text objections from m3\nno\n```\n\n```text objections from m4\n\n```\n\n```text objections from m6\nno\n```\n\n## Trajectory\n\nRounds: 4\nD: [0.6214285714285714, 0.7809523809523808, 0.8833333333333334, 0.7904761904761906]\n",
+   "name": "compensated_sum_3",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m4",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m6",
+      "holdout": false,
+      "objections": "no"
+     }
+    ],
+    "groups": [
+     {
+      "answer": "plan b",
+      "members": [
+       "m0",
+       "m5"
+      ],
+      "weight": 0.2857142857142857
+     },
+     {
+      "answer": "ok",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m2"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m3"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": "ok",
+      "members": [
+       "m4"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m6"
+      ],
+      "weight": 0.14285714285714285
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.6214285714285714,
+      0.7809523809523808,
+      0.8833333333333334,
+      0.7904761904761906
+     ],
+     "rounds": 4
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+      "m5",
+      "m6"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m4": 6
+        }
+       },
+       "m1": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m2": 7
+        }
+       },
+       "m2": {
+        "draft": "a longer draft",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m1": 5,
+         "m4": 5,
+         "m5": 3
+        }
+       },
+       "m3": {
+        "draft": "plan",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 9,
+         "m1": 6,
+         "m4": 5
+        }
+       },
+       "m4": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m3": 10,
+         "m6": 6
+        }
+       },
+       "m5": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 8,
+         "m1": 3,
+         "m2": 8,
+         "m3": 1,
+         "m4": 4,
+         "m6": 10
+        }
+       },
+       "m6": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m2": 8,
+         "m5": 2
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "a longer draft",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m5": 7,
+         "m6": 1
+        }
+       },
+       "m1": {
+        "agree_with": "m0.r1",
+        "draft": "ok",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 3
+        }
+       },
+       "m2": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m1": 5
+        }
+       },
+       "m3": {
+        "agree_with": "m3.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m4": null,
+       "m5": {
+        "agree_with": "m4.r1",
+        "draft": "ok",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 8,
+         "m2": 3,
+         "m3": 10
+        }
+       },
+       "m6": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {}
+       }
+      },
+      {
+       "m0": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "propose",
+        "ratings": {}
+       },
+       "m1": null,
+       "m2": {
+        "agree_with": "m4.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m4": 5,
+         "m5": 5,
+         "m6": 2
+        }
+       },
+       "m3": {
+        "agree_with": "m6.r2",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m5": 7
+        }
+       },
+       "m4": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m0": 4,
+         "m1": 6,
+         "m2": 0,
+         "m3": 8,
+         "m5": 1
+        }
+       },
+       "m5": null,
+       "m6": {
+        "draft": "plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m1": 6
+        }
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m3, m5; weight: 0.29\n\n```text group answer\na longer draft\n```\n\nMembers: m0; weight: 0.14\n\n```text group answer\nplan b\n```\n\nMembers: m1; weight: 0.14\n\n```text group answer\nPlan\n```\n\nMembers: m2; weight: 0.14\n\n```text group answer\nPlan\n```\n\nMembers: m4; weight: 0.14\n\n```text group answer\nok\n```\n\nMembers: m6; weight: 0.14\n\n```text group answer\nplan\n```\n\n## Dissent\n\n```text objections from m0\n\n```\n\n```text objections from m1\n\n```\n\n```text objections from m2\n\n```\n\n```text objections from m4\nno\n```\n\n```text objections from m6\n\n```\n\n## Trajectory\n\nRounds: 3\nD: [0.7476190476190476, 0.8738095238095239, 0.8380952380952381]\n",
+   "name": "compensated_sum_4",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m0",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m4",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m6",
+      "holdout": false,
+      "objections": ""
+     }
+    ],
+    "groups": [
+     {
+      "answer": "a longer draft",
+      "members": [
+       "m3",
+       "m5"
+      ],
+      "weight": 0.2857142857142857
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m0"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m2"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": "ok",
+      "members": [
+       "m4"
+      ],
+      "weight": 0.14285714285714285
+     },
+     {
+      "answer": "plan",
+      "members": [
+       "m6"
+      ],
+      "weight": 0.14285714285714285
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.7476190476190476,
+      0.8738095238095239,
+      0.8380952380952381
+     ],
+     "rounds": 3
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": {
+        "draft": "plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {}
+       },
+       "m1": {
+        "draft": "plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m2": 5,
+         "m3": 3
+        }
+       },
+       "m2": null,
+       "m3": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 2,
+         "m1": 9,
+         "m2": 10
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m1.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m1": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 10,
+         "m2": 1
+        }
+       },
+       "m2": {
+        "agree_with": "m1.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 6,
+         "m3": 5
+        }
+       },
+       "m3": {
+        "agree_with": "m1.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 0,
+         "m1": 2,
+         "m2": 10
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m1.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 4,
+         "m2": 8,
+         "m3": 5
+        }
+       },
+       "m1": {
+        "draft": "plan",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m2": 10
+        }
+       },
+       "m2": {
+        "agree_with": "m0.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 1,
+         "m1": 2,
+         "m3": 6
+        }
+       },
+       "m3": {
+        "agree_with": "m1.r2",
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 2,
+         "m2": 1
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "plan",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {}
+       },
+       "m1": {
+        "draft": "Plan",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 0,
+         "m2": 9
+        }
+       },
+       "m2": null,
+       "m3": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 9
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m1": 7,
+         "m2": 0,
+         "m3": 10
+        }
+       },
+       "m1": {
+        "agree_with": "m3.r4",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m2": 2,
+         "m3": 5
+        }
+       },
+       "m2": null,
+       "m3": {
+        "agree_with": "m1.r4",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 3,
+         "m1": 7,
+         "m2": 10
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m1.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m1": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "object",
+        "ratings": {}
+       },
+       "m2": {
+        "agree_with": "m3.r4",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m3": 3
+        }
+       },
+       "m3": null
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0; weight: 0.25\n\n```text group answer\nplan b\n```\n\nMembers: m1; weight: 0.25\n\n```text group answer\nplan b\n```\n\nMembers: m2; weight: 0.25\n\n```text group answer\nplan b\n```\n\nMembers: m3; weight: 0.25\n\n```text group answer\nPlan\n```\n\n## Dissent\n\n```text objections from m1\n\n```\n\n```text objections from m2\nno\n```\n\n```text objections from m3\n\n```\n\n## Trajectory\n\nRounds: 6\nD: [0.7583333333333333, 0.7166666666666667, 0.6749999999999999, 0.7833333333333333, 0.5583333333333333, 0.8083333333333332]\n",
+   "name": "compensated_sum_5",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": ""
+     }
+    ],
+    "groups": [
+     {
+      "answer": "plan b",
+      "members": [
+       "m0"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m2"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m3"
+      ],
+      "weight": 0.25
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.7583333333333333,
+      0.7166666666666667,
+      0.6749999999999999,
+      0.7833333333333333,
+      0.5583333333333333,
+      0.8083333333333332
+     ],
+     "rounds": 6
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4"
+     ],
+     "kind": "list",
+     "n": 3,
+     "rounds": [
+      {
+       "m0": {
+        "items": [
+         "alpha"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "gamma",
+         "alpha"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m2": {
+        "items": [
+         "alpha",
+         "y",
+         "gamma"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m3": {
+        "items": [
+         "Straße"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m4": {
+        "items": [
+         "x"
+        ],
+        "objections": "no",
+        "position": "object"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "y"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m1": {
+        "items": [
+         "y",
+         "x",
+         "Alpha"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "be ta"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m3": null,
+       "m4": {
+        "items": [
+         "x",
+         "beta",
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "object"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "beta",
+         "Straße",
+         "y"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "ALPHA ",
+         "beta",
+         "y"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "x",
+         "Straße"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "beta",
+         "Alpha",
+         "STRASSE"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m4": {
+        "items": [
+         "STRASSE",
+         "beta"
+        ],
+        "objections": "",
+        "position": "propose"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "beta",
+         "x"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m1": {
+        "items": [
+         "gamma",
+         "y"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "STRASSE",
+         "Alpha",
+         "y"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "be ta",
+         "ALPHA "
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "alpha"
+        ],
+        "objections": "no",
+        "position": "agree"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "alpha",
+         "y"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "Straße",
+         "x",
+         "STRASSE"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m2": {
+        "items": [
+         "x"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "Straße"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "be ta",
+         "beta",
+         "Straße"
+        ],
+        "objections": "",
+        "position": "propose"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "Alpha",
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "ALPHA "
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m2": {
+        "items": [
+         "alpha",
+         "Straße"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "x",
+         "beta"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m4": null
+      },
+      {
+       "m0": {
+        "items": [
+         "ALPHA ",
+         "y",
+         "Alpha"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m1": {
+        "items": [
+         "STRASSE",
+         "Straße"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m2": {
+        "items": [
+         "beta",
+         "x"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m3": {
+        "items": [
+         "y",
+         "x",
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m4": {
+        "items": [
+         "STRASSE"
+        ],
+        "objections": "",
+        "position": "propose"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "y"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m1": {
+        "items": [
+         "beta",
+         "Alpha"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m2": {
+        "items": [
+         "Alpha",
+         "STRASSE",
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "gamma"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "STRASSE",
+         "y"
+        ],
+        "objections": "no",
+        "position": "object"
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0; weight: 0.20\n\n```text group answer\n[\"y\"]\n```\n\nMembers: m1; weight: 0.20\n\n```text group answer\n[\"beta\", \"Alpha\"]\n```\n\nMembers: m2; weight: 0.20\n\n```text group answer\n[\"Alpha\", \"STRASSE\"]\n```\n\nMembers: m3; weight: 0.20\n\n```text group answer\n[\"gamma\"]\n```\n\nMembers: m4; weight: 0.20\n\n```text group answer\n[\"STRASSE\", \"y\"]\n```\n\n## Dissent\n\n```text objections from m1\nno\n```\n\n```text objections from m2\n\n```\n\n```text objections from m3\nno\n```\n\n```text objections from m4\nno\n```\n\n## Trajectory\n\nRounds: 8\nD: [0.8666666666666666, 0.9, 0.5333333333333333, 0.8666666666666666, 0.8666666666666666, 0.8333333333333334, 0.8666666666666666, 0.9]\n",
+   "name": "compensated_sum_6",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m4",
+      "holdout": false,
+      "objections": "no"
+     }
+    ],
+    "groups": [
+     {
+      "answer": [
+       "y"
+      ],
+      "members": [
+       "m0"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": [
+       "beta",
+       "Alpha"
+      ],
+      "members": [
+       "m1"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": [
+       "Alpha",
+       "STRASSE"
+      ],
+      "members": [
+       "m2"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": [
+       "gamma"
+      ],
+      "members": [
+       "m3"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": [
+       "STRASSE",
+       "y"
+      ],
+      "members": [
+       "m4"
+      ],
+      "weight": 0.2
+     }
+    ],
+    "kind": "list:3",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.8666666666666666,
+      0.9,
+      0.5333333333333333,
+      0.8666666666666666,
+      0.8666666666666666,
+      0.8333333333333334,
+      0.8666666666666666,
+      0.9
+     ],
+     "rounds": 8
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+      "m5"
+     ],
+     "kind": "list",
+     "n": 3,
+     "rounds": [
+      {
+       "m0": {
+        "items": [
+         "ALPHA ",
+         "gamma",
+         "be ta"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "be ta",
+         "y"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "be ta",
+         "ALPHA ",
+         "gamma"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m3": null,
+       "m4": {
+        "items": [
+         "y",
+         "alpha"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m5": {
+        "items": [
+         "be ta"
+        ],
+        "objections": "no",
+        "position": "propose"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "beta",
+         "gamma",
+         "alpha"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m1": {
+        "items": [
+         "beta"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "Straße"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m3": {
+        "items": [
+         "y",
+         "Straße",
+         "be ta"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "Straße",
+         "STRASSE"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m5": {
+        "items": [
+         "beta",
+         "ALPHA ",
+         "STRASSE"
+        ],
+        "objections": "no",
+        "position": "propose"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "Straße"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m1": {
+        "items": [
+         "STRASSE"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m2": {
+        "items": [
+         "gamma",
+         "Alpha",
+         "STRASSE"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "Straße",
+         "beta"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "STRASSE",
+         "gamma",
+         "x"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m5": null
+      },
+      {
+       "m0": {
+        "items": [
+         "Straße"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "ALPHA "
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "beta"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m3": {
+        "items": [
+         "x",
+         "Alpha"
+        ],
+        "objections": "no",
+        "position": "object"
+       },
+       "m4": {
+        "items": [
+         "Straße",
+         "Alpha"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m5": {
+        "items": [
+         "STRASSE",
+         "gamma",
+         "alpha"
+        ],
+        "objections": "no",
+        "position": "propose"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "x"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "beta",
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m2": {
+        "items": [
+         "alpha",
+         "ALPHA ",
+         "be ta"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m3": {
+        "items": [
+         "ALPHA ",
+         "y",
+         "x"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "gamma",
+         "Straße"
+        ],
+        "objections": "",
+        "position": "object"
+       },
+       "m5": {
+        "items": [
+         "ALPHA "
+        ],
+        "objections": "",
+        "position": "agree"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "STRASSE"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "y",
+         "gamma"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m2": null,
+       "m3": {
+        "items": [
+         "y"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m4": {
+        "items": [
+         "y",
+         "be ta",
+         "Alpha"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m5": null
+      },
+      {
+       "m0": {
+        "items": [
+         "Alpha",
+         "gamma"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m1": null,
+       "m2": {
+        "items": [
+         "y"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "gamma",
+         "beta"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m4": {
+        "items": [
+         "be ta",
+         "ALPHA "
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m5": {
+        "items": [
+         "gamma"
+        ],
+        "objections": "",
+        "position": "propose"
+       }
+      },
+      {
+       "m0": {
+        "items": [
+         "beta"
+        ],
+        "objections": "",
+        "position": "agree"
+       },
+       "m1": {
+        "items": [
+         "ALPHA ",
+         "be ta"
+        ],
+        "objections": "",
+        "position": "propose"
+       },
+       "m2": {
+        "items": [
+         "ALPHA ",
+         "be ta"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m3": {
+        "items": [
+         "Alpha",
+         "y"
+        ],
+        "objections": "no",
+        "position": "propose"
+       },
+       "m4": {
+        "items": [
+         "beta",
+         "y",
+         "Straße"
+        ],
+        "objections": "no",
+        "position": "agree"
+       },
+       "m5": {
+        "items": [
+         "be ta"
+        ],
+        "objections": "no",
+        "position": "agree"
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m1, m2; weight: 0.33\n\n```text group answer\n[\"ALPHA \", \"be ta\"]\n```\n\nMembers: m0; weight: 0.17\n\n```text group answer\n[\"beta\"]\n```\n\nMembers: m3; weight: 0.17\n\n```text group answer\n[\"Alpha\", \"y\"]\n```\n\nMembers: m4; weight: 0.17\n\n```text group answer\n[\"beta\", \"y\", \"Straße\"]\n```\n\nMembers: m5; weight: 0.17\n\n```text group answer\n[\"be ta\"]\n```\n\n## Dissent\n\n```text objections from m0\n\n```\n\n```text objections from m3\nno\n```\n\n```text objections from m4\nno\n```\n\n```text objections from m5\nno\n```\n\n## Trajectory\n\nRounds: 8\nD: [0.7555555555555554, 0.7777777777777778, 0.6, 0.8, 0.8444444444444444, 0.8444444444444444, 0.8222222222222222, 0.8222222222222223]\n",
+   "name": "compensated_sum_7",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m0",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m4",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m5",
+      "holdout": false,
+      "objections": "no"
+     }
+    ],
+    "groups": [
+     {
+      "answer": [
+       "ALPHA ",
+       "be ta"
+      ],
+      "members": [
+       "m1",
+       "m2"
+      ],
+      "weight": 0.3333333333333333
+     },
+     {
+      "answer": [
+       "beta"
+      ],
+      "members": [
+       "m0"
+      ],
+      "weight": 0.16666666666666666
+     },
+     {
+      "answer": [
+       "Alpha",
+       "y"
+      ],
+      "members": [
+       "m3"
+      ],
+      "weight": 0.16666666666666666
+     },
+     {
+      "answer": [
+       "beta",
+       "y",
+       "Straße"
+      ],
+      "members": [
+       "m4"
+      ],
+      "weight": 0.16666666666666666
+     },
+     {
+      "answer": [
+       "be ta"
+      ],
+      "members": [
+       "m5"
+      ],
+      "weight": 0.16666666666666666
+     }
+    ],
+    "kind": "list:3",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.7555555555555554,
+      0.7777777777777778,
+      0.6,
+      0.8,
+      0.8444444444444444,
+      0.8444444444444444,
+      0.8222222222222222,
+      0.8222222222222223
+     ],
+     "rounds": 8
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": null,
+       "m1": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 1,
+         "m2": 6
+        }
+       },
+       "m2": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m3": 6
+        }
+       },
+       "m3": null,
+       "m4": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m2": 8
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m1": 4,
+         "m2": 5,
+         "m3": 7,
+         "m4": 1
+        }
+       },
+       "m1": {
+        "agree_with": "m4.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 9,
+         "m3": 10
+        }
+       },
+       "m2": {
+        "agree_with": "m4.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 1,
+         "m4": 5
+        }
+       },
+       "m3": {
+        "draft": "a longer draft",
+        "objections": "",
+        "position": "object",
+        "ratings": {}
+       },
+       "m4": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m0": 7,
+         "m2": 5,
+         "m3": 7
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m0.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m1": 8,
+         "m2": 0
+        }
+       },
+       "m1": {
+        "agree_with": "m1.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 6,
+         "m4": 3
+        }
+       },
+       "m2": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {}
+       },
+       "m3": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m1": 1,
+         "m4": 7
+        }
+       },
+       "m4": {
+        "agree_with": "m0.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 4,
+         "m1": 3,
+         "m2": 0,
+         "m3": 3
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m4.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m2": 8,
+         "m4": 8
+        }
+       },
+       "m1": {
+        "agree_with": "m3.r2",
+        "draft": "plan b",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m2": 4,
+         "m4": 7
+        }
+       },
+       "m2": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m0": 0,
+         "m3": 2,
+         "m4": 10
+        }
+       },
+       "m3": {
+        "agree_with": "m2.r3",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 3,
+         "m2": 3
+        }
+       },
+       "m4": {
+        "agree_with": "m3.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 8,
+         "m2": 0,
+         "m3": 5
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m4.r2",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 5,
+         "m2": 10
+        }
+       },
+       "m1": {
+        "agree_with": "m1.r4",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 2,
+         "m3": 1,
+         "m4": 2
+        }
+       },
+       "m2": {
+        "agree_with": "m0.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m4": 10
+        }
+       },
+       "m3": {
+        "agree_with": "m2.r3",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 1,
+         "m1": 1,
+         "m2": 1,
+         "m4": 0
+        }
+       },
+       "m4": {
+        "agree_with": "m4.r2",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 3,
+         "m1": 6,
+         "m2": 2,
+         "m3": 6
+        }
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m1.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 2,
+         "m2": 0,
+         "m3": 9,
+         "m4": 3
+        }
+       },
+       "m1": {
+        "agree_with": "m1.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 0,
+         "m3": 6,
+         "m4": 5
+        }
+       },
+       "m2": null,
+       "m3": null,
+       "m4": {
+        "draft": "ok",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m0": 10,
+         "m2": 7
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m3": 4
+        }
+       },
+       "m1": null,
+       "m2": {
+        "agree_with": "m4.r2",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 0
+        }
+       },
+       "m3": {
+        "agree_with": "m4.r1",
+        "draft": "a longer draft",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 8
+        }
+       },
+       "m4": {
+        "draft": "a longer draft",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m3": 0
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "Plan",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m1": 3
+        }
+       },
+       "m1": {
+        "agree_with": "m2.r4",
+        "draft": "Plan",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 0,
+         "m4": 0
+        }
+       },
+       "m2": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 9,
+         "m1": 10
+        }
+       },
+       "m3": {
+        "agree_with": "m2.r4",
+        "objections": "",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m4": {
+        "draft": "ok",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m1": 3,
+         "m2": 2,
+         "m3": 0
+        }
+       }
+      },
+      {
+       "m0": null,
+       "m1": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 8
+        }
+       },
+       "m2": null,
+       "m3": null,
+       "m4": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {}
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0; weight: 0.20\n\n```text group answer\nPlan\n```\n\nMembers: m1; weight: 0.20\n\n```text group answer\nplan b\n```\n\nMembers: m2; weight: 0.20\n\n```text group answer\nplan b\n```\n\nMembers: m3; weight: 0.20\n\n```text group answer\na longer draft\n```\n\nMembers: m4; weight: 0.20\n\n```text group answer\nplan b\n```\n\n## Dissent\n\n```text objections from m1\nno\n```\n\n```text objections from m2\n\n```\n\n```text objections from m3\n\n```\n\n```text objections from m4\nno\n```\n\n## Trajectory\n\nRounds: 9\nD: [0.8949999999999999, 0.6950000000000001, 0.825, 0.71, 0.75, 0.725, 0.885, 0.865, 0.85]\n",
+   "name": "compensated_sum_8",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m3",
+      "holdout": true,
+      "objections": ""
+     },
+     {
+      "member": "m4",
+      "holdout": true,
+      "objections": "no"
+     }
+    ],
+    "groups": [
+     {
+      "answer": "Plan",
+      "members": [
+       "m0"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m2"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "a longer draft",
+      "members": [
+       "m3"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m4"
+      ],
+      "weight": 0.2
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.8949999999999999,
+      0.6950000000000001,
+      0.825,
+      0.71,
+      0.75,
+      0.725,
+      0.885,
+      0.865,
+      0.85
+     ],
+     "rounds": 9
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": {
+        "draft": "a longer draft",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m2": 8,
+         "m3": 3
+        }
+       },
+       "m1": {
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 0,
+         "m2": 3,
+         "m3": 5
+        }
+       },
+       "m2": {
+        "draft": "plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 0,
+         "m3": 5
+        }
+       },
+       "m3": null
+      },
+      {
+       "m0": {
+        "draft": "a longer draft",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m2": 5
+        }
+       },
+       "m1": {
+        "agree_with": "m2.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 2,
+         "m2": 4
+        }
+       },
+       "m2": null,
+       "m3": {
+        "agree_with": "m2.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {}
+       }
+      },
+      {
+       "m0": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m1": 2,
+         "m2": 9,
+         "m3": 5
+        }
+       },
+       "m1": {
+        "draft": "ok",
+        "objections": "",
+        "position": "propose",
+        "ratings": {}
+       },
+       "m2": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m1": 0
+        }
+       },
+       "m3": {
+        "agree_with": "m0.r1",
+        "draft": "ok",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 2,
+         "m1": 9,
+         "m2": 0
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m1": 1,
+         "m3": 5
+        }
+       },
+       "m1": {
+        "agree_with": "m2.r3",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m2": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "object",
+        "ratings": {}
+       },
+       "m3": {
+        "agree_with": "m0.r2",
+        "draft": "a longer draft",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m0": 4,
+         "m2": 1
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {}
+       },
+       "m1": {
+        "draft": "plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 3,
+         "m3": 8
+        }
+       },
+       "m2": {
+        "draft": "ok",
+        "objections": "",
+        "position": "object",
+        "ratings": {}
+       },
+       "m3": {
+        "draft": "ok",
+        "objections": "no",
+        "position": "object",
+        "ratings": {}
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0; weight: 0.25\n\n```text group answer\nPlan\n```\n\nMembers: m1; weight: 0.25\n\n```text group answer\nplan\n```\n\nMembers: m2; weight: 0.25\n\n```text group answer\nok\n```\n\nMembers: m3; weight: 0.25\n\n```text group answer\nok\n```\n\n## Dissent\n\n```text objections from m1\n\n```\n\n```text objections from m2\n\n```\n\n```text objections from m3\nno\n```\n\n## Trajectory\n\nRounds: 5\nD: [0.7999999999999999, 0.8666666666666667, 0.775, 0.9083333333333333, 0.9083333333333333]\n",
+   "name": "compensated_sum_9",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": "no"
+     }
+    ],
+    "groups": [
+     {
+      "answer": "Plan",
+      "members": [
+       "m0"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "plan",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "ok",
+      "members": [
+       "m2"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "ok",
+      "members": [
+       "m3"
+      ],
+      "weight": 0.25
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.7999999999999999,
+      0.8666666666666667,
+      0.775,
+      0.9083333333333333,
+      0.9083333333333333
+     ],
+     "rounds": 5
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {}
+       },
+       "m1": null,
+       "m2": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m3": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m1": 8,
+         "m2": 5
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m3": 5
+        }
+       },
+       "m1": {
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m2": 8
+        }
+       },
+       "m2": {
+        "agree_with": "m3.r1",
+        "draft": "a longer draft",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 7,
+         "m1": 3
+        }
+       },
+       "m3": {
+        "draft": "plan",
+        "objections": "no",
+        "position": "propose",
+        "ratings": {
+         "m1": 9
+        }
+       }
+      },
+      {
+       "m0": null,
+       "m1": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {}
+       },
+       "m2": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 3,
+         "m1": 8
+        }
+       },
+       "m3": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "object",
+        "ratings": {}
+       }
+      },
+      {
+       "m0": {
+        "agree_with": "m3.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {}
+       },
+       "m1": {
+        "agree_with": "m0.r1",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m3": 0
+        }
+       },
+       "m2": {
+        "agree_with": "m0.r1",
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 9,
+         "m1": 9,
+         "m3": 4
+        }
+       },
+       "m3": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m2": 9
+        }
+       }
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0; weight: 0.25\n\n```text group answer\na longer draft\n```\n\nMembers: m1; weight: 0.25\n\n```text group answer\na longer draft\n```\n\nMembers: m2; weight: 0.25\n\n```text group answer\na longer draft\n```\n\nMembers: m3; weight: 0.25\n\n```text group answer\nplan b\n```\n\n## Dissent\n\n```text objections from m1\n\n```\n\n```text objections from m2\nno\n```\n\n```text objections from m3\n\n```\n\n## Trajectory\n\nRounds: 4\nD: [0.8916666666666666, 0.7333333333333334, 0.8666666666666667, 0.7416666666666667]\n",
+   "name": "compensated_sum_10",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": "no"
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": ""
+     }
+    ],
+    "groups": [
+     {
+      "answer": "a longer draft",
+      "members": [
+       "m0"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "a longer draft",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "a longer draft",
+      "members": [
+       "m2"
+      ],
+      "weight": 0.25
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m3"
+      ],
+      "weight": 0.25
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.8916666666666666,
+      0.7333333333333334,
+      0.8666666666666667,
+      0.7416666666666667
+     ],
+     "rounds": 4
+    }
+   }
+  },
+  {
+   "fixture": {
+    "input": {
+     "crew": [
+      "m0",
+      "m1",
+      "m2",
+      "m3",
+      "m4"
+     ],
+     "kind": "text",
+     "n": null,
+     "rounds": [
+      {
+       "m0": {
+        "draft": "plan b",
+        "objections": "no",
+        "position": "object",
+        "ratings": {}
+       },
+       "m1": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 4,
+         "m3": 4,
+         "m4": 2
+        }
+       },
+       "m2": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 0,
+         "m3": 9,
+         "m4": 9
+        }
+       },
+       "m3": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 4,
+         "m1": 0,
+         "m2": 4,
+         "m4": 3
+        }
+       },
+       "m4": {
+        "objections": "no",
+        "position": "agree",
+        "ratings": {
+         "m0": 1,
+         "m1": 8,
+         "m2": 10,
+         "m3": 7
+        }
+       }
+      },
+      {
+       "m0": {
+        "draft": "Plan",
+        "objections": "no",
+        "position": "object",
+        "ratings": {}
+       },
+       "m1": {
+        "draft": "Plan",
+        "objections": "no",
+        "position": "object",
+        "ratings": {
+         "m0": 9,
+         "m2": 7,
+         "m3": 10,
+         "m4": 0
+        }
+       },
+       "m2": null,
+       "m3": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 8,
+         "m1": 7,
+         "m2": 7
+        }
+       },
+       "m4": {
+        "draft": "plan b",
+        "objections": "",
+        "position": "object",
+        "ratings": {
+         "m0": 6,
+         "m1": 6,
+         "m2": 2,
+         "m3": 0
+        }
+       }
+      },
+      {
+       "m0": null,
+       "m1": {
+        "draft": "plan",
+        "objections": "",
+        "position": "propose",
+        "ratings": {
+         "m0": 1,
+         "m2": 3,
+         "m3": 4
+        }
+       },
+       "m2": {
+        "draft": "Plan",
+        "objections": "",
+        "position": "object",
+        "ratings": {}
+       },
+       "m3": {
+        "agree_with": "m3.r2",
+        "draft": "ok",
+        "objections": "",
+        "position": "agree",
+        "ratings": {
+         "m1": 8,
+         "m4": 8
+        }
+       },
+       "m4": null
+      }
+     ]
+    },
+    "type": "rounds"
+   },
+   "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: open\n\n## Answer\n\n```text answer\nNone\n```\n\n## Groups\n\nMembers: m0; weight: 0.20\n\n```text group answer\nPlan\n```\n\nMembers: m1; weight: 0.20\n\n```text group answer\nplan\n```\n\nMembers: m2; weight: 0.20\n\n```text group answer\nPlan\n```\n\nMembers: m3; weight: 0.20\n\n```text group answer\nPlan\n```\n\nMembers: m4; weight: 0.20\n\n```text group answer\nplan b\n```\n\n## Dissent\n\n```text objections from m1\n\n```\n\n```text objections from m2\n\n```\n\n```text objections from m3\n\n```\n\n```text objections from m4\n\n```\n\n## Trajectory\n\nRounds: 3\nD: [0.675, 0.6, 0.8099999999999999]\n",
+   "name": "compensated_sum_11",
+   "result": {
+    "answer": null,
+    "dissent": [
+     {
+      "member": "m1",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m2",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m3",
+      "holdout": false,
+      "objections": ""
+     },
+     {
+      "member": "m4",
+      "holdout": false,
+      "objections": ""
+     }
+    ],
+    "groups": [
+     {
+      "answer": "Plan",
+      "members": [
+       "m0"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "plan",
+      "members": [
+       "m1"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m2"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "Plan",
+      "members": [
+       "m3"
+      ],
+      "weight": 0.2
+     },
+     {
+      "answer": "plan b",
+      "members": [
+       "m4"
+      ],
+      "weight": 0.2
+     }
+    ],
+    "kind": "text",
+    "label": "Proposal for the principals, not a decision",
+    "outcome": "open",
+    "trajectory": {
+     "D": [
+      0.675,
+      0.6,
+      0.8099999999999999
+     ],
+     "rounds": 3
+    }
+   }
+  }
+ ],
+ "text": {
+  "clean": [
+   [
+    "\u001fa\u001f",
+    10,
+    "a"
+   ],
+   [
+    "a ",
+    10,
+    "a"
+   ],
+   [
+    "  　 x  ",
+    10,
+    "x"
+   ],
+   [
+    "abc",
+    3,
+    "abc"
+   ],
+   [
+    "abcd",
+    3,
+    "abc…"
+   ],
+   [
+    "🙂🙂",
+    1,
+    "🙂…"
+   ],
+   [
+    "",
+    5,
+    ""
+   ],
+   [
+    "‮x⁦",
+    5,
+    "x"
+   ],
+   [
+    "a\r\nb",
+    10,
+    "a \nb"
+   ]
+  ],
+  "fence": [
+   [
+    "answer",
+    "plain",
+    "```text answer\nplain\n```"
+   ],
+   [
+    "x",
+    "````",
+    "`````text x\n````\n`````"
+   ],
+   [
+    "objections from c00",
+    "a ` b `` c",
+    "```text objections from c00\na ` b `` c\n```"
+   ],
+   [
+    "a/b (v1)",
+    "",
+    "```text a/b (v1)\n\n```"
+   ]
+  ],
+  "leaks": [
+   [
+    "mail me at x.y+z@sub.example.co",
+    [],
+    [
+     "email"
+    ]
+   ],
+   [
+    "see /tmp/x",
+    [],
+    [
+     "path"
+    ]
+   ],
+   [
+    "see /tmp",
+    [],
+    []
+   ],
+   [
+    "ratio 1/2/3",
+    [],
+    []
+   ],
+   [
+    "(~/notes/a)",
+    [],
+    [
+     "path"
+    ]
+   ],
+   [
+    "=/etc/x",
+    [],
+    [
+     "path"
+    ]
+   ],
+   [
+    "Ünïcode ÜBER",
+    [
+     "über"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "project-x is fine",
+    [
+     "project"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "projects only",
+    [
+     "project"
+    ],
+    []
+   ],
+   [
+    "c++ rocks",
+    [
+     "c++"
+    ],
+    []
+   ],
+   [
+    "hello",
+    [
+     ""
+    ],
+    []
+   ],
+   [
+    "tab\t/var/x",
+    [],
+    [
+     "path"
+    ]
+   ],
+   [
+    "secret️",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "secret‍",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "secret́",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "secretְ",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "secretः",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "secret‿",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "Ⓐsecret",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "İstanbul",
+    [
+     "istanbul"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "ıstanbul",
+    [
+     "istanbul"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "secret²",
+    [
+     "secret"
+    ],
+    []
+   ],
+   [
+    "secret_x",
+    [
+     "secret"
+    ],
+    []
+   ],
+   [
+    "x́secret",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a@x́.y",
+    [],
+    []
+   ],
+   [
+    "a@x.ýz",
+    [],
+    [
+     "email"
+    ]
+   ],
+   [
+    "\u001c/tmp/x/",
+    [],
+    [
+     "path"
+    ]
+   ],
+   [
+    "\u001f~/a/b",
+    [],
+    [
+     "path"
+    ]
+   ],
+   [
+    "été@école.fr",
+    [],
+    [
+     "email"
+    ]
+   ],
+   [
+    "ñ@x.io",
+    [],
+    []
+   ],
+   [
+    "/áb/",
+    [],
+    []
+   ],
+   [
+    " /été/x",
+    [],
+    [
+     "path"
+    ]
+   ],
+   [
+    "+c++ rocks",
+    [
+     "c++"
+    ],
+    []
+   ],
+   [
+    "xc++y",
+    [
+     "c++"
+    ],
+    []
+   ],
+   [
+    "(a.b)",
+    [
+     "(a.b)"
+    ],
+    []
+   ],
+   [
+    "x(a.b)y",
+    [
+     "(a.b)"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "SECRET",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "se​cret",
+    [
+     "secret"
+    ],
+    []
+   ],
+   [
+    "Kelvin",
+    [
+     "kelvin"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq secretᲉ zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq Ᲊsecret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "aᲉ@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𐵱 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𐵱secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𐵱@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𑯃 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𑯃secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𑯃@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓒜 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓒜secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓒜@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓔀 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓔀secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓔀@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓕤 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓕤secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓕤@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓗈 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓗈secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓗈@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓘬 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓘬secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓘬@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓚐 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓚐secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓚐@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓛴 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓛴secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓛴@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓝘 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓝘secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓝘@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓞼 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓞼secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓞼@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓠠 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓠠secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓠠@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓢄 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓢄secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓢄@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓣨 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓣨secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓣨@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓥌 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓥌secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓥌@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓦰 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓦰secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓦰@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓨔 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓨔secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓨔@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓩸 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓩸secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓩸@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓫜 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓫜secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓫜@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓭀 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓭀secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓭀@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓮤 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓮤secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓮤@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓰈 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓰈secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓰈@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓱬 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓱬secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓱬@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓳐 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓳐secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓳐@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓴴 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓴴secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓴴@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓶘 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓶘secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓶘@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓷼 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓷼secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓷼@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓹠 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓹠secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓹠@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓻄 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓻄secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓻄@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓼨 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓼨secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓼨@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓾌 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓾌secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓾌@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𓿰 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𓿰secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𓿰@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔁔 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔁔secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔁔@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔂸 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔂸secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔂸@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔄜 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔄜secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔄜@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔆀 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔆀secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔆀@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔇤 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔇤secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔇤@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔉈 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔉈secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔉈@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔊬 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔊬secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔊬@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔌐 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔌐secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔌐@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔍴 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔍴secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔍴@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𔏘 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𔏘secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𔏘@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𖵙 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𖵙secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𖵙@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𮰂 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𮰂secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𮰂@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𮱦 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𮱦secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𮱦@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𮳊 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𮳊secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𮳊@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𮴮 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𮴮secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𮴮@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𮶒 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𮶒secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𮶒@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𮷶 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𮷶secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𮷶@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𮹚 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𮹚secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𮹚@b.co",
+    [],
+    []
+   ],
+   [
+    "qq secret𮹝 zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "qq 𮹝secret zz",
+    [
+     "secret"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "a𮹝@b.co",
+    [],
+    []
+   ],
+   [
+    "Ᲊa",
+    [
+     "ᲊa"
+    ],
+    []
+   ],
+   [
+    "𐵒a",
+    [
+     "𐵲a"
+    ],
+    []
+   ],
+   [
+    "𐵜a",
+    [
+     "𐵼a"
+    ],
+    []
+   ],
+   [
+    "𖺠a",
+    [
+     "𖺻a"
+    ],
+    []
+   ],
+   [
+    "𖺪a",
+    [
+     "𖻅a"
+    ],
+    []
+   ],
+   [
+    "𖺴a",
+    [
+     "𖻏a"
+    ],
+    []
+   ],
+   [
+    "𖺸a",
+    [
+     "𖻓a"
+    ],
+    []
+   ],
+   [
+    "aͅωτα",
+    [
+     "ιωτα"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "ͅωτα",
+    [
+     "ιωτα"
+    ],
+    []
+   ],
+   [
+    "aιωτα",
+    [
+     "ͅωτα"
+    ],
+    []
+   ],
+   [
+    "ιωτα",
+    [
+     "ͅωτα"
+    ],
+    [
+     "term"
+    ]
+   ],
+   [
+    "ꟋA",
+    [
+     "ɤa"
+    ],
+    []
+   ],
+   [
+    "zᲉz",
+    [
+     "zᲊz"
+    ],
+    []
+   ],
+   [
+    "zᲊz",
+    [
+     "zᲉz"
+    ],
+    []
+   ],
+   [
+    "zꟋz",
+    [
+     "zɤz"
+    ],
+    []
+   ],
+   [
+    "zɤz",
+    [
+     "zꟋz"
+    ],
+    []
+   ],
+   [
+    "zꟌz",
+    [
+     "zꟍz"
+    ],
+    []
+   ],
+   [
+    "zꟍz",
+    [
+     "zꟌz"
+    ],
+    []
+   ],
+   [
+    "z꟎z",
+    [
+     "z꟏z"
+    ],
+    []
+   ],
+   [
+    "z꟏z",
+    [
+     "z꟎z"
+    ],
+    []
+   ],
+   [
+    "z꟒z",
+    [
+     "zꟓz"
+    ],
+    []
+   ],
+   [
+    "zꟓz",
+    [
+     "z꟒z"
+    ],
+    []
+   ],
+   [
+    "z꟔z",
+    [
+     "zꟕz"
+    ],
+    []
+   ],
+   [
+    "zꟕz",
+    [
+     "z꟔z"
+    ],
+    []
+   ],
+   [
+    "zꟚz",
+    [
+     "zꟛz"
+    ],
+    []
+   ],
+   [
+    "zꟛz",
+    [
+     "zꟚz"
+    ],
+    []
+   ],
+   [
+    "zꟜz",
+    [
+     "zƛz"
+    ],
+    []
+   ],
+   [
+    "zƛz",
+    [
+     "zꟜz"
+    ],
+    []
+   ],
+   [
+    "z𐵐z",
+    [
+     "z𐵰z"
+    ],
+    []
+   ],
+   [
+    "z𐵰z",
+    [
+     "z𐵐z"
+    ],
+    []
+   ],
+   [
+    "z𐵑z",
+    [
+     "z𐵱z"
+    ],
+    []
+   ],
+   [
+    "z𐵱z",
+    [
+     "z𐵑z"
+    ],
+    []
+   ],
+   [
+    "z𐵒z",
+    [
+     "z𐵲z"
+    ],
+    []
+   ],
+   [
+    "z𐵲z",
+    [
+     "z𐵒z"
+    ],
+    []
+   ],
+   [
+    "z𐵓z",
+    [
+     "z𐵳z"
+    ],
+    []
+   ],
+   [
+    "z𐵳z",
+    [
+     "z𐵓z"
+    ],
+    []
+   ],
+   [
+    "z𐵔z",
+    [
+     "z𐵴z"
+    ],
+    []
+   ],
+   [
+    "z𐵴z",
+    [
+     "z𐵔z"
+    ],
+    []
+   ],
+   [
+    "z𐵕z",
+    [
+     "z𐵵z"
+    ],
+    []
+   ],
+   [
+    "z𐵵z",
+    [
+     "z𐵕z"
+    ],
+    []
+   ],
+   [
+    "z𐵖z",
+    [
+     "z𐵶z"
+    ],
+    []
+   ],
+   [
+    "z𐵶z",
+    [
+     "z𐵖z"
+    ],
+    []
+   ],
+   [
+    "z𐵗z",
+    [
+     "z𐵷z"
+    ],
+    []
+   ],
+   [
+    "z𐵷z",
+    [
+     "z𐵗z"
+    ],
+    []
+   ],
+   [
+    "z𐵘z",
+    [
+     "z𐵸z"
+    ],
+    []
+   ],
+   [
+    "z𐵸z",
+    [
+     "z𐵘z"
+    ],
+    []
+   ],
+   [
+    "z𐵙z",
+    [
+     "z𐵹z"
+    ],
+    []
+   ],
+   [
+    "z𐵹z",
+    [
+     "z𐵙z"
+    ],
+    []
+   ],
+   [
+    "z𐵚z",
+    [
+     "z𐵺z"
+    ],
+    []
+   ],
+   [
+    "z𐵺z",
+    [
+     "z𐵚z"
+    ],
+    []
+   ],
+   [
+    "z𐵛z",
+    [
+     "z𐵻z"
+    ],
+    []
+   ],
+   [
+    "z𐵻z",
+    [
+     "z𐵛z"
+    ],
+    []
+   ],
+   [
+    "z𐵜z",
+    [
+     "z𐵼z"
+    ],
+    []
+   ],
+   [
+    "z𐵼z",
+    [
+     "z𐵜z"
+    ],
+    []
+   ],
+   [
+    "z𐵝z",
+    [
+     "z𐵽z"
+    ],
+    []
+   ],
+   [
+    "z𐵽z",
+    [
+     "z𐵝z"
+    ],
+    []
+   ],
+   [
+    "z𐵞z",
+    [
+     "z𐵾z"
+    ],
+    []
+   ],
+   [
+    "z𐵾z",
+    [
+     "z𐵞z"
+    ],
+    []
+   ],
+   [
+    "z𐵟z",
+    [
+     "z𐵿z"
+    ],
+    []
+   ],
+   [
+    "z𐵿z",
+    [
+     "z𐵟z"
+    ],
+    []
+   ],
+   [
+    "z𐵠z",
+    [
+     "z𐶀z"
+    ],
+    []
+   ],
+   [
+    "z𐶀z",
+    [
+     "z𐵠z"
+    ],
+    []
+   ],
+   [
+    "z𐵡z",
+    [
+     "z𐶁z"
+    ],
+    []
+   ],
+   [
+    "z𐶁z",
+    [
+     "z𐵡z"
+    ],
+    []
+   ],
+   [
+    "z𐵢z",
+    [
+     "z𐶂z"
+    ],
+    []
+   ],
+   [
+    "z𐶂z",
+    [
+     "z𐵢z"
+    ],
+    []
+   ],
+   [
+    "z𐵣z",
+    [
+     "z𐶃z"
+    ],
+    []
+   ],
+   [
+    "z𐶃z",
+    [
+     "z𐵣z"
+    ],
+    []
+   ],
+   [
+    "z𐵤z",
+    [
+     "z𐶄z"
+    ],
+    []
+   ],
+   [
+    "z𐶄z",
+    [
+     "z𐵤z"
+    ],
+    []
+   ],
+   [
+    "z𐵥z",
+    [
+     "z𐶅z"
+    ],
+    []
+   ],
+   [
+    "z𐶅z",
+    [
+     "z𐵥z"
+    ],
+    []
+   ],
+   [
+    "z𖺠z",
+    [
+     "z𖺻z"
+    ],
+    []
+   ],
+   [
+    "z𖺻z",
+    [
+     "z𖺠z"
+    ],
+    []
+   ],
+   [
+    "z𖺡z",
+    [
+     "z𖺼z"
+    ],
+    []
+   ],
+   [
+    "z𖺼z",
+    [
+     "z𖺡z"
+    ],
+    []
+   ],
+   [
+    "z𖺢z",
+    [
+     "z𖺽z"
+    ],
+    []
+   ],
+   [
+    "z𖺽z",
+    [
+     "z𖺢z"
+    ],
+    []
+   ],
+   [
+    "z𖺣z",
+    [
+     "z𖺾z"
+    ],
+    []
+   ],
+   [
+    "z𖺾z",
+    [
+     "z𖺣z"
+    ],
+    []
+   ],
+   [
+    "z𖺤z",
+    [
+     "z𖺿z"
+    ],
+    []
+   ],
+   [
+    "z𖺿z",
+    [
+     "z𖺤z"
+    ],
+    []
+   ],
+   [
+    "z𖺥z",
+    [
+     "z𖻀z"
+    ],
+    []
+   ],
+   [
+    "z𖻀z",
+    [
+     "z𖺥z"
+    ],
+    []
+   ],
+   [
+    "z𖺦z",
+    [
+     "z𖻁z"
+    ],
+    []
+   ],
+   [
+    "z𖻁z",
+    [
+     "z𖺦z"
+    ],
+    []
+   ],
+   [
+    "z𖺧z",
+    [
+     "z𖻂z"
+    ],
+    []
+   ],
+   [
+    "z𖻂z",
+    [
+     "z𖺧z"
+    ],
+    []
+   ],
+   [
+    "z𖺨z",
+    [
+     "z𖻃z"
+    ],
+    []
+   ],
+   [
+    "z𖻃z",
+    [
+     "z𖺨z"
+    ],
+    []
+   ],
+   [
+    "z𖺩z",
+    [
+     "z𖻄z"
+    ],
+    []
+   ],
+   [
+    "z𖻄z",
+    [
+     "z𖺩z"
+    ],
+    []
+   ],
+   [
+    "z𖺪z",
+    [
+     "z𖻅z"
+    ],
+    []
+   ],
+   [
+    "z𖻅z",
+    [
+     "z𖺪z"
+    ],
+    []
+   ],
+   [
+    "z𖺫z",
+    [
+     "z𖻆z"
+    ],
+    []
+   ],
+   [
+    "z𖻆z",
+    [
+     "z𖺫z"
+    ],
+    []
+   ],
+   [
+    "z𖺬z",
+    [
+     "z𖻇z"
+    ],
+    []
+   ],
+   [
+    "z𖻇z",
+    [
+     "z𖺬z"
+    ],
+    []
+   ],
+   [
+    "z𖺭z",
+    [
+     "z𖻈z"
+    ],
+    []
+   ],
+   [
+    "z𖻈z",
+    [
+     "z𖺭z"
+    ],
+    []
+   ],
+   [
+    "z𖺮z",
+    [
+     "z𖻉z"
+    ],
+    []
+   ],
+   [
+    "z𖻉z",
+    [
+     "z𖺮z"
+    ],
+    []
+   ],
+   [
+    "z𖺯z",
+    [
+     "z𖻊z"
+    ],
+    []
+   ],
+   [
+    "z𖻊z",
+    [
+     "z𖺯z"
+    ],
+    []
+   ],
+   [
+    "z𖺰z",
+    [
+     "z𖻋z"
+    ],
+    []
+   ],
+   [
+    "z𖻋z",
+    [
+     "z𖺰z"
+    ],
+    []
+   ],
+   [
+    "z𖺱z",
+    [
+     "z𖻌z"
+    ],
+    []
+   ],
+   [
+    "z𖻌z",
+    [
+     "z𖺱z"
+    ],
+    []
+   ],
+   [
+    "z𖺲z",
+    [
+     "z𖻍z"
+    ],
+    []
+   ],
+   [
+    "z𖻍z",
+    [
+     "z𖺲z"
+    ],
+    []
+   ],
+   [
+    "z𖺳z",
+    [
+     "z𖻎z"
+    ],
+    []
+   ],
+   [
+    "z𖻎z",
+    [
+     "z𖺳z"
+    ],
+    []
+   ],
+   [
+    "z𖺴z",
+    [
+     "z𖻏z"
+    ],
+    []
+   ],
+   [
+    "z𖻏z",
+    [
+     "z𖺴z"
+    ],
+    []
+   ],
+   [
+    "z𖺵z",
+    [
+     "z𖻐z"
+    ],
+    []
+   ],
+   [
+    "z𖻐z",
+    [
+     "z𖺵z"
+    ],
+    []
+   ],
+   [
+    "z𖺶z",
+    [
+     "z𖻑z"
+    ],
+    []
+   ],
+   [
+    "z𖻑z",
+    [
+     "z𖺶z"
+    ],
+    []
+   ],
+   [
+    "z𖺷z",
+    [
+     "z𖻒z"
+    ],
+    []
+   ],
+   [
+    "z𖻒z",
+    [
+     "z𖺷z"
+    ],
+    []
+   ],
+   [
+    "z𖺸z",
+    [
+     "z𖻓z"
+    ],
+    []
+   ],
+   [
+    "z𖻓z",
+    [
+     "z𖺸z"
+    ],
+    []
+   ],
+   [
+    "a$@b.co",
+    [],
+    []
+   ],
+   [
+    "a@b$.co",
+    [],
+    []
+   ],
+   [
+    "a@b.c$o",
+    [],
+    [
+     "email"
+    ]
+   ],
+   [
+    "x /a$/",
+    [],
+    []
+   ],
+   [
+    "a+b.c-d_e@f-g.h_i",
+    [],
+    [
+     "email"
+    ]
+   ],
+   [
+    "x /a.b-c_d/",
+    [],
+    [
+     "path"
+    ]
+   ]
+  ],
+  "match_key": [
+   [
+    "STRAẞE",
+    "strasse"
+   ],
+   [
+    "ß",
+    "ss"
+   ],
+   [
+    "ΟΔΟΣ",
+    "οδοσ"
+   ],
+   [
+    "ﬁ",
+    "fi"
+   ],
+   [
+    "ŉ",
+    "ʼn"
+   ],
+   [
+    "İstanbul",
+    "i̇stanbul"
+   ],
+   [
+    "ᏸ",
+    "Ᏸ"
+   ],
+   [
+    "Ꭰ",
+    "Ꭰ"
+   ],
+   [
+    "ǅ",
+    "ǆ"
+   ],
+   [
+    "ΐ",
+    "ΐ"
+   ],
+   [
+    "ẞ ss",
+    "ss ss"
+   ],
+   [
+    "Ａ",
+    "ａ"
+   ],
+   [
+    "ẞ́",
+    "sś"
+   ]
+  ]
+ }
+}

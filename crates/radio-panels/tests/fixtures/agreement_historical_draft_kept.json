@@ -1,0 +1,107 @@
+{
+  "expect": {
+    "result": {
+      "answer": "old",
+      "groups": [
+        {
+          "answer": "old",
+          "members": [
+            "a",
+            "b"
+          ],
+          "weight": 1.0
+        }
+      ],
+      "outcome": "agreed"
+    },
+    "rounds": [
+      {
+        "D": 0.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 0.0,
+        "agreed": true,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 1,
+        "outcome": "agreed",
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "text",
+    "n": null,
+    "rounds": [
+      {
+        "a": {
+          "draft": "old",
+          "position": "propose",
+          "ratings": {
+            "b": 10
+          }
+        },
+        "b": {
+          "draft": "other",
+          "position": "propose",
+          "ratings": {
+            "a": 10
+          }
+        }
+      },
+      {
+        "a": {
+          "agree_with": "a.r1",
+          "position": "agree",
+          "ratings": {
+            "b": 10
+          }
+        },
+        "b": {
+          "agree_with": "a.r1",
+          "position": "agree",
+          "ratings": {
+            "a": 10
+          }
+        }
+      }
+    ]
+  },
+  "name": "agreement_historical_draft_kept",
+  "rule": "Agreement retains historical draft text after the author agrees.",
+  "type": "rounds"
+}

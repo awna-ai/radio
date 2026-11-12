@@ -1,0 +1,99 @@
+{
+  "expect": {
+    "result": {
+      "dissent": [],
+      "groups": [
+        {
+          "answer": "new b",
+          "members": [
+            "a",
+            "b"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "rounds": [
+      {
+        "D": 0.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 0.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 1,
+        "outcome": null,
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "text",
+    "n": null,
+    "rounds": [
+      {
+        "a": {
+          "draft": "old a",
+          "position": "propose",
+          "ratings": {
+            "b": 10
+          }
+        },
+        "b": {
+          "draft": "old b",
+          "position": "propose",
+          "ratings": {
+            "a": 10
+          }
+        }
+      },
+      {
+        "b": {
+          "draft": "new b",
+          "position": "propose",
+          "ratings": {
+            "a": 10
+          }
+        }
+      }
+    ]
+  },
+  "name": "groups_text_tie_round_then_id",
+  "rule": "Equal draft votes prefer a newer round and then lexically smaller id.",
+  "type": "rounds"
+}

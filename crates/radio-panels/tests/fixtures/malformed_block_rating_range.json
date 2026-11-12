@@ -1,0 +1,22 @@
+{
+  "expect": {
+    "malformed": true
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose\ndraft: plan\nratings: {\"b\":11}\n```",
+    "round": 2
+  },
+  "name": "malformed_block_rating_range",
+  "rule": "Only a complete valid final deliberation block moves the protocol.",
+  "type": "parse"
+}

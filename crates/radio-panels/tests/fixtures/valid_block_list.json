@@ -1,0 +1,33 @@
+{
+  "expect": {
+    "block": {
+      "agree_with": null,
+      "draft": null,
+      "draft_id": null,
+      "items": [
+        "X",
+        "y"
+      ],
+      "objections": "",
+      "position": "propose",
+      "ratings": {}
+    }
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": 3,
+    "post": "```deliberation\nposition: propose\nitems: [\" X \",\"x\",\"y\"]\n```",
+    "round": 2
+  },
+  "name": "valid_block_list",
+  "rule": "Only a complete valid final deliberation block moves the protocol.",
+  "type": "parse"
+}

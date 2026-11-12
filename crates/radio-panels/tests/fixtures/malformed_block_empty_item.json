@@ -1,0 +1,22 @@
+{
+  "expect": {
+    "malformed": true
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": 2,
+    "post": "```deliberation\nposition: propose\nitems: [\"  \"]\n```",
+    "round": 2
+  },
+  "name": "malformed_block_empty_item",
+  "rule": "Only a complete valid final deliberation block moves the protocol.",
+  "type": "parse"
+}

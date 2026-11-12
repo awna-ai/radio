@@ -1,0 +1,147 @@
+{
+  "expect": {
+    "result": {
+      "outcome": "deadlock"
+    },
+    "rounds": [
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 1,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "progress": false,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 2,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "progress": false,
+        "round": 3,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 3,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "progress": false,
+        "round": 4,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 4,
+        "outcome": "deadlock",
+        "own": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "progress": false,
+        "round": 5,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "n": 1,
+    "rounds": [
+      {
+        "a": {
+          "items": [
+            "x"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "b": {
+          "items": [
+            "y"
+          ],
+          "objections": "",
+          "position": "propose"
+        }
+      },
+      {},
+      {},
+      {},
+      {}
+    ]
+  },
+  "name": "deadlock_at_four",
+  "rule": "Four nonprogress rounds after the initial round stop at round five.",
+  "type": "rounds"
+}

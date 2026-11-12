@@ -1,0 +1,416 @@
+{
+  "files": [
+    {
+      "path": "tests/fixtures/agreement_exact_list_set.json",
+      "masked_sha256": "6dc1c6ecc7d4d684878d5fef3d1ba92914ef6daa2477cc583c927a23057956a2",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/agreement_exactly_half_not_majority.json",
+      "masked_sha256": "4bc6dee31a182f972582abe011b85af53cedbf8f5b29c3f9f7e406caec16041b",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/agreement_historical_draft_kept.json",
+      "masked_sha256": "aa9aaa7da83376e9a9caf52dce04da6c3248b157223c059ffccdc24cd87bd7ba",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/agreement_incomplete_list.json",
+      "masked_sha256": "28c26d6dca7aa8e166a05dcdfc6783f5316e4cbb8a6b6c3c27c044a9e8ca1bd5",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/agreement_majority_with_dissent.json",
+      "masked_sha256": "b182749762fbb525745c19b6194d96f04d779acfe5f82173f11dc17b42e0e63e",
+      "renamed_at": [
+        96
+      ]
+    },
+    {
+      "path": "tests/fixtures/agreement_needs_fresh_block.json",
+      "masked_sha256": "eed48f5de9f94d82b9fd1ed403b62c4d0ffef55c30b1d50603ebdd8200846acb",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/agreement_needs_majority.json",
+      "masked_sha256": "d3e7c516fca0f48511776e274a7f408ac69c07a46375e3b06dfe9a788c5996a0",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/deadlock_at_four.json",
+      "masked_sha256": "4e9fe329f058f8b7d5be020a1e0f968db64e60920c7e64f54f5ad4587bd56506",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/dissent_quoted_in_full.json",
+      "masked_sha256": "0660f07175ace3bae23a239c4ee565eb06f0b30dd7ef5088e0b947c3e0a53b41",
+      "renamed_at": [
+        72
+      ]
+    },
+    {
+      "path": "tests/fixtures/group_historical_draft_kept.json",
+      "masked_sha256": "785de5ab8f471770e04aa169ee92b1bac438a5765959e0d588ef5f845d41e0f2",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/groups_list_tie_key.json",
+      "masked_sha256": "7941336484bc2256e1f6ef7ecd00a4d474b7b7d548bdfcfb28c43c26171df886",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/groups_text_tie_id.json",
+      "masked_sha256": "2aaf0365f16873713b8a147097bc8f088f6b8873f3c29531531a521e7289f989",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/groups_text_tie_round_then_id.json",
+      "masked_sha256": "6fcc6d84057c888538385c3ea2a77a977b86f5fb5c9f8c542ffcf795f2ca062f",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/groups_transitive_list_order.json",
+      "masked_sha256": "510fc8c9bb4d5a71fc3fba58eba7a721b13f3b423b7ff284ae6e890d11e8a55c",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/groups_twelve_split.json",
+      "masked_sha256": "6e32653504a7eca63f45f42561a2bf629c63e18d55fa9ed6fff6be918c7cb1f9",
+      "renamed_at": [
+        72,
+        175,
+        278,
+        381,
+        484,
+        587,
+        690
+      ]
+    },
+    {
+      "path": "tests/fixtures/holdout_flagged_after_two.json",
+      "masked_sha256": "44e7a72d4a8c18762ff0fc7b5de4d0bf282dbf8eb132e45f55c888114c51f217",
+      "renamed_at": [
+        72
+      ]
+    },
+    {
+      "path": "tests/fixtures/holdout_stall_resets_on_no_progress.json",
+      "masked_sha256": "8c5bd790e0872d3c3f2b5bb505e7b0a17ccf429fb9930a9ba040f26aec610d7b",
+      "renamed_at": [
+        5112
+      ]
+    },
+    {
+      "path": "tests/fixtures/holdout_unflagged_on_fall.json",
+      "masked_sha256": "9a269e9aa6bea0743a49e6561dd24053684530bf4f31e400f992c152f18c3566",
+      "renamed_at": [
+        4848
+      ]
+    },
+    {
+      "path": "tests/fixtures/holdout_weight_to_zero.json",
+      "masked_sha256": "50debd1dc67ae31a81fc896410f8f8a2cba69fd426765038d751b12865fb33b1",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/holdout_zero_weights_plain_mean.json",
+      "masked_sha256": "bcd3bc54f7c3ed19d27067d32c05277caf9340c1f4a63e4f24512d45725ff69a",
+      "renamed_at": [
+        6635
+      ]
+    },
+    {
+      "path": "tests/fixtures/list_distance_overlap.json",
+      "masked_sha256": "0977699db7f92a34d2c8f2acf8d97feb4310f10edf3ad31a8d05bb52a0c05a10",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_agree_no_reference.json",
+      "masked_sha256": "4fac0dceb2eb084f2a1cf9042812feed1ef0630c6729c6407cf4080083c17d13",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_bad_position.json",
+      "masked_sha256": "037139b7f751595694997fd90f500bb8c918d9c4f846e0161f8247674d11ca14",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_boolean_rating.json",
+      "masked_sha256": "cd9a3c37d1342cb721b54ea70243214f07603f3e413cf23357c6ebe1a197d526",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_draft_too_long.json",
+      "masked_sha256": "2456379002a4d5acba84b4b8e44a620a2b2483a8cc01728ec49cd9c3b97c2204",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_duplicate_key.json",
+      "masked_sha256": "b58c9f99d8c6d270332650546d0dc4e04fb4b0bb40d904eb891c14534b4a8250",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_empty_item.json",
+      "masked_sha256": "c81c181affeb70bc9f97a1b52260635c90b796dbfb0aef9ede31f9828755ffe7",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_last_invalid.json",
+      "masked_sha256": "38a7c2fda4cf530bca83731b96e380e2f07a16a6c143e315f635e87e2d61b593",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_long_item.json",
+      "masked_sha256": "e24f8c519ab633ed6819981d42cc2762f8a134978c1e8bd0e3e31e7037d8e223",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_long_objections.json",
+      "masked_sha256": "35d195f8eaca9ca42b9bae38cfac9d4a81375d50b5b6a2ac524cca659f54cacf",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_missing.json",
+      "masked_sha256": "feb9826e1e3d6712b458d56ce52ecd5adb53d858ee7af89fb82c017eb2507130",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_missing_draft.json",
+      "masked_sha256": "46d5a82041d275e09339c17e8e41cddfc724cf1fea731f4d220e9af6e7f953be",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_missing_position.json",
+      "masked_sha256": "63d12a1257d732e742243ba41192311c6be56e91c40f1b013955a053e28a5fda",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_propose_agree_with.json",
+      "masked_sha256": "95a12243db697c427a99b7ddb3dd2bf54109b06e746c33ee923d09a014efe7b8",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_rating_float.json",
+      "masked_sha256": "7eb8400bc15cea8bd503fa5fe470ac7799746b69241233ec91243021b5afdc36",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_rating_range.json",
+      "masked_sha256": "2773dda6e268e0bd760e7f8ce152abd112ac79813c45e0f614c3b9b6eddda897",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_rating_unknown_member.json",
+      "masked_sha256": "e64f5c46c9374034cffa2036c555e0641a48388ea5e13fdc37040ee6947bb5f0",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_self_rating.json",
+      "masked_sha256": "76fd6bc216fc4698b8c3ba47e95bfab158b37eaf22d011df0f8a1ee34c84d126",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_short_close.json",
+      "masked_sha256": "5626da6d724e320d5b68a3a39f960f026e3dcbe0ac220da4fdc33d4e9d6b37bd",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_text_items.json",
+      "masked_sha256": "aae1e9999e12d5d179c924ffe5ac093a89fa239cbe9562fae1d29994be1d92fa",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_too_many_items.json",
+      "masked_sha256": "af853cd51b0b717fe79cb4130b7ecd58f4437329238eb379e2e1fb1c6316e94f",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_trailing_text.json",
+      "masked_sha256": "85e1717c45cefd60fb5aa3c10fe7e36ef6a1e0dd6098d83686cee64629758f5c",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_unknown_draft.json",
+      "masked_sha256": "2faad0f6fb3622abaaae5fa69911d222de72a6b2161df73dc583851405e8d51e",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_unknown_key.json",
+      "masked_sha256": "b0691b585857312136e35096da726838f69dfb298471b77d2464bc231c359109",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/malformed_block_wrong_kind_key.json",
+      "masked_sha256": "d9775a4ac5bfdad96be4eab9b3ad8d780d3c4d5500a7ed565e6abacf17e9aedf",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/missing_blocks_max_distance.json",
+      "masked_sha256": "e062e6f6c2f9eee18493eb90c3c1704322ef3e5405b1f5425ed6765d8bbe8e15",
+      "renamed_at": [
+        72
+      ]
+    },
+    {
+      "path": "tests/fixtures/progress_strict_fall.json",
+      "masked_sha256": "757058d847bd16857e1bfcff1fd5c5aa2898911c7d8a83799a0d11e7230ee9c2",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/reopen_resets_counters.json",
+      "masked_sha256": "568669606eb7e880f3bf37151f16c57b2281aa01d1ac83c7e1603b14530b3e9b",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/reopen_resets_holdouts_and_weights.json",
+      "masked_sha256": "ce0fb28dd3943f4a90970b944c25f44338da65ee41beaca751732fe5a350bad0",
+      "renamed_at": [
+        4321
+      ]
+    },
+    {
+      "path": "tests/fixtures/text_rating_gap.json",
+      "masked_sha256": "f0c356b879ded3186ab8005a2eed59c24bc12e99c9d762df1f4aa136e22b367f",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_15m_expired.json",
+      "masked_sha256": "2e755f1c5238103f7cb5016c41ca5e225a9e0236bf1ea24015a62798313190fa",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_1h_expired.json",
+      "masked_sha256": "2487269b687d79a479345dc5e1edc6c8a371d1506a8aca5c89721dbf8619c00d",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_answered_no_pause.json",
+      "masked_sha256": "cc97fe57d7fa66e4f7d663e18af1d0762bd6669ca4621e89b1cbe2246b903944",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_asked_once.json",
+      "masked_sha256": "a051528bdaeff3ca6c135e336773405c8ff8178783c7d477aac897d186e6e6c7",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_deadlock_unlimited.json",
+      "masked_sha256": "3361ff622f3cac9bf14e6521aab3434539d26bc22da0dbdf078f4098eaa7440d",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_elapsed_pauses.json",
+      "masked_sha256": "19ce3646954d8f5d8cab2fc94c0fd385dfff55e114f1ebd2b42634e8d23ede7f",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_empty_durations.json",
+      "masked_sha256": "dc2745db4b22a5c87d6c4f32a8f1ee1d1bb3f011bc67d83e010a7c140f343f9b",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_flat_unknown.json",
+      "masked_sha256": "62cdf024834a147cd258fd70291b54b0e04281858f33f77d1eb1b365702aaf1c",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_short_projection.json",
+      "masked_sha256": "1493eb9464a8fbbc23f73863c80ad3e86a966f24496a21502677d071a8403104",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/timebox_unknown_asks.json",
+      "masked_sha256": "20757b97f2688dcb55e9788dea9bffb517cb55582f287b6ec76f1a2c3b760500",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/valid_block_last_fence.json",
+      "masked_sha256": "ace1044fc61c2a3e0d65a5cc576ca18a98cfc7874af0d3b3c63325ac62628a02",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/valid_block_list.json",
+      "masked_sha256": "94d594a929b1ea0a41cc3ccc158ff1b000bbb90d6394c331e4c966b8fb76e325",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/valid_block_literal_tab.json",
+      "masked_sha256": "88a7db2eb28bae163ac673df436018fcd92a238fe73b348731dd50a92b57854f",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/valid_block_text.json",
+      "masked_sha256": "344ff13b4d9eb7901a2649486bd128c32874af1ea66dbdc558f6b9b7994a4f17",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/valid_block_text_trailing_comments.json",
+      "masked_sha256": "cc0344e583764304f92b6c14f6a599c6f66200159c6f29c1bc45c80fbcc12468",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/fixtures/valid_block_trailing_comments.json",
+      "masked_sha256": "17283acd38d0a802024de2c35160e895c9625d94a4bffdf816b34937adea168b",
+      "renamed_at": []
+    },
+    {
+      "path": "tests/reference_probes.json",
+      "masked_sha256": "c325025a298d5817806a5dd4aef7d2ca5168237baecc74801acd46afc9386fb8",
+      "renamed_at": [
+        563,
+        1554,
+        2372,
+        42899,
+        42983,
+        43069,
+        43155,
+        43241,
+        43325,
+        47908,
+        47994,
+        48078,
+        48162,
+        57644,
+        57728,
+        57814,
+        57900,
+        64784,
+        64868,
+        64952,
+        65038,
+        65122,
+        70580,
+        70664,
+        70748,
+        70832,
+        70918,
+        76507,
+        76591,
+        76677,
+        84325,
+        84411,
+        84495,
+        84581,
+        93254,
+        93338,
+        93424,
+        93510,
+        102643,
+        102729,
+        102813,
+        102896,
+        107788,
+        107872,
+        107956,
+        112021,
+        112105,
+        112191,
+        116252,
+        116336,
+        116420,
+        116504
+      ]
+    }
+  ]
+}

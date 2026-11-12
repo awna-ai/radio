@@ -1,0 +1,253 @@
+{
+  "expect": {
+    "result": {
+      "outcome": "open"
+    },
+    "rounds": [
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      },
+      {
+        "D": 0.8666666666666667,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.8,
+          "b": 0.8,
+          "c": 1.0
+        },
+        "progress": true,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      },
+      {
+        "D": 0.7333333333333333,
+        "agreed": false,
+        "holdouts": [
+          "c"
+        ],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 0.5
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.6,
+          "b": 0.6,
+          "c": 1.0
+        },
+        "progress": true,
+        "round": 3,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      },
+      {
+        "D": 0.6,
+        "agreed": false,
+        "holdouts": [
+          "c"
+        ],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 0.25
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.4666666666666667,
+          "b": 0.4666666666666667,
+          "c": 1.0
+        },
+        "progress": true,
+        "round": 4,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 0.5
+        }
+      },
+      {
+        "D": 0.13333333333333333,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.16,
+          "b": 0.16,
+          "c": 0.0
+        },
+        "progress": true,
+        "round": 5,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 0.25
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b",
+      "c"
+    ],
+    "kind": "text",
+    "n": null,
+    "rounds": [
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 0
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 0
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "Keep my concern.",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 4
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 4
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "Keep my concern.",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 8
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 8
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "Keep my concern.",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": null,
+        "b": null,
+        "c": null
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 8,
+            "c": 10
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 8,
+            "c": 10
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 10,
+            "b": 10
+          }
+        }
+      }
+    ]
+  },
+  "name": "holdout_unflagged_on_fall",
+  "rule": "A flagged member whose own distance falls regains full weight next round.",
+  "type": "rounds"
+}

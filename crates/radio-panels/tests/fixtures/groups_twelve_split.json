@@ -1,0 +1,291 @@
+{
+  "expect": {
+    "result": {
+      "dissent": [
+        {
+          "member": "c05",
+          "holdout": false,
+          "objections": ""
+        },
+        {
+          "member": "c06",
+          "holdout": false,
+          "objections": ""
+        },
+        {
+          "member": "c07",
+          "holdout": false,
+          "objections": ""
+        },
+        {
+          "member": "c08",
+          "holdout": false,
+          "objections": ""
+        },
+        {
+          "member": "c09",
+          "holdout": false,
+          "objections": ""
+        },
+        {
+          "member": "c10",
+          "holdout": false,
+          "objections": ""
+        },
+        {
+          "member": "c11",
+          "holdout": false,
+          "objections": ""
+        }
+      ],
+      "groups": [
+        {
+          "answer": [
+            "A",
+            "B"
+          ],
+          "members": [
+            "c00",
+            "c01",
+            "c02",
+            "c03",
+            "c04"
+          ],
+          "weight": 0.4166666666666667
+        },
+        {
+          "answer": [
+            "C",
+            "D"
+          ],
+          "members": [
+            "c05",
+            "c06",
+            "c07",
+            "c08"
+          ],
+          "weight": 0.3333333333333333
+        },
+        {
+          "answer": [
+            "p9",
+            "q9",
+            "x9"
+          ],
+          "members": [
+            "c09"
+          ],
+          "weight": 0.08333333333333333
+        },
+        {
+          "answer": [
+            "p10",
+            "q10",
+            "x10"
+          ],
+          "members": [
+            "c10"
+          ],
+          "weight": 0.08333333333333333
+        },
+        {
+          "answer": [
+            "p11",
+            "q11",
+            "x11"
+          ],
+          "members": [
+            "c11"
+          ],
+          "weight": 0.08333333333333333
+        }
+      ]
+    },
+    "rounds": [
+      {
+        "D": 0.8383838383838383,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "c00": 1.0,
+          "c01": 1.0,
+          "c02": 1.0,
+          "c03": 1.0,
+          "c04": 1.0,
+          "c05": 1.0,
+          "c06": 1.0,
+          "c07": 1.0,
+          "c08": 1.0,
+          "c09": 1.0,
+          "c10": 1.0,
+          "c11": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "c00": 0.7575757575757576,
+          "c01": 0.7575757575757576,
+          "c02": 0.7575757575757576,
+          "c03": 0.7575757575757576,
+          "c04": 0.7575757575757576,
+          "c05": 0.8181818181818182,
+          "c06": 0.8181818181818182,
+          "c07": 0.8181818181818182,
+          "c08": 0.8181818181818182,
+          "c09": 1.0,
+          "c10": 1.0,
+          "c11": 1.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "c00": 1.0,
+          "c01": 1.0,
+          "c02": 1.0,
+          "c03": 1.0,
+          "c04": 1.0,
+          "c05": 1.0,
+          "c06": 1.0,
+          "c07": 1.0,
+          "c08": 1.0,
+          "c09": 1.0,
+          "c10": 1.0,
+          "c11": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "c00",
+      "c01",
+      "c02",
+      "c03",
+      "c04",
+      "c05",
+      "c06",
+      "c07",
+      "c08",
+      "c09",
+      "c10",
+      "c11"
+    ],
+    "kind": "list",
+    "n": 3,
+    "rounds": [
+      {
+        "c00": {
+          "items": [
+            "A",
+            "B",
+            "x0"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c01": {
+          "items": [
+            "A",
+            "B",
+            "x1"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c02": {
+          "items": [
+            "A",
+            "B",
+            "x2"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c03": {
+          "items": [
+            "A",
+            "B",
+            "x3"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c04": {
+          "items": [
+            "A",
+            "B",
+            "x4"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c05": {
+          "items": [
+            "C",
+            "D",
+            "x5"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c06": {
+          "items": [
+            "C",
+            "D",
+            "x6"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c07": {
+          "items": [
+            "C",
+            "D",
+            "x7"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c08": {
+          "items": [
+            "C",
+            "D",
+            "x8"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c09": {
+          "items": [
+            "p9",
+            "q9",
+            "x9"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c10": {
+          "items": [
+            "p10",
+            "q10",
+            "x10"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "c11": {
+          "items": [
+            "p11",
+            "q11",
+            "x11"
+          ],
+          "objections": "",
+          "position": "propose"
+        }
+      }
+    ]
+  },
+  "name": "groups_twelve_split",
+  "rule": "Threshold edges form clusters of five and four followed by three loners.",
+  "type": "rounds"
+}

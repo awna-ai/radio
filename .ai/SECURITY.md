@@ -41,6 +41,8 @@ password belongs in the repo; gitleaks runs in `scripts/ci-local.sh`.
 
 - The socket: every op in `CONTRACT.md`, from any process of the same user (`crates/radio/src/server.rs`).
 - The link (later): every message from another computer.
+- The deliberation protocol (`crates/radio-panels`): every post, and any saved state a caller hands it, is
+  untrusted text; it does no I/O, and its patterns are fixed, never built from a post.
 - `radio install`, `uninstall` and `status` arguments, from an app's installer, and the files they read
   back (`install.json`, `clients/`), each checked again on every read.
 
@@ -53,6 +55,8 @@ None today. The link to other computers will be the first, and gets its own row 
 - Lockfile committed; every cargo command runs `--locked`.
 - No GitHub Actions; checks run locally (`scripts/ci-local.sh`) before a land.
 - Each new dependency is pinned and reviewed when it is added.
+- `radio-panels` adds `regex =1.13.1` (linear-time matching, fixed patterns) and turns on
+  `serde_json`'s `preserve_order` (`indexmap`) and `float_roundtrip` for the workspace build.
 
 ## Known gaps and accepted risks
 
@@ -94,3 +98,4 @@ missing objects, and reads ref names.
 - 2026-11-12: the import checks the source's folders and side files; an older copy never replaces a newer
   install; mode-bit checks, hard-link re-imports, a failed restore, two slow clients, a stalled volume
   and a half-installed newer version noted as gaps.
+- 2026-11-12: the deliberation protocol is in (`radio-panels`): an entry point and its dependencies.

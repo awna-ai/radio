@@ -1,0 +1,300 @@
+{
+  "expect": {
+    "result": {
+      "answer": "plan",
+      "dissent": [
+        {
+          "member": "d",
+          "holdout": true,
+          "objections": "Still object."
+        }
+      ],
+      "groups": [
+        {
+          "answer": "plan",
+          "members": [
+            "a",
+            "b",
+            "c"
+          ],
+          "weight": 0.75
+        },
+        {
+          "answer": "plan",
+          "members": [
+            "d"
+          ],
+          "weight": 0.125
+        }
+      ],
+      "outcome": "agreed"
+    },
+    "rounds": [
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0
+        }
+      },
+      {
+        "D": 0.8,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.7333333333333333,
+          "b": 0.7333333333333333,
+          "c": 0.7333333333333333,
+          "d": 1.0
+        },
+        "progress": true,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0
+        }
+      },
+      {
+        "D": 0.6,
+        "agreed": false,
+        "holdouts": [
+          "d"
+        ],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 0.5
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.4666666666666667,
+          "b": 0.4666666666666667,
+          "c": 0.4666666666666667,
+          "d": 1.0
+        },
+        "progress": true,
+        "round": 3,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0
+        }
+      },
+      {
+        "D": 0.3333333333333333,
+        "agreed": true,
+        "holdouts": [
+          "d"
+        ],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 0.25
+        },
+        "no_progress": 0,
+        "outcome": "agreed",
+        "own": {
+          "a": 0.2,
+          "b": 0.2,
+          "c": 0.2,
+          "d": 1.0
+        },
+        "progress": true,
+        "round": 4,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 0.5
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "kind": "text",
+    "n": null,
+    "rounds": [
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 0,
+            "c": 0
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 0,
+            "c": 0
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 0,
+            "b": 0
+          }
+        },
+        "d": {
+          "draft": "plan",
+          "objections": "Still object.",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 4,
+            "c": 4
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 4,
+            "c": 4
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 4,
+            "b": 4
+          }
+        },
+        "d": {
+          "draft": "plan",
+          "objections": "Still object.",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 8,
+            "c": 8
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 8,
+            "c": 8
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 8,
+            "b": 8
+          }
+        },
+        "d": {
+          "draft": "plan",
+          "objections": "Still object.",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "agree_with": "a.r3",
+          "draft": "plan",
+          "objections": "",
+          "position": "agree",
+          "ratings": {
+            "b": 10,
+            "c": 10
+          }
+        },
+        "b": {
+          "agree_with": "a.r3",
+          "draft": "plan",
+          "objections": "",
+          "position": "agree",
+          "ratings": {
+            "a": 10,
+            "c": 10
+          }
+        },
+        "c": {
+          "agree_with": "a.r3",
+          "draft": "plan",
+          "objections": "",
+          "position": "agree",
+          "ratings": {
+            "a": 10,
+            "b": 10
+          }
+        },
+        "d": null
+      }
+    ]
+  },
+  "name": "agreement_majority_with_dissent",
+  "rule": "Three fresh agreements out of four form a majority and preserve holdout objections.",
+  "type": "rounds"
+}

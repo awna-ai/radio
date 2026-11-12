@@ -1,0 +1,69 @@
+{
+  "expect": {
+    "result": {
+      "dissent": [],
+      "groups": [
+        {
+          "answer": "a text",
+          "members": [
+            "b",
+            "a"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "rounds": [
+      {
+        "D": 0.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "b",
+      "a"
+    ],
+    "kind": "text",
+    "n": null,
+    "rounds": [
+      {
+        "a": {
+          "draft": "a text",
+          "position": "propose",
+          "ratings": {
+            "b": 10
+          }
+        },
+        "b": {
+          "draft": "b text",
+          "position": "propose",
+          "ratings": {
+            "a": 10
+          }
+        }
+      }
+    ]
+  },
+  "name": "groups_text_tie_id",
+  "rule": "Equal same-round draft votes prefer the lexically smaller id.",
+  "type": "rounds"
+}

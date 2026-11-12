@@ -1,0 +1,32 @@
+{
+  "expect": {
+    "block": {
+      "agree_with": null,
+      "draft": "a\tb",
+      "draft_id": "a.r2",
+      "items": [],
+      "objections": "",
+      "position": "propose",
+      "ratings": {
+        "b": 7
+      }
+    }
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: propose # explanation\ndraft: \"a\tb\"\nratings: {\"b\":7}\n```",
+    "round": 2
+  },
+  "name": "valid_block_literal_tab",
+  "rule": "A literal tab inside a quoted block value parses and is kept.",
+  "type": "parse"
+}

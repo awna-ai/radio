@@ -1,0 +1,63 @@
+{
+  "expect": {
+    "result": {
+      "outcome": "open"
+    },
+    "rounds": [
+      {
+        "D": 0.6666666666666666,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.6666666666666666,
+          "b": 0.6666666666666666
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "n": 3,
+    "rounds": [
+      {
+        "a": {
+          "items": [
+            "x",
+            "y",
+            "z"
+          ],
+          "objections": "",
+          "position": "propose"
+        },
+        "b": {
+          "items": [
+            "x",
+            "u",
+            "v"
+          ],
+          "objections": "",
+          "position": "propose"
+        }
+      }
+    ]
+  },
+  "name": "list_distance_overlap",
+  "rule": "One shared item out of three gives distance two thirds.",
+  "type": "rounds"
+}

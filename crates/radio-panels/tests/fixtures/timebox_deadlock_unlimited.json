@@ -1,0 +1,21 @@
+{
+  "expect": {
+    "ask": false,
+    "expired": false,
+    "pause": false,
+    "projected_s": null
+  },
+  "input": {
+    "answered": false,
+    "asked": false,
+    "d_history": [
+      1.0
+    ],
+    "elapsed_s": 99999,
+    "round_durations_s": [],
+    "time_box": "deadlock"
+  },
+  "name": "timebox_deadlock_unlimited",
+  "rule": "Projection, prompting and expiry follow the explicit time box independently.",
+  "type": "timebox"
+}

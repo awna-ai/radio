@@ -1,0 +1,22 @@
+{
+  "expect": {
+    "malformed": true
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": 2,
+    "post": "Nothing fenced here.",
+    "round": 2
+  },
+  "name": "malformed_block_missing",
+  "rule": "Only a complete valid final deliberation block moves the protocol.",
+  "type": "parse"
+}

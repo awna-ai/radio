@@ -1,0 +1,30 @@
+{
+  "expect": {
+    "block": {
+      "agree_with": "b.r1",
+      "draft": null,
+      "draft_id": null,
+      "items": [],
+      "objections": "",
+      "position": "agree",
+      "ratings": {}
+    }
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "text",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": null,
+    "post": "```deliberation\nposition: wrong\n```\n````deliberation  \nposition: agree\nagree_with: b.r1\n`````",
+    "round": 2
+  },
+  "name": "valid_block_last_fence",
+  "rule": "Only a complete valid final deliberation block moves the protocol.",
+  "type": "parse"
+}

@@ -1,0 +1,19 @@
+{
+  "expect": {
+    "ask": false,
+    "expired": true,
+    "pause": false,
+    "projected_s": null
+  },
+  "input": {
+    "answered": false,
+    "asked": false,
+    "d_history": [],
+    "elapsed_s": 3600,
+    "round_durations_s": [],
+    "time_box": "1h"
+  },
+  "name": "timebox_1h_expired",
+  "rule": "Projection, prompting and expiry follow the explicit time box independently.",
+  "type": "timebox"
+}

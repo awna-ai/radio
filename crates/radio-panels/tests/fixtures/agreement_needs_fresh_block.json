@@ -1,0 +1,91 @@
+{
+  "expect": {
+    "result": {
+      "answer": null,
+      "outcome": "open"
+    },
+    "rounds": [
+      {
+        "D": 0.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 0.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 1,
+        "outcome": null,
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "n": 1,
+    "rounds": [
+      {
+        "a": {
+          "items": [
+            "x"
+          ],
+          "objections": "",
+          "position": "agree"
+        },
+        "b": {
+          "items": [
+            "x"
+          ],
+          "objections": "",
+          "position": "propose"
+        }
+      },
+      {
+        "a": null,
+        "b": {
+          "items": [
+            "x"
+          ],
+          "objections": "",
+          "position": "agree"
+        }
+      }
+    ]
+  },
+  "name": "agreement_needs_fresh_block",
+  "rule": "A carried agree block does not count as fresh agreement.",
+  "type": "rounds"
+}

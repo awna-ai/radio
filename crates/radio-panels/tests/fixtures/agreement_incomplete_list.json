@@ -1,0 +1,58 @@
+{
+  "expect": {
+    "result": {
+      "answer": null,
+      "outcome": "open"
+    },
+    "rounds": [
+      {
+        "D": 0.5,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.5,
+          "b": 0.5
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "n": 2,
+    "rounds": [
+      {
+        "a": {
+          "items": [
+            "x"
+          ],
+          "position": "agree"
+        },
+        "b": {
+          "items": [
+            "x"
+          ],
+          "position": "agree"
+        }
+      }
+    ]
+  },
+  "name": "agreement_incomplete_list",
+  "rule": "Equal sets smaller than n cannot agree.",
+  "type": "rounds"
+}

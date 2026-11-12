@@ -1,0 +1,22 @@
+{
+  "expect": {
+    "malformed": true
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": 2,
+    "post": "```deliberation\nposition: propose\nitems: [\"X\"] and more\n```",
+    "round": 2
+  },
+  "name": "malformed_block_trailing_text",
+  "rule": "Anything after a JSON value other than whitespace or a # comment is malformed.",
+  "type": "parse"
+}

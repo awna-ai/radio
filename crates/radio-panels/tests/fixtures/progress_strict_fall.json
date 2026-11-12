@@ -1,0 +1,139 @@
+{
+  "expect": {
+    "result": {
+      "outcome": "open"
+    },
+    "rounds": [
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 1,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "progress": false,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      },
+      {
+        "D": 0.5,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.5,
+          "b": 0.5
+        },
+        "progress": true,
+        "round": 3,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "text",
+    "n": null,
+    "rounds": [
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 0
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 0
+          }
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 0
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 0
+          }
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 5
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 5
+          }
+        }
+      }
+    ]
+  },
+  "name": "progress_strict_fall",
+  "rule": "Equal distance is not progress and strict decrease is progress.",
+  "type": "rounds"
+}

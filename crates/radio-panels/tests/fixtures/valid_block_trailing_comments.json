@@ -1,0 +1,33 @@
+{
+  "expect": {
+    "block": {
+      "agree_with": null,
+      "draft": null,
+      "draft_id": null,
+      "items": [
+        "X",
+        "y"
+      ],
+      "objections": "none",
+      "position": "propose",
+      "ratings": {}
+    }
+  },
+  "input": {
+    "author": "a",
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "known_drafts": [
+      "b.r1"
+    ],
+    "n": 2,
+    "post": "```deliberation\nposition: propose  # her stance\nitems: [\"X\", \"y\"]                 # kind list:<n>: her ranked top n\nobjections: \"none\"  # one paragraph\n```",
+    "round": 2
+  },
+  "name": "valid_block_trailing_comments",
+  "rule": "A JSON value may be followed by a # comment, as in the protocol's own block template.",
+  "type": "parse"
+}

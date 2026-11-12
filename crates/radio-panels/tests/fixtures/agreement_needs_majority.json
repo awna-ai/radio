@@ -1,0 +1,285 @@
+{
+  "expect": {
+    "result": {
+      "answer": null,
+      "outcome": "open"
+    },
+    "rounds": [
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        }
+      },
+      {
+        "D": 0.96,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.9,
+          "b": 0.9,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        },
+        "progress": true,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        }
+      },
+      {
+        "D": 0.92,
+        "agreed": false,
+        "holdouts": [
+          "c",
+          "d",
+          "e"
+        ],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 0.5,
+          "d": 0.5,
+          "e": 0.5
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.8,
+          "b": 0.8,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        },
+        "progress": true,
+        "round": 3,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        }
+      },
+      {
+        "D": 0.7894736842105263,
+        "agreed": false,
+        "holdouts": [
+          "c",
+          "d",
+          "e"
+        ],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 0.25,
+          "d": 0.25,
+          "e": 0.25
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.6,
+          "b": 0.6,
+          "c": 1.0,
+          "d": 1.0,
+          "e": 1.0
+        },
+        "progress": true,
+        "round": 4,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 0.5,
+          "d": 0.5,
+          "e": 0.5
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b",
+      "c",
+      "d",
+      "e"
+    ],
+    "kind": "text",
+    "n": null,
+    "rounds": [
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 0
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 0
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        },
+        "d": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        },
+        "e": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 4
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 4
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        },
+        "d": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        },
+        "e": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 8
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 8
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        },
+        "d": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        },
+        "e": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "agree_with": "a.r3",
+          "draft": "plan",
+          "objections": "",
+          "position": "agree",
+          "ratings": {
+            "b": 10
+          }
+        },
+        "b": {
+          "agree_with": "a.r3",
+          "draft": "plan",
+          "objections": "",
+          "position": "agree",
+          "ratings": {
+            "a": 10
+          }
+        },
+        "c": null,
+        "d": null,
+        "e": null
+      }
+    ]
+  },
+  "name": "agreement_needs_majority",
+  "rule": "Two fresh agreeing members cannot outvote three flagged holdouts.",
+  "type": "rounds"
+}

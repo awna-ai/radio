@@ -1,0 +1,265 @@
+{
+  "expect": {
+    "result": {
+      "outcome": "open"
+    },
+    "rounds": [
+      {
+        "D": 1.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      },
+      {
+        "D": 0.8666666666666667,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.8,
+          "b": 0.8,
+          "c": 1.0
+        },
+        "progress": true,
+        "round": 2,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      },
+      {
+        "D": 0.8666666666666667,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "no_progress": 1,
+        "outcome": null,
+        "own": {
+          "a": 0.8,
+          "b": 0.8,
+          "c": 1.0
+        },
+        "progress": false,
+        "round": 3,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      },
+      {
+        "D": 0.7333333333333333,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.6,
+          "b": 0.6,
+          "c": 1.0
+        },
+        "progress": true,
+        "round": 4,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      },
+      {
+        "D": 0.6666666666666666,
+        "agreed": false,
+        "holdouts": [
+          "c"
+        ],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 0.5
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.5,
+          "b": 0.5,
+          "c": 1.0
+        },
+        "progress": true,
+        "round": 5,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b",
+      "c"
+    ],
+    "kind": "text",
+    "n": null,
+    "rounds": [
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 0
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 0
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 4
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 4
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 4
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 4
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 8
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 8
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        }
+      },
+      {
+        "a": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "b": 10
+          }
+        },
+        "b": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {
+            "a": 10
+          }
+        },
+        "c": {
+          "draft": "plan",
+          "objections": "",
+          "position": "propose",
+          "ratings": {}
+        }
+      }
+    ]
+  },
+  "name": "holdout_stall_resets_on_no_progress",
+  "rule": "A no-progress round resets a member's stall count, so the holdout flag needs two consecutive progress rounds again.",
+  "type": "rounds"
+}

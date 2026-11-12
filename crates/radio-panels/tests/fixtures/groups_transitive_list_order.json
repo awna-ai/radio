@@ -1,0 +1,88 @@
+{
+  "expect": {
+    "result": {
+      "dissent": [],
+      "groups": [
+        {
+          "answer": [
+            "Y",
+            "X",
+            "Z"
+          ],
+          "members": [
+            "a",
+            "b",
+            "c"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "rounds": [
+      {
+        "D": 0.4444444444444444,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.5,
+          "b": 0.3333333333333333,
+          "c": 0.5
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0,
+          "c": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b",
+      "c"
+    ],
+    "kind": "list",
+    "n": 3,
+    "rounds": [
+      {
+        "a": {
+          "items": [
+            "X",
+            "Y",
+            "a"
+          ],
+          "position": "propose"
+        },
+        "b": {
+          "items": [
+            "y",
+            "x",
+            "Z"
+          ],
+          "position": "propose"
+        },
+        "c": {
+          "items": [
+            "z",
+            "Y",
+            "c"
+          ],
+          "position": "propose"
+        }
+      }
+    ]
+  },
+  "name": "groups_transitive_list_order",
+  "rule": "Threshold components are transitive and majority items sort by count then mean position then key.",
+  "type": "rounds"
+}

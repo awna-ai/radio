@@ -1,0 +1,65 @@
+{
+  "expect": {
+    "result": {
+      "answer": [
+        "X",
+        "Y"
+      ],
+      "kind": "list:2",
+      "label": "Proposal for the principals, not a decision",
+      "outcome": "agreed"
+    },
+    "rounds": [
+      {
+        "D": 0.0,
+        "agreed": true,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": "agreed",
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "b",
+      "a"
+    ],
+    "kind": "list",
+    "n": 2,
+    "rounds": [
+      {
+        "a": {
+          "items": [
+            "y",
+            "x"
+          ],
+          "position": "agree"
+        },
+        "b": {
+          "items": [
+            "X",
+            "Y"
+          ],
+          "position": "agree"
+        }
+      }
+    ]
+  },
+  "name": "agreement_exact_list_set",
+  "rule": "Full equal normalized sets agree while preserving the first member display order.",
+  "type": "rounds"
+}

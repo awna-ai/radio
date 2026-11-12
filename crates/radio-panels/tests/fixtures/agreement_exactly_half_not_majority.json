@@ -1,0 +1,277 @@
+{
+ "expect": {
+  "result": {
+   "answer": null,
+   "kind": "list:2",
+   "label": "Proposal for the principals, not a decision",
+   "outcome": "open"
+  },
+  "rounds": [
+   {
+    "D": 1.0,
+    "agreed": false,
+    "holdouts": [],
+    "next_weights": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 1.0,
+     "d": 1.0
+    },
+    "no_progress": 0,
+    "outcome": null,
+    "own": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 1.0,
+     "d": 1.0
+    },
+    "progress": false,
+    "round": 1,
+    "weights": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 1.0,
+     "d": 1.0
+    }
+   },
+   {
+    "D": 0.9166666666666666,
+    "agreed": false,
+    "holdouts": [],
+    "next_weights": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 1.0,
+     "d": 1.0
+    },
+    "no_progress": 0,
+    "outcome": null,
+    "own": {
+     "a": 0.8333333333333334,
+     "b": 0.8333333333333334,
+     "c": 1.0,
+     "d": 1.0
+    },
+    "progress": true,
+    "round": 2,
+    "weights": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 1.0,
+     "d": 1.0
+    }
+   },
+   {
+    "D": 0.8333333333333334,
+    "agreed": false,
+    "holdouts": [
+     "c",
+     "d"
+    ],
+    "next_weights": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 0.5,
+     "d": 0.5
+    },
+    "no_progress": 0,
+    "outcome": null,
+    "own": {
+     "a": 0.6666666666666666,
+     "b": 0.6666666666666666,
+     "c": 1.0,
+     "d": 1.0
+    },
+    "progress": true,
+    "round": 3,
+    "weights": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 1.0,
+     "d": 1.0
+    }
+   },
+   {
+    "D": 0.6923076923076923,
+    "agreed": false,
+    "holdouts": [
+     "c",
+     "d"
+    ],
+    "next_weights": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 0.25,
+     "d": 0.25
+    },
+    "no_progress": 0,
+    "outcome": null,
+    "own": {
+     "a": 0.5,
+     "b": 0.5,
+     "c": 1.0,
+     "d": 1.0
+    },
+    "progress": true,
+    "round": 4,
+    "weights": {
+     "a": 1.0,
+     "b": 1.0,
+     "c": 0.5,
+     "d": 0.5
+    }
+   }
+  ]
+ },
+ "input": {
+  "crew": [
+   "a",
+   "b",
+   "c",
+   "d"
+  ],
+  "kind": "list",
+  "n": 2,
+  "rounds": [
+   {
+    "a": {
+     "items": [
+      "x",
+      "y"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "b": {
+     "items": [
+      "w",
+      "z"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "c": {
+     "items": [
+      "p",
+      "q"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "d": {
+     "items": [
+      "r",
+      "s"
+     ],
+     "objections": "",
+     "position": "propose"
+    }
+   },
+   {
+    "a": {
+     "items": [
+      "x",
+      "y"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "b": {
+     "items": [
+      "x",
+      "z"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "c": {
+     "items": [
+      "p",
+      "q"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "d": {
+     "items": [
+      "r",
+      "s"
+     ],
+     "objections": "",
+     "position": "propose"
+    }
+   },
+   {
+    "a": {
+     "items": [
+      "x",
+      "y"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "b": {
+     "items": [
+      "x",
+      "y"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "c": {
+     "items": [
+      "p",
+      "q"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "d": {
+     "items": [
+      "r",
+      "s"
+     ],
+     "objections": "",
+     "position": "propose"
+    }
+   },
+   {
+    "a": {
+     "items": [
+      "x",
+      "y"
+     ],
+     "objections": "",
+     "position": "agree"
+    },
+    "b": {
+     "items": [
+      "x",
+      "y"
+     ],
+     "objections": "",
+     "position": "agree"
+    },
+    "c": {
+     "items": [
+      "p",
+      "q"
+     ],
+     "objections": "",
+     "position": "propose"
+    },
+    "d": {
+     "items": [
+      "r",
+      "s"
+     ],
+     "objections": "",
+     "position": "propose"
+    }
+   }
+  ]
+ },
+ "name": "agreement_exactly_half_not_majority",
+ "rule": "Agreement needs the non-holdouts to be more than half of those seated: two of four agreeing, with two holdouts, stays open.",
+ "type": "rounds"
+}

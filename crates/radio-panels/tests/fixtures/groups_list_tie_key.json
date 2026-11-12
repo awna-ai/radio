@@ -1,0 +1,71 @@
+{
+  "expect": {
+    "result": {
+      "groups": [
+        {
+          "answer": [
+            "a",
+            "B"
+          ],
+          "members": [
+            "a",
+            "b"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "rounds": [
+      {
+        "D": 0.0,
+        "agreed": false,
+        "holdouts": [],
+        "next_weights": {
+          "a": 1.0,
+          "b": 1.0
+        },
+        "no_progress": 0,
+        "outcome": null,
+        "own": {
+          "a": 0.0,
+          "b": 0.0
+        },
+        "progress": false,
+        "round": 1,
+        "weights": {
+          "a": 1.0,
+          "b": 1.0
+        }
+      }
+    ]
+  },
+  "input": {
+    "crew": [
+      "a",
+      "b"
+    ],
+    "kind": "list",
+    "n": 2,
+    "rounds": [
+      {
+        "a": {
+          "items": [
+            "B",
+            "a"
+          ],
+          "position": "propose"
+        },
+        "b": {
+          "items": [
+            "A",
+            "b"
+          ],
+          "position": "propose"
+        }
+      }
+    ]
+  },
+  "name": "groups_list_tie_key",
+  "rule": "Equal holder counts and mean positions sort by exact normalized key.",
+  "type": "rounds"
+}
