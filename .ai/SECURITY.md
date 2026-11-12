@@ -92,4 +92,5 @@ missing objects, and reads ref names.
 - 2026-11-12: the install step is built: the installer, client and install records, the import of an
   older store.
 - 2026-11-12: the import checks the source's folders and side files; an older copy never replaces a newer
-  install; mode-bit checks, hard-link re-imports, a failed restore and two slow clients noted as gaps.
+  install; mode-bit checks, hard-link re-imports, a failed restore, two slow clients, a stalled volume
+  and a half-installed newer version noted as gaps.
