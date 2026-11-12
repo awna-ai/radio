@@ -9,7 +9,7 @@ commit (from that repo's `d2c2871a309734e6a6b26f1b57e9a98c41e31f86`), not with i
 history and its test data used words D3 keeps out of this repo. The one such word in the protocol
 itself, the field that names a dissent's author, became `member` in the type, the serialized result
 and the fixtures (a few fixture sentences that used the same word too); the rendered markdown never
-named the field and is unchanged, and nothing else changed. `tests/rename.rs` holds the proof: each
+named the field and is unchanged, and nothing else in the protocol changed. `tests/rename.rs` holds the proof: each
 fixture's digest, taken from the earlier copy with that word masked, matches this copy with `member`
 masked at the recorded places, so the other bytes are the earlier copy's; the manifest is the root of
 trust, so a reviewer checks it against the earlier copy once. The reference probes' own note names a
