@@ -166,10 +166,13 @@ impl Server {
                 let members: Vec<_> = members.into_iter().map(author).collect();
                 self.store.register(&app, &app_version, &members, now)?;
             }
-            Request::ListRooms {} => {
+            Request::ListRooms { after, limit } => {
+                if limit.is_some_and(|limit| limit == 0 || limit as usize > READ_MAX) {
+                    return Err("not a limit".into());
+                }
                 response.rooms = Some(
                     self.store
-                        .rooms()?
+                        .rooms(after.as_deref(), limit.unwrap_or(500) as usize)?
                         .into_iter()
                         .map(|row| Room {
                             id: row.id,

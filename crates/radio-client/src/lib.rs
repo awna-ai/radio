@@ -67,8 +67,15 @@ pub enum Request {
         key: String,
         author: Member,
     },
-    /// Lists rooms in identifier order.
-    ListRooms {},
+    /// Lists a page of rooms in identifier order.
+    ListRooms {
+        /// Returns rooms whose identifiers are strictly greater than this string.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<String>,
+        /// The room count, from 1 to 500; defaults to 500.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<u32>,
+    },
     /// Reads the newest messages, or those after `since`, in ascending sequence order.
     Read {
         room: String,

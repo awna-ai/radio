@@ -14,7 +14,8 @@
           "kind": "human",
           "name": "sam"
         },
-        "set_at": "<time>"
+        "set_at": "<time>",
+        "expires_at": 4102444800.0
       }
     ]
   },

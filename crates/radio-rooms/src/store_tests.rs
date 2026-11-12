@@ -887,7 +887,7 @@ fn ensure_room_creates_once_and_rooms_list_with_their_last_number() {
     store.post("room", "node-b", &author(), "hi", 4.0).unwrap();
     store.post("room", "node-b", &author(), "hi", 5.0).unwrap();
     assert_eq!(
-        store.rooms().unwrap(),
+        store.rooms(None, READ_MAX).unwrap(),
         [
             RoomRow {
                 id: "room".into(),
@@ -1000,7 +1000,7 @@ fn check_earlier(version: usize) {
         3
     );
     assert_eq!(
-        store.rooms().unwrap(),
+        store.rooms(None, READ_MAX).unwrap(),
         [RoomRow {
             id: "room".into(),
             home: "node-a".into(),
@@ -1461,10 +1461,20 @@ fn text_cleaning_preserves_helper_boundaries() {
         "a\nb\tc d"
     );
     for (lo, hi) in [
+        (0x00AD, 0x00AD),
+        (0x061C, 0x061C),
+        (0x115F, 0x1160),
+        (0x180E, 0x180E),
         (0x200B, 0x200F),
         (0x2028, 0x202E),
-        (0x2060, 0x2069),
+        (0x2060, 0x206F),
+        (0x3164, 0x3164),
+        (0xFE00, 0xFE0F),
         (0xFEFF, 0xFEFF),
+        (0xFFA0, 0xFFA0),
+        (0xFFF9, 0xFFFB),
+        (0x1D173, 0x1D17A),
+        (0xE0000, 0xE007F),
     ] {
         for code in lo..=hi {
             assert!(is_invisible(char::from_u32(code).unwrap()));
@@ -1472,4 +1482,156 @@ fn text_cleaning_preserves_helper_boundaries() {
         assert!(!is_invisible(char::from_u32(lo - 1).unwrap()));
         assert!(!is_invisible(char::from_u32(hi + 1).unwrap()));
     }
+}
+
+#[test]
+fn room_pages_are_bounded_and_ordered() {
+    let fixture = Store::new("pages");
+    let mut store = fixture.open();
+    for i in (0..501).rev() {
+        store
+            .create_room(&format!("r{i:03}"), "node-a", "Room", 1.0)
+            .unwrap();
+    }
+    let first = store.rooms(None, usize::MAX).unwrap();
+    assert_eq!(first.len(), READ_MAX);
+    let second = store.rooms(Some(&first.last().unwrap().id), 500).unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].id, "r500");
+    assert_eq!(store.rooms(Some("r000x"), 1).unwrap()[0].id, "r001");
+    assert!(store.rooms(None, 0).unwrap().is_empty());
+    assert!(store.rooms(Some("z"), 500).unwrap().is_empty());
+    assert_eq!(first[0].id, "r000");
+    assert_eq!(first[499].id, "r499");
+}
+
+#[test]
+fn failed_upgrade_leaves_the_entire_version_one_store_unchanged() {
+    fn dump(conn: &Connection) -> Vec<Vec<Vec<rusqlite::types::Value>>> {
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        std::iter::once(
+            "SELECT type, name, tbl_name, rootpage, sql FROM sqlite_schema ORDER BY type, name"
+                .to_owned(),
+        )
+        .chain(
+            tables
+                .into_iter()
+                .map(|table| format!("SELECT * FROM {table} ORDER BY 1")),
+        )
+        .map(|sql| {
+            let mut stmt = conn.prepare(&sql).unwrap();
+            let columns = stmt.column_count();
+            stmt.query_map([], |row| (0..columns).map(|i| row.get(i)).collect())
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap()
+        })
+        .collect()
+    }
+    let fixture = Store::new("atomic-upgrade");
+    earlier(&fixture, 1);
+    let conn = Connection::open(fixture.path()).unwrap();
+    conn.execute_batch(
+        "PRAGMA ignore_check_constraints = ON; UPDATE outbox SET author_kind = 'Bad';",
+    )
+    .unwrap();
+    let before = dump(&conn);
+    drop(conn);
+    assert_eq!(
+        RoomStore::open(&fixture.path()).err().as_deref(),
+        Some("the room store could not be migrated")
+    );
+    let conn = Connection::open(fixture.path()).unwrap();
+    assert_eq!(
+        conn.query_row("SELECT version FROM schema_version", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(dump(&conn), before);
+}
+
+#[test]
+fn sqlite_reopen_refuses_a_link_substituted_after_the_file_check() {
+    let fixture = Store::new("sqlite-link");
+    drop(fixture.open());
+    let path = fixture
+        .path()
+        .parent()
+        .unwrap()
+        .canonicalize()
+        .unwrap()
+        .join(DB_FILE);
+    drop(Connection::open_with_flags(&path, STORE_OPEN_FLAGS).unwrap());
+    let checked = fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&path)
+        .unwrap();
+    let moved = fixture.path().with_extension("moved");
+    fs::rename(fixture.path(), &moved).unwrap();
+    symlink(&moved, fixture.path()).unwrap();
+    assert!(checked.metadata().unwrap().is_file());
+    assert!(Connection::open_with_flags(&path, STORE_OPEN_FLAGS).is_err());
+}
+
+#[test]
+fn creating_an_existing_room_names_the_conflict_and_preserves_it() {
+    let fixture = Store::new("duplicate-room");
+    let mut store = fixture.room();
+    let before = store.room("room").unwrap();
+    assert_eq!(
+        store.create_room("room", "node-b", "Changed", 2.0),
+        Err("the room already exists".into())
+    );
+    assert_eq!(store.room("room").unwrap(), before);
+    store.conn().execute_batch("CREATE TRIGGER refuse_room BEFORE INSERT ON rooms BEGIN SELECT RAISE(ABORT, 'blocked'); END;").unwrap();
+    assert_eq!(
+        store.create_room("other", "node-a", "Other", 2.0),
+        Err(UNWRITABLE.into())
+    );
+}
+
+#[test]
+fn invisible_formats_and_fillers_are_spaces_in_bodies_statuses_and_names() {
+    let fixture = Store::new("invisible-text");
+    let mut store = fixture.room();
+    for code in [
+        0x00AD, 0x061C, 0x180E, 0x200B, 0x2028, 0x202A, 0x2060, 0x206F, 0xFE00, 0xFEFF, 0xFFF9,
+        0x1D173, 0xE0000, 0x115F, 0x1160, 0x3164, 0xFFA0,
+    ] {
+        let c = char::from_u32(code).unwrap();
+        let input = format!("{c}a{c}b{c}");
+        let author = Author::human(&input);
+        let seq = store.post("room", "node-a", &author, &input, 2.0).unwrap();
+        let message = store.since("room", seq - 1, 1).unwrap().remove(0);
+        assert_eq!(message.body, "a b", "body U+{code:04X}");
+        assert_eq!(message.author.name, "a b", "name U+{code:04X}");
+        store
+            .set_status("room", "plan", &input, "node-a", &author, None, 3.0)
+            .unwrap();
+        let status = store.status("room", 3.0).unwrap().remove(0);
+        assert_eq!(status.line, "a b", "status U+{code:04X}");
+        assert_eq!(status.set_by.name, "a b", "status name U+{code:04X}");
+    }
+    let ordinary = "Letters 😀 e\u{0301}";
+    let author = Author::human(ordinary);
+    let seq = store
+        .post("room", "node-a", &author, ordinary, 4.0)
+        .unwrap();
+    let message = store.since("room", seq - 1, 1).unwrap().remove(0);
+    assert_eq!(message.body, ordinary);
+    assert_eq!(message.author.name, ordinary);
+    store
+        .set_status("room", "plan", ordinary, "node-a", &author, None, 5.0)
+        .unwrap();
+    let status = store.status("room", 5.0).unwrap().remove(0);
+    assert_eq!(status.line, ordinary);
+    assert_eq!(status.set_by.name, ordinary);
 }

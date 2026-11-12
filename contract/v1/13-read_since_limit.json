@@ -1,0 +1,26 @@
+{
+  "request": {
+    "v": 1,
+    "op": "read",
+    "room": "garden",
+    "since": 2,
+    "limit": 1
+  },
+  "response": {
+    "ok": true,
+    "messages": [
+      {
+        "seq": 3,
+        "kind": "status_clear",
+        "author_host": "test-host",
+        "author": {
+          "kind": "helper",
+          "name": "juniper"
+        },
+        "body": "mood",
+        "sent_at": "<time>"
+      }
+    ]
+  },
+  "exact": false
+}

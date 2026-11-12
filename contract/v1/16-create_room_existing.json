@@ -1,0 +1,13 @@
+{
+  "request": {
+    "v": 1,
+    "op": "create_room",
+    "room": "garden",
+    "title": "Changed"
+  },
+  "response": {
+    "ok": false,
+    "error": "the room already exists"
+  },
+  "exact": true
+}

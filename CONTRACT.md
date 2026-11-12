@@ -19,7 +19,9 @@ independent of the repo's semver tags.
 - One request per connection: one line of JSON in, one line of JSON out, then the daemon closes.
 - A request is at most 16 KiB. A request not fully sent within 5 seconds of connecting is answered
   `the request took too long`.
-- An answer is at most 8 MiB, which holds the largest read.
+- An answer is at most 8 MiB, which holds the largest read or page of rooms.
+- A client that gives up waiting (`the Radio did not answer`) can't tell whether a write was applied:
+  the daemon may still apply it after the client has gone. Read before retrying a post.
 - Unknown request fields are refused (`deny_unknown_fields`), so a client sends only what the daemon
   announced. A client reading an answer ignores fields it doesn't know: a newer minor adds them.
 - A failure answers `{"ok": false, "error": "<phrase>"}`, plus `"refused": true` when the request was
@@ -63,7 +65,7 @@ independent of the repo's semver tags.
 | `post` | `room`, `author: member`, `body` | `seq` | Adds a message (at most 4 KiB) to a room |
 | `status_set` | `room`, `key`, `line`, `author: member`, optional `expires_at` | `seq` | Sets one status line in a room, and logs it as a message |
 | `status_clear` | `room`, `key`, `author: member` | `removed`, `seq` when removed | Clears it, and logs that |
-| `list_rooms` | none | `rooms: [{id, home, title, created, last_seq}]` | Lists the rooms |
+| `list_rooms` | optional `after`, optional `limit` (1 to 500) | `rooms: [{id, home, title, created, last_seq}]` | The rooms by id, those after `after` when given, at most `limit` (500 by default); page with the last id |
 | `read` | `room`, optional `since`, optional `limit` (1 to 500) | `messages: [{seq, kind, author_host, author, body, sent_at, delivered_at?}]` | The newest `limit` messages (50 by default), or with `since` those numbered after it (500 by default), oldest first |
 | `status` | `room` | `status: [{key, line, set_by, set_at, expires_at?}]` | The room's live status lines |
 

@@ -8,7 +8,8 @@
       "kind": "human",
       "name": "sam"
     },
-    "line": "Plant seeds"
+    "line": "Plant seeds",
+    "expires_at": 4102444800.0
   },
   "response": {
     "ok": true,

@@ -545,7 +545,7 @@ fn bind_makes_the_home_room_once() {
     let fixture = Fixture::new();
     drop(fixture.bind());
     drop(fixture.bind());
-    let rooms = fixture.reader().rooms().unwrap();
+    let rooms = fixture.reader().rooms(None, 500).unwrap();
     assert_eq!(rooms.len(), 1);
     assert_eq!(
         (
@@ -720,10 +720,16 @@ fn reads_have_defaults_limits_room_checks_and_live_status() {
         .unwrap();
     let worker = start(server, 10);
     let socket = fixture.socket();
-    let rooms = request(&socket, &Request::ListRooms {})
-        .unwrap()
-        .rooms
-        .unwrap();
+    let rooms = request(
+        &socket,
+        &Request::ListRooms {
+            after: None,
+            limit: None,
+        },
+    )
+    .unwrap()
+    .rooms
+    .unwrap();
     assert_eq!(rooms.len(), 2);
     assert_eq!((&*rooms[0].id, rooms[0].last_seq), ("garden", 503));
     assert_eq!(
@@ -973,4 +979,94 @@ fn unread_answer_hits_the_deadline_and_server_keeps_accepting() {
     assert!(elapsed.unwrap() < Duration::from_secs(2));
     assert!(hello.ok);
     assert!(hello.protocol.is_some());
+}
+
+#[test]
+fn room_lists_are_paged_and_validate_limits() {
+    let fixture = Fixture::new();
+    let mut server = fixture.bind();
+    for i in 0..500 {
+        server
+            .store
+            .create_room(&format!("r{i:03}"), "node-a", "Room", 1.0)
+            .unwrap();
+    }
+    let worker = start(server, 7);
+    let socket = fixture.socket();
+    let first = raw(&socket, b"{\"v\":1,\"op\":\"list_rooms\"}\n");
+    let after = &first.rooms.as_ref().unwrap().last().unwrap().id;
+    let second = raw(
+        &socket,
+        format!("{{\"v\":1,\"op\":\"list_rooms\",\"after\":\"{after}\"}}\n").as_bytes(),
+    );
+    let limited = raw(
+        &socket,
+        b"{\"v\":1,\"op\":\"list_rooms\",\"after\":\"r000x\",\"limit\":1}\n",
+    );
+    let empty = raw(
+        &socket,
+        b"{\"v\":1,\"op\":\"list_rooms\",\"after\":\"z\"}\n",
+    );
+    let mut invalid = Vec::new();
+    for limit in [0, 501, u32::MAX] {
+        invalid.push(raw(
+            &socket,
+            format!("{{\"v\":1,\"op\":\"list_rooms\",\"limit\":{limit}}}\n").as_bytes(),
+        ));
+    }
+    worker.join().unwrap();
+    let first = first.rooms.unwrap();
+    assert_eq!(first.len(), 500);
+    assert_eq!(first.last().unwrap().id, "r499");
+    let second = second.rooms.unwrap();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0].id, "test-host");
+    assert_eq!(limited.rooms.unwrap()[0].id, "r001");
+    assert!(empty.rooms.unwrap().is_empty());
+    for response in invalid {
+        assert_eq!(response.error.as_deref(), Some("not a limit"));
+    }
+}
+
+#[test]
+fn largest_room_page_fits_and_round_trips_through_the_client() {
+    let fixture = Fixture::new();
+    let mut server = fixture.bind();
+    let home = "😀".repeat(62) + "\"\\";
+    let title = "😀".repeat(118) + "\"\\";
+    for i in 0..500 {
+        let id = format!("r{i:063}");
+        server.store.create_room(&id, &home, &title, 1.0).unwrap();
+    }
+    let worker = start(server, 1);
+    let response = request(
+        &fixture.socket(),
+        &Request::ListRooms {
+            after: None,
+            limit: None,
+        },
+    )
+    .unwrap();
+    worker.join().unwrap();
+    let rooms = response.rooms.as_ref().unwrap();
+    assert_eq!(rooms.len(), 500);
+    assert!(serde_json::to_vec(&response).unwrap().len() + 1 < radio_client::RESPONSE_MAX_BYTES);
+    for (i, room) in rooms.iter().enumerate() {
+        assert_eq!(room.id, format!("r{i:063}"));
+        assert_eq!(room.home, home);
+        assert_eq!(room.title, title);
+    }
+}
+
+#[test]
+fn creating_an_existing_room_over_the_socket_names_the_conflict() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 2);
+    fixture.create();
+    let response = request(&fixture.socket(), &create()).unwrap();
+    worker.join().unwrap();
+    assert_eq!(
+        serde_json::to_value(response).unwrap(),
+        serde_json::json!({"ok":false,"error":"the room already exists"})
+    );
 }

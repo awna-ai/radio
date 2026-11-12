@@ -23,6 +23,10 @@ pub(crate) fn truncate(text: &str, max_chars: usize) -> String {
 pub(crate) fn is_invisible(c: char) -> bool {
     matches!(
         c,
-        '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'
+        '\u{00AD}' | '\u{061C}' | '\u{115F}'..='\u{1160}' | '\u{180E}'
+            | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}' | '\u{3164}' | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}' | '\u{FFA0}' | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{1D173}'..='\u{1D17A}' | '\u{E0000}'..='\u{E007F}'
     )
 }

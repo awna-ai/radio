@@ -20,6 +20,9 @@ pub const KEY_MAX_CHARS: usize = 40;
 pub const NAME_MAX_CHARS: usize = 64;
 /// The default filename for the rooms store.
 pub const DB_FILE: &str = "rooms.db";
+const STORE_OPEN_FLAGS: OpenFlags = OpenFlags::SQLITE_OPEN_READ_WRITE
+    .union(OpenFlags::SQLITE_OPEN_NO_MUTEX)
+    .union(OpenFlags::SQLITE_OPEN_NOFOLLOW);
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const NEWER: &str = "the room store is newer than this build";
 const UNREADABLE: &str = "the room store could not be read";
@@ -233,24 +236,28 @@ impl RoomStore {
         let parent = path.parent().ok_or("the rooms directory is missing")?;
         crate::private_dir(parent, true)
             .map_err(|reason| format!("the rooms directory {reason}"))?;
+        let path = parent
+            .canonicalize()
+            .map_err(|_| "the room store could not be opened")?
+            .join(
+                path.file_name()
+                    .ok_or("the room store could not be opened")?,
+            );
         let file = fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
+            .open(&path)
             .map_err(|_| "the room store could not be opened")?;
         if !file.metadata().map_err(|_| UNREADABLE)?.is_file() {
             return Err("the room store is not a file".into());
         }
         file.set_permissions(fs::Permissions::from_mode(0o600))
             .map_err(|_| "the room store could not be opened")?;
-        let mut conn = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .map_err(|_| "the room store could not be opened")?;
+        let mut conn = Connection::open_with_flags(&path, STORE_OPEN_FLAGS)
+            .map_err(|_| "the room store could not be opened")?;
         conn.busy_timeout(BUSY_TIMEOUT).map_err(|_| UNWRITABLE)?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(|_| UNWRITABLE)?;
@@ -316,7 +323,14 @@ impl RoomStore {
             .prepare_cached(sql)
             .and_then(|mut stmt| stmt.execute(params![id, home, title, now]))
             .map(|inserted| inserted == 1)
-            .map_err(|_| UNWRITABLE.to_owned())
+            .map_err(|error| match error {
+                rusqlite::Error::SqliteFailure(code, _)
+                    if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY =>
+                {
+                    "the room already exists".to_owned()
+                }
+                _ => UNWRITABLE.to_owned(),
+            })
     }
 
     /// Appends a cleaned message and returns its sequence number.
@@ -453,11 +467,11 @@ impl RoomStore {
         Ok(seq)
     }
 
-    /// Lists rooms in identifier order.
-    pub fn rooms(&self) -> Result<Vec<RoomRow>, String> {
-        let mut stmt = self.conn.prepare_cached("SELECT id, home, title, created, COALESCE((SELECT MAX(seq) FROM messages WHERE messages.room = rooms.id), 0) FROM rooms ORDER BY id")
+    /// Lists rooms after `after` in identifier order, capped at `READ_MAX`.
+    pub fn rooms(&self, after: Option<&str>, limit: usize) -> Result<Vec<RoomRow>, String> {
+        let mut stmt = self.conn.prepare_cached("SELECT id, home, title, created, COALESCE((SELECT MAX(seq) FROM messages WHERE messages.room = rooms.id), 0) FROM rooms WHERE (?1 IS NULL OR id > ?1) ORDER BY id LIMIT ?2")
             .map_err(|_| UNREADABLE)?;
-        stmt.query_map([], room_row)
+        stmt.query_map(params![after, limit.min(READ_MAX) as i64], room_row)
             .and_then(|rows| rows.collect())
             .map_err(|_| UNREADABLE.to_owned())
     }
@@ -727,24 +741,25 @@ fn migration_sql(version: usize) -> String {
 }
 
 fn migrate(conn: &mut Connection) -> Result<(), String> {
-    loop {
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| UNWRITABLE)?;
-        let version = schema_version(&tx)?;
-        if version == MIGRATIONS.len() {
-            return Ok(());
-        }
-        tx.execute_batch(&migration_sql(version))
-            .map_err(|_| "the room store could not be migrated")?;
-        tx.prepare_cached("DELETE FROM schema_version")
-            .and_then(|mut stmt| stmt.execute([]))
-            .map_err(|_| UNWRITABLE)?;
-        tx.prepare_cached("INSERT INTO schema_version (version) VALUES (?1)")
-            .and_then(|mut stmt| stmt.execute([(version + 1) as i64]))
-            .map_err(|_| UNWRITABLE)?;
-        tx.commit().map_err(|_| UNWRITABLE)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| UNWRITABLE)?;
+    let version = schema_version(&tx)?;
+    if version == MIGRATIONS.len() {
+        return Ok(());
     }
+    for pending in version..MIGRATIONS.len() {
+        tx.execute_batch(&migration_sql(pending))
+            .map_err(|_| "the room store could not be migrated")?;
+    }
+    tx.execute("DELETE FROM schema_version", [])
+        .map_err(|_| UNWRITABLE)?;
+    tx.execute(
+        "INSERT INTO schema_version (version) VALUES (?1)",
+        [MIGRATIONS.len() as i64],
+    )
+    .map_err(|_| UNWRITABLE)?;
+    tx.commit().map_err(|_| UNWRITABLE.to_owned())
 }
 
 #[cfg(test)]
