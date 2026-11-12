@@ -1,9 +1,9 @@
-# The Radio's socket contract
+# Radio's socket contract
 
 Protocol major: 1
 Protocol minor: 0
 
-This is the one contract between the Radio and the apps that use it: what an app may send, what it
+This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; `docs/app-developers.md`
 shows how to use it. `radio-client` carries the two numbers above as constants, and a test checks
 them against these lines. They are independent of the repo's semver tags.

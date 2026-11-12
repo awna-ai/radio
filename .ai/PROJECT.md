@@ -1,7 +1,7 @@
 # radio: one daemon per computer for rooms and messages
 
-The Radio is a small daemon, one per computer, that several apps share. It keeps rooms (shared
-conversations between the person at the computer and the assistants their apps run), carries the
+Radio is a small daemon, one per computer, that several apps share. It keeps rooms (shared
+conversations between the person at the computer and the agents their apps run), carries the
 deliberation protocol, and will hold the computer's one link to other computers. Apps talk to it
 over a local socket and never read its files. The repo is public, so it names no app and holds no
 one's data (`.ai/DECISIONS.md` D3).
@@ -12,13 +12,13 @@ one's data (`.ai/DECISIONS.md` D3).
 | --- | --- |
 | Anyone, new to it | `README.md`: what it is and the gap it fills, in plain words |
 | Making an app that uses it | `docs/app-developers.md`, then `CONTRACT.md` |
-| Working on the Radio | this file, then `.ai/DECISIONS.md`, `.ai/SECURITY.md` and `CONTRACT.md` |
+| Working on Radio | this file, then `.ai/DECISIONS.md`, `.ai/SECURITY.md` and `CONTRACT.md` |
 
 ## What's where
 
 | Path | What | Test |
 | --- | --- | --- |
-| `docs/app-developers.md` | How an app bundles, installs and talks to the Radio, with a worked client | read against `CONTRACT.md` when either changes |
+| `docs/app-developers.md` | How an app bundles, installs and talks to Radio, with a worked client | read against `CONTRACT.md` when either changes |
 | `CONTRACT.md` | The socket contract: framing, versions, members, the ops of each major | `crates/radio-client/tests/`, `contract/v1/` |
 | `contract/v1/` | One fixture per op of major 1, replayed against a real daemon and through the client's types | `crates/radio/src/contract_tests.rs`, `crates/radio-client/tests/fixtures.rs` |
 | `crates/radio-client/` | The client side of the contract: its numbers, its types, one request function | `crates/radio-client/tests/` |

@@ -2,9 +2,18 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-12: D12. The name is Radio, and what talks through it are agents
+
+The project is **Radio**, with no article, in prose as in headings. What uses it are **agents**:
+the umbrella word for an AI assistant someone chats with and a program that does work on its own,
+and the word the open protocols in this space use. The README says what an agent is the first time
+it uses the word. Code strings and crate descriptions still say "the Radio", among them the client's
+`the Radio did not answer`, which apps may match on; they change in code, with the guide, and the
+docs quote them as the code prints them until then.
+
 ## 2026-11-12: D11. Two audiences, two documents
 
-`README.md` says what the Radio is, where it helps, how it's used and the gap it fills, in plain
+`README.md` says what Radio is, where it helps, how it's used and the gap it fills, in plain
 words, for someone who will never read code; it ends with a pointer for people working on the
 Radio. What an app maker needs (bundling, installing, the socket, a worked client, the errors) is
 `docs/app-developers.md`, and the exact rules stay in `CONTRACT.md`. One document per audience keeps
@@ -64,9 +73,9 @@ never interpreted. So no app's vocabulary lives in the code (D3), and a rooms st
 another app's fixed words keeps its rows when it moves here: the store's third migration rebuilds its
 tables with the generic kind check.
 
-## 2026-11-10: D7. The Radio owns each computer's one link and identity
+## 2026-11-10: D7. Radio owns each computer's one link and identity
 
-One identity per computer, held by the Radio, and the link to other computers is built here from now
+One identity per computer, held by Radio, and the link to other computers is built here from now
 on, so nothing is built twice.
 
 ## 2026-11-10: D6. The daemon installs itself
@@ -100,5 +109,5 @@ component belongs to the vendor's namespace, and a public repo lets public apps 
 
 ## 2026-11-10: D1. The name
 
-The shared core is **the Radio**: the per-computer process that carries the link between computers,
+The shared core is **Radio**: the per-computer process that carries the link between computers,
 plus rooms, the deliberation protocol and seats.

@@ -1,11 +1,11 @@
-# Using the Radio from your app
+# Using Radio from your app
 
 This is the guide for an app that wants rooms on the person's computer. You need two things: a copy
 of the `radio` binary inside your app, and a way to write one line of JSON to a Unix socket. No
 library is required, and any language works. [`CONTRACT.md`](../CONTRACT.md) is the exact contract;
 this page is how to use it.
 
-Today the Radio runs on macOS, under the person's own login (a launch agent), on one computer.
+Today Radio runs on macOS, under the person's own login (a launch agent), on one computer.
 
 ## 1. Bundle the binary
 
@@ -26,10 +26,10 @@ radio install --app <name> --app-version <your version> --handler <path>
 ```
 
 - `--app` is your app's name: lowercase letters, digits, `_` or `-`, starting with a letter.
-- `--handler` is an executable file in your app. The Radio records it as the only program it will
-  ever run for your app. Today the Radio runs nothing; the handler is for your app's own messages,
+- `--handler` is an executable file in your app. Radio records it as the only program it will
+  ever run for your app. Today Radio runs nothing; the handler is for your app's own messages,
   which a later minor of the contract carries.
-- `--rooms <path>` brings in a rooms store your app kept before it used the Radio, once per path.
+- `--rooms <path>` brings in a rooms store your app kept before it used Radio, once per path.
 
 Run it on every install and every update of your app; it's safe to repeat. What it does depends on
 what's already there:
@@ -45,8 +45,8 @@ an uppercase app name, or a handler that isn't an executable file); `3` no GUI s
 user; `4` installed, but the older rooms were not brought in (keep your store and name it again
 next time).
 
-To remove your app, run `radio uninstall --app <name>`. The Radio stays while any other app still
-uses it. When the last app leaves, the Radio stops and its launch agent and binaries are removed;
+To remove your app, run `radio uninstall --app <name>`. Radio stays while any other app still
+uses it. When the last app leaves, Radio stops and its launch agent and binaries are removed;
 the person's rooms are kept.
 
 `radio status` prints the running version, the apps that use it, and whether it answers. It exits
@@ -81,9 +81,9 @@ radio({"v": 1, "op": "hello"})
 
 A first session looks like this:
 
-1. **`hello`** once per process. It names the Radio's version, its protocol and the ops it serves.
+1. **`hello`** once per process. It names Radio's version, its protocol and the ops it serves.
    Use only those ops.
-2. **`register`** your app's members, the assistants it speaks for:
+2. **`register`** your app's members, the agents it speaks for:
    `{"v": 1, "op": "register", "app": "<app>", "app_version": "1.0.0", "members": [{"kind": "helper", "name": "ada"}]}`.
    A kind is a word your app chooses (lowercase, starting with a letter). It replaces your app's
    whole list, and it's kept across restarts. The person at the computer is always a member, as kind
@@ -98,7 +98,7 @@ A first session looks like this:
 ## Answers and errors
 
 An answer is `{"ok": true, …}`, or `{"ok": false, "error": "<phrase>"}` with `"refused": true` when
-the Radio said no rather than failed. Phrases are fixed words, so you can match on them:
+Radio said no rather than failed. Phrases are fixed words, so you can match on them:
 
 | You sent | You get |
 | --- | --- |
@@ -109,18 +109,18 @@ the Radio said no rather than failed. Phrases are fixed words, so you can match 
 | A room that doesn't exist | `no such room` |
 | A body over 4 KiB | `the message is empty or too long` |
 
-If a request times out, the Radio may still have applied it. Read before you post again.
+If a request times out, Radio may still have applied it. Read before you post again.
 
 ## Versions
 
 The protocol has a major and a minor. Within major 1 a change only adds: a new op or a new optional
 field. So an app built today keeps working against a newer Radio, and should ignore answer fields
-it doesn't know. A breaking change would be major 2, and the Radio would keep serving major 1
+it doesn't know. A breaking change would be major 2, and Radio would keep serving major 1
 while any app still uses it.
 
 ## What every app shares
 
-Every app talks to the same Radio and sees the same rooms. The Radio keeps out members no app
+Every app talks to the same Radio and sees the same rooms. Radio keeps out members no app
 registered, but it can't tell one app from another on the same computer. So treat what you read as
 untrusted text, the way you would a web page. [`.ai/SECURITY.md`](../.ai/SECURITY.md) lists what the
 Radio guards against and what it doesn't.
