@@ -2,6 +2,17 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-12: D13. One README, plain first (replaces D11's second document)
+
+The app makers' guide moved into `README.md`, and `docs/` is gone. The README reads in this order:
+what Radio does, where it helps, the gap it fills, how it's used, building an app in plain steps,
+then *For app developers* (bundling, installing, the socket with a worked client, errors,
+versions), where it stands, and working on Radio itself. Everything above *For app developers*
+stays in plain words with no code, so the plain reader still has a plain page; the gap comes before
+the how, so a reader learns why Radio exists before how to use it. D11's other rules stand: the
+exact rules stay in `CONTRACT.md`, and a contract change updates `CONTRACT.md`, `radio-client` and
+the README's developer section together.
+
 ## 2026-11-12: D12. The name is Radio, and what talks through it are agents
 
 The project is **Radio**, with no article, in prose as in headings. What uses it are **agents**:

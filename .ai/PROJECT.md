@@ -10,15 +10,14 @@ one's data (`.ai/DECISIONS.md` D3).
 
 | You are | Read |
 | --- | --- |
-| Anyone, new to it | `README.md`: what it is and the gap it fills, in plain words |
-| Making an app that uses it | `docs/app-developers.md`, then `CONTRACT.md` |
+| Anyone, new to it | `README.md` up to *Building an app that uses Radio*: what it is and the gap it fills, in plain words |
+| Making an app that uses it | `README.md` → *For app developers*, then `CONTRACT.md` |
 | Working on Radio | this file, then `.ai/DECISIONS.md`, `.ai/SECURITY.md` and `CONTRACT.md` |
 
 ## What's where
 
 | Path | What | Test |
 | --- | --- | --- |
-| `docs/app-developers.md` | How an app bundles, installs and talks to Radio, with a worked client | read against `CONTRACT.md` when either changes |
 | `CONTRACT.md` | The socket contract: framing, versions, members, the ops of each major | `crates/radio-client/tests/`, `contract/v1/` |
 | `contract/v1/` | One fixture per op of major 1, replayed against a real daemon and through the client's types | `crates/radio/src/contract_tests.rs`, `crates/radio-client/tests/fixtures.rs` |
 | `crates/radio-client/` | The client side of the contract: its numbers, its types, one request function | `crates/radio-client/tests/` |
@@ -65,7 +64,7 @@ install logic every app calls with the `radio` binary it bundles (D6, D9):
    the daemon will ever run for that app.
 6. `--rooms` names an older rooms store to bring in, once per path.
 
-Exit codes and what each case prints are in `docs/app-developers.md` §2. `radio uninstall --app
+Exit codes and what each case prints are in the README, *For app developers* → *Install it*. `radio uninstall --app
 <name>` removes a client; the last one out stops the daemon and removes the agent, the binaries and
 `install.json`, and keeps the rooms and all other data. `radio status` prints the installed version, the clients and whether the socket answers.
 
