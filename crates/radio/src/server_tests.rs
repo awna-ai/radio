@@ -82,13 +82,38 @@ fn post(body: &str) -> Request {
     }
 }
 
+// macOS refuses socket options once the server has answered and closed (EINVAL); the answer is still buffered.
+pub(super) fn read_timeout(stream: &UnixStream, timeout: Duration) {
+    if let Err(error) = stream.set_read_timeout(Some(timeout)) {
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{error}");
+    }
+}
+
+// The server may answer and close before the request is half-closed.
+pub(super) fn half_close(stream: &UnixStream) {
+    if let Err(error) = stream.shutdown(std::net::Shutdown::Write) {
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected, "{error}");
+    }
+}
+
+#[test]
+fn test_clients_read_an_answer_sent_before_the_close() {
+    let (stream, mut peer) = UnixStream::pair().unwrap();
+    peer.write_all(b"{\"ok\":true}\n").unwrap();
+    drop(peer);
+
+    read_timeout(&stream, Duration::from_secs(1));
+    half_close(&stream);
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).unwrap();
+    assert_eq!(line, "{\"ok\":true}\n");
+}
+
 fn raw_value(socket: &Path, line: &[u8]) -> serde_json::Value {
     let mut stream = UnixStream::connect(socket).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
+    read_timeout(&stream, Duration::from_secs(5));
     stream.write_all(line).unwrap();
-    stream.shutdown(std::net::Shutdown::Write).unwrap();
+    half_close(&stream);
     let mut response = String::new();
     BufReader::new(stream).read_line(&mut response).unwrap();
     serde_json::from_str(&response).unwrap()
@@ -401,9 +426,7 @@ fn wrong_uid_is_refused_without_reading_or_writing_a_post() {
     // No request bytes: the peer check must answer before attempting to read.
     let mut response = String::new();
     let stream = UnixStream::connect(fixture.socket()).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(1)))
-        .unwrap();
+    read_timeout(&stream, Duration::from_secs(1));
     BufReader::new(stream).read_line(&mut response).unwrap();
     assert_eq!(
         serde_json::from_str::<Response>(&response)
@@ -854,9 +877,7 @@ fn wrong_uid_refuses_hello_before_reading() {
         (Some("refused: another user"), Some(true))
     );
     let stream = UnixStream::connect(fixture.socket()).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(1)))
-        .unwrap();
+    read_timeout(&stream, Duration::from_secs(1));
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line).unwrap();
     assert_eq!(

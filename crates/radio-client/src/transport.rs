@@ -17,20 +17,20 @@ pub fn request(socket: &Path, request: &Request) -> Result<Response, String> {
         .as_object_mut()
         .ok_or(NO_ANSWER)?
         .insert("v".into(), PROTOCOL_MAJOR.into());
-    let mut stream = UnixStream::connect(socket).map_err(|error| match error.kind() {
+    let stream = UnixStream::connect(socket).map_err(|error| match error.kind() {
         std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
             "the Radio is not running".to_owned()
         }
         _ => NO_ANSWER.to_owned(),
     })?;
-    stream
-        .set_read_timeout(Some(TIMEOUT))
-        .map_err(|_| NO_ANSWER)?;
-    stream
-        .set_write_timeout(Some(TIMEOUT))
-        .map_err(|_| NO_ANSWER)?;
+    exchange(stream, &value)
+}
+
+fn exchange(mut stream: UnixStream, value: &serde_json::Value) -> Result<Response, String> {
+    timeout_set(stream.set_read_timeout(Some(TIMEOUT)))?;
+    timeout_set(stream.set_write_timeout(Some(TIMEOUT)))?;
     // A refused caller may receive an answer before the peer reads anything.
-    let sent = write_line(&mut stream, &value).and_then(|()| stream.shutdown(Shutdown::Write));
+    let sent = write_line(&mut stream, value).and_then(|()| stream.shutdown(Shutdown::Write));
     if sent.is_err_and(|error| {
         !matches!(
             error.kind(),
@@ -49,7 +49,20 @@ pub fn request(socket: &Path, request: &Request) -> Result<Response, String> {
     serde_json::from_slice(&line).map_err(|_| NO_ANSWER.into())
 }
 
+// macOS refuses socket options once both directions are shut (EINVAL): the Radio has answered and closed, so
+// the answer is already buffered and a read cannot block.
+fn timeout_set(result: std::io::Result<()>) -> Result<(), &'static str> {
+    match result {
+        Err(error) if error.kind() != std::io::ErrorKind::InvalidInput => Err(NO_ANSWER),
+        _ => Ok(()),
+    }
+}
+
 fn write_line(stream: &mut UnixStream, value: &serde_json::Value) -> std::io::Result<()> {
     serde_json::to_writer(&mut *stream, value)?;
     stream.write_all(b"\n")
 }
+
+#[cfg(test)]
+#[path = "transport_tests.rs"]
+mod tests;

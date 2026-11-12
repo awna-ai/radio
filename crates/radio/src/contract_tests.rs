@@ -1,3 +1,4 @@
+use super::tests::{half_close, read_timeout};
 use super::*;
 use serde_json::Value;
 use std::{
@@ -104,13 +105,11 @@ fn replay_major_one_contract() {
     });
     for (fixture, path) in fixtures.iter().zip(paths) {
         let mut stream = UnixStream::connect(&socket).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
+        read_timeout(&stream, Duration::from_secs(5));
         // The recorded request, sent compact.
         serde_json::to_writer(&mut stream, &fixture["request"]).unwrap();
         stream.write_all(b"\n").unwrap();
-        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        half_close(&stream);
         let mut line = String::new();
         BufReader::new(stream).read_line(&mut line).unwrap();
         let actual: Value = serde_json::from_str(&line).unwrap();
