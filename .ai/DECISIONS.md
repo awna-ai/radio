@@ -17,6 +17,15 @@ The decisions this repo was founded on (2026-11-10). Newer decisions go above th
 - **The import is the one write outside the daemon,** and it is safe: it runs under the install
   lock, in one transaction, and SQLite's lock orders it with the daemon's own writes; the daemon keeps
   no rows in memory.
+- **A failed upgrade puts the store back too.** A newer daemon migrates `rooms.db` before it answers,
+  so the installer snapshots the store once the older daemon has stopped and restores it if the newer
+  one fails; a release that adds a store migration bumps the version.
+- **App names are lowercase,** so two spellings never share one client record on a case-insensitive
+  disk. A failed install records no client; the app runs the install again.
+- **The source of an import** must belong to this user and be writable by no one else; SQLite may
+  create `-wal` and `-shm` beside it when it opens a WAL file, but nothing writes the store itself.
+  Its version-1 status lines read as set by the person at the computer, as this store's own second
+  migration defaulted them.
 - **A test can never load a real launch agent:** the real `launchctl` is used only for the account's
   own HOME; any other HOME must name a stand-in in `RADIO_LAUNCHCTL`.
 

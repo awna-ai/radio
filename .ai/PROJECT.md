@@ -46,9 +46,10 @@ install logic every app calls with the `radio` binary it bundles (D6, D9):
 3. The same version or a newer one installed: it installs nothing, and restarts the daemon once if
    it does not answer.
 4. An older one installed: it copies itself beside it, restarts the agent on the new copy, and on
-   any failure puts the older copy back. One previous version is kept; older ones are deleted.
-5. It records the app in `clients/<app>.json` with its handler, the only program the daemon will
-   ever run for that app.
+   any failure puts the older copy and the rooms store as they were. One previous version is kept;
+   older ones are deleted. A copy older than a damaged newer install refuses to repair it.
+5. It records the app (a lowercase name) in `clients/<app>.json` with its handler, the only program
+   the daemon will ever run for that app.
 6. `--rooms` names an older rooms store to bring in, once per path.
 
 Exit codes: 0 done; 1 failed (the message says what is running); 2 a bad argument; 3 no GUI
