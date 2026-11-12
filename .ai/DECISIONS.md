@@ -2,6 +2,16 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-12: D11. Two audiences, two documents
+
+`README.md` says what the Radio is, where it helps, how it's used and the gap it fills, in plain
+words, for someone who will never read code; it ends with a pointer for people working on the
+Radio. What an app maker needs (bundling, installing, the socket, a worked client, the errors) is
+`docs/app-developers.md`, and the exact rules stay in `CONTRACT.md`. One document per audience keeps
+each one short, and keeps the plain one plain. A change to the contract updates `CONTRACT.md`,
+`radio-client` and the guide together. The README's comparison with other open tools is dated and
+says "when we looked": re-check it before changing it.
+
 ## 2026-11-12: D10. The deliberation protocol comes in as a copy, its author field renamed
 
 The protocol crate, `radio-panels`, was first written in another public repo. It came in as one new

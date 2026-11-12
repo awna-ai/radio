@@ -1,13 +1,24 @@
 # radio: one daemon per computer for rooms and messages
 
 The Radio is a small daemon, one per computer, that several apps share. It keeps rooms (shared
-conversations between people and the assistants their apps run), carries the deliberation protocol,
-and will hold the computer's one link to other computers. Apps talk to it over a local socket
-(`CONTRACT.md`); none of them reads its files. The repo is public, so it names no app and holds no
+conversations between the person at the computer and the assistants their apps run), carries the
+deliberation protocol, and will hold the computer's one link to other computers. Apps talk to it
+over a local socket and never read its files. The repo is public, so it names no app and holds no
 one's data (`.ai/DECISIONS.md` D3).
+
+## Who reads what
+
+| You are | Read |
+| --- | --- |
+| Anyone, new to it | `README.md`: what it is and the gap it fills, in plain words |
+| Making an app that uses it | `docs/app-developers.md`, then `CONTRACT.md` |
+| Working on the Radio | this file, then `.ai/DECISIONS.md`, `.ai/SECURITY.md` and `CONTRACT.md` |
+
+## What's where
 
 | Path | What | Test |
 | --- | --- | --- |
+| `docs/app-developers.md` | How an app bundles, installs and talks to the Radio, with a worked client | read against `CONTRACT.md` when either changes |
 | `CONTRACT.md` | The socket contract: framing, versions, members, the ops of each major | `crates/radio-client/tests/`, `contract/v1/` |
 | `contract/v1/` | One fixture per op of major 1, replayed against a real daemon and through the client's types | `crates/radio/src/contract_tests.rs`, `crates/radio-client/tests/fixtures.rs` |
 | `crates/radio-client/` | The client side of the contract: its numbers, its types, one request function | `crates/radio-client/tests/` |
@@ -54,11 +65,9 @@ install logic every app calls with the `radio` binary it bundles (D6, D9):
    the daemon will ever run for that app.
 6. `--rooms` names an older rooms store to bring in, once per path.
 
-Exit codes: 0 done; 1 failed (the message says what is running); 2 a bad argument; 3 no GUI
-session for this user; 4 installed, but the rooms were not imported (the app keeps its store and
-names it again next time). `radio uninstall --app <name>` removes a client; the last one out stops
-the daemon and removes the agent, the binaries and `install.json`, and keeps the rooms and all other
-data. `radio status` prints the installed version, the clients and whether the socket answers.
+Exit codes and what each case prints are in `docs/app-developers.md` §2. `radio uninstall --app
+<name>` removes a client; the last one out stops the daemon and removes the agent, the binaries and
+`install.json`, and keeps the rooms and all other data. `radio status` prints the installed version, the clients and whether the socket answers.
 
 Tests never touch the real launch agent: `launchctl` is `/bin/launchctl` only when HOME is the
 account's own home directory; any other HOME needs `RADIO_LAUNCHCTL` naming a stand-in.
