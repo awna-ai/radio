@@ -16,6 +16,11 @@ if [ "$#" -eq 2 ]; then
     [ "$2" = --publish ] || usage
     publish=1
 fi
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+unset GIT_ALTERNATE_OBJECT_DIRECTORIES GH_REPO GH_HOST RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
+while IFS= read -r variable; do
+    case "$variable" in CARGO_PROFILE_*) unset "$variable" ;; esac
+done < <(compgen -e)
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 fail() {
     printf 'release: %s\n' "$1" >&2
@@ -28,8 +33,11 @@ terms=${RADIO_TERMS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/radio-dev/terms.txt}
 # Keep the list private and remove every temporary file, including on a refusal.
 list=$(mktemp)
 work=''
+long=''
+short=''
+gh_error=''
 cleanup() {
-    rm -f "$list"
+    rm -f "$list" "$long" "$short" "$gh_error"
     if [ -n "$work" ]; then
         git -C "$root" worktree remove --force "$work/src" > /dev/null 2>&1 || true
         git -C "$root" worktree prune > /dev/null 2>&1 || true
@@ -37,8 +45,12 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+long=$(mktemp)
+short=$(mktemp)
 sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*#/d' -e '/^$/d' "$terms" > "$list" || fail "no term list at $terms"
 [ -s "$list" ] || fail "no term list at $terms"
+awk 'length($0) >= 5' "$list" > "$long" || fail 'could not split the term list'
+awk 'length($0) < 5' "$list" > "$short" || fail 'could not split the term list'
 
 tools=(cargo rustup lipo strip codesign shasum tar)
 if [ "$publish" -eq 1 ]; then
@@ -58,6 +70,29 @@ for target in "${targets[@]}"; do
     fi
 done
 [ "$missing" -eq 0 ] || exit 1
+if [ "$publish" -eq 1 ]; then
+    url=$(git -C "$root" config --get remote.origin.url) || fail 'origin is not a GitHub repository'
+    case "$url" in
+        git@github.com:*) repo=${url#git@github.com:} ;;
+        ssh://git@github.com/*) repo=${url#ssh://git@github.com/} ;;
+        https://github.com/*) repo=${url#https://github.com/} ;;
+        *) fail 'origin is not a GitHub repository' ;;
+    esac
+    repo=${repo%.git}
+    [[ "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || fail 'origin is not a GitHub repository'
+    remote=$(git -C "$root" ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}" 2> /dev/null) || fail "$tag is not on origin"
+    remote_commit=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$tag" '$2 == ref { plain=$1 } $2 == ref "^{}" { peeled=$1 } END { print (peeled != "" ? peeled : plain) }')
+    [ "$remote_commit" = "$commit" ] || fail "$tag is not on origin"
+    gh_error=$(mktemp)
+    if gh release view "$tag" -R "$repo" --json tagName > /dev/null 2> "$gh_error"; then
+        fail "$tag already has a release (a draft counts); remove it with: gh release delete $tag -R $repo --yes"
+    else
+        status=$?
+        if [ "$status" -ne 1 ] || ! grep -F -q 'release not found' "$gh_error"; then
+            fail "could not ask GitHub about $tag"
+        fi
+    fi
+fi
 work=$(mktemp -d)
 work=$(cd "$work" && pwd -P)
 git -C "$root" worktree add -q --detach "$work/src" "$commit" 2> /dev/null || fail 'could not copy the tag'
@@ -75,13 +110,21 @@ normalize() {
 
 # A failed grep is distinct from a clean scan; never print the matched bytes.
 check_terms() {
-    local file=$1 status
-    if grep -a -F -i -w -f "$list" -- "$file" > /dev/null 2>&1; then
-        fail "the $target binary names a private term"
-    else
-        status=$?
-        [ "$status" -eq 1 ] || fail "could not scan the $target binary"
-    fi
+    local file=$1 status words
+    local flags
+    for words in "$long" "$short"; do
+        [ -s "$words" ] || continue
+        flags=(-a -F -i)
+        if [ "$words" = "$short" ]; then
+            flags+=(-w)
+        fi
+        if grep "${flags[@]}" -f "$words" -- "$file" > /dev/null 2>&1; then
+            fail "the $target binary names a private term"
+        else
+            status=$?
+            [ "$status" -eq 1 ] || fail "could not scan the $target binary"
+        fi
+    done
 }
 
 mkdir -p "$work/dist" "$work/stage"
@@ -102,7 +145,7 @@ for i in 0 1; do
             [ "$status" -eq 1 ] || fail "could not scan the $target binary"
         fi
     done
-    if grep -a -F -w -q -- "$account" "$bin" > /dev/null 2>&1; then
+    if grep -a -F -i -q -- "$account" "$bin" > /dev/null 2>&1; then
         fail "the $target binary names this account"
     else
         status=$?
@@ -143,12 +186,6 @@ if [ "$publish" -eq 0 ]; then
     printf 'release: to publish it, run: bash scripts/release.sh %s --publish\n' "$tag"
     exit 0
 fi
-remote=$(git -C "$root" ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}" 2> /dev/null) || fail "$tag is not on origin"
-remote_commit=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$tag" '$2 == ref { plain=$1 } $2 == ref "^{}" { peeled=$1 } END { print (peeled != "" ? peeled : plain) }')
-[ "$remote_commit" = "$commit" ] || fail "$tag is not on origin"
-if gh release view "$tag" --json tagName > /dev/null 2>&1; then
-    fail "$tag already has a release"
-fi
 cat > "$work/notes.md" <<NOTES
 The \`radio\` daemon for macOS, built from $tag ($commit).
 
@@ -159,12 +196,20 @@ The \`radio\` daemon for macOS, built from $tag ($commit).
 Signed ad hoc, not notarised. Ship it inside your app, whose signature and notarisation cover it; see
 \`docs/app-developers.md\`.
 NOTES
-gh release create "$tag" --verify-tag --title "radio $tag" --notes-file "$work/notes.md" \
+(cd "$out" && shasum -a 256 -c SHA256SUMS) > /dev/null 2>&1 || fail "$tag changed before upload"
+gh release create "$tag" -R "$repo" --draft --verify-tag --title "radio $tag" --notes-file "$work/notes.md" \
     "$out/radio-$tag-macos-arm64.tar.gz" "$out/radio-$tag-macos-x86_64.tar.gz" "$out/SHA256SUMS" > /dev/null 2>&1 || fail 'gh release create failed'
-gh release download "$tag" --dir "$work/check" --pattern 'radio-*' --pattern SHA256SUMS > /dev/null 2>&1 || fail "$tag did not read back"
+readback_failure="$tag did not read back; the draft is still there: gh release delete $tag -R $repo --yes"
+gh release download "$tag" -R "$repo" --dir "$work/check" --pattern 'radio-*' --pattern SHA256SUMS > /dev/null 2>&1 || fail "$readback_failure"
+printf '%s\n' "radio-$tag-macos-arm64.tar.gz" "radio-$tag-macos-x86_64.tar.gz" SHA256SUMS | sort > "$work/expected"
+(cd "$work/check" && find . -mindepth 1 -maxdepth 1 -print | sed 's|^./||' | sort) > "$work/actual" || fail "$readback_failure"
+cmp -s "$work/expected" "$work/actual" || fail "$readback_failure"
 for file in "radio-$tag-macos-arm64.tar.gz" "radio-$tag-macos-x86_64.tar.gz" SHA256SUMS; do
     if [ ! -f "$work/check/$file" ] || ! cmp -s "$out/$file" "$work/check/$file"; then
-        fail "$tag did not read back"
+        fail "$readback_failure"
     fi
 done
-printf 'release: published %s (3 files, read back)\n' "$tag"
+gh release edit "$tag" -R "$repo" --draft=false > /dev/null 2>&1 || fail "could not publish the $tag draft"
+is_draft=$(gh release view "$tag" -R "$repo" --json isDraft --jq .isDraft 2> /dev/null) || fail "$tag is still a draft"
+[ "$is_draft" = false ] || fail "$tag is still a draft"
+printf 'release: published %s to %s (3 files, read back)\n' "$tag" "$repo"

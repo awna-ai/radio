@@ -36,6 +36,11 @@ else
     esac
     mkdir -p "$dest/$target/release"
     printf 'arch=%s\n%s\n' "$arch" "${STUB_BINARY_TEXT:-}" > "$dest/$target/release/radio"
+    printf '%s\n' "$dest" >> "$STUB_ROOT/calls/cargo-dirs"
+    if [ "${STUB_EMBED_WORK:-0}" = 1 ]; then
+        dirname "$dest" >> "$dest/$target/release/radio"
+    fi
+    xattr -w com.example.test 1 "$dest/$target/release/radio"
     chmod 755 "$dest/$target/release/radio"
     flags=${CARGO_ENCODED_RUSTFLAGS:-}
     printf 'RUSTFLAGS=%s; CARGO_ENCODED_RUSTFLAGS=%s\n' "${RUSTFLAGS:-}" "${flags//$'\x1f'/ | }" >> "$STUB_ROOT/calls/cargo-env"
@@ -72,12 +77,30 @@ sed '/^debugmap=/d' "$2" > "$STUB_ROOT/stripped"
 cat "$STUB_ROOT/stripped" > "$2"
 chmod 755 "$2"
 STUB
+cat > "$tmp/bin/grep" <<'STUB'
+#!/usr/bin/env bash
+for arg in "$@"; do
+    case "${STUB_GREP_FAIL:-0}:$arg" in
+        1:-a|terms:-f) exit 2 ;;
+    esac
+done
+exec /usr/bin/grep "$@"
+STUB
 cat > "$tmp/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$STUB_ROOT/calls/gh"
+printf 'GH_REPO=%s\n' "${GH_REPO:-}" >> "$STUB_ROOT/calls/gh-env"
 case "$2" in
     view)
+        if [[ " $* " == *' --json isDraft '* ]]; then
+            if [ "${STUB_GH_STILL_DRAFT:-0}" = 1 ]; then echo true; else echo false; fi
+            exit 0
+        fi
+        if [ "${STUB_GH_VIEW_ERROR:-0}" = 1 ]; then
+            echo 'HTTP 401' >&2
+            exit 1
+        fi
         [ "${STUB_GH_EXISTS:-0}" = 1 ] && exit 0
         echo 'release not found' >&2
         exit 1
@@ -87,7 +110,8 @@ case "$2" in
         shift 3
         while [ "$#" -gt 0 ]; do
             case "$1" in
-                --verify-tag) ;;
+                --verify-tag|--draft) ;;
+                -R) shift ;;
                 --title) shift ;;
                 --notes-file) cp "$2" "$STUB_ROOT/notes.md"; shift ;;
                 *) cp "$1" "$STUB_ROOT/server/" ;;
@@ -95,6 +119,7 @@ case "$2" in
             shift
         done
         ;;
+    edit) ;;
     download)
         shift 3
         dest=''
@@ -109,6 +134,15 @@ case "$2" in
         cp "$STUB_ROOT/server/"* "$dest/"
         if [ "${STUB_GH_CORRUPT:-0}" = 1 ]; then
             printf x >> "$dest/SHA256SUMS"
+        fi
+        if [ "${STUB_GH_CORRUPT_ARCHIVE:-0}" = 1 ]; then
+            printf x >> "$dest/radio-v0.1.0-macos-arm64.tar.gz"
+        fi
+        if [ "${STUB_GH_DROP:-0}" = 1 ]; then
+            rm "$dest/radio-v0.1.0-macos-x86_64.tar.gz"
+        fi
+        if [ "${STUB_GH_EXTRA:-0}" = 1 ]; then
+            printf x > "$dest/radio-extra.txt"
         fi
         ;;
     *) exit 1 ;;
@@ -126,7 +160,11 @@ new_case() {
     repo="$tmp/case-$case_number"
     mkdir -p "$repo/scripts"
     rm -rf "$tmp/calls" "$tmp/server"
-    mkdir "$tmp/calls"
+    rm -rf "$tmp/tmpdir"
+    mkdir "$tmp/calls" "$tmp/tmpdir"
+    export TMPDIR="$tmp/tmpdir"
+    unset STUB_EMBED_WORK STUB_GREP_FAIL STUB_GH_STILL_DRAFT STUB_GH_VIEW_ERROR
+    unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
     unset STUB_BINARY_TEXT STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
     unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
     export RADIO_TERMS_FILE="$tmp/terms.txt"
@@ -148,11 +186,18 @@ new_case() {
     out="$repo/target/release-dist/v0.1.0"
 }
 
+run() {
+    output=$(bash "$repo/scripts/release.sh" "$@" 2>&1)
+    run_status=$?
+    [ -z "$(find "$tmp/tmpdir" -mindepth 1 -print)" ] || fail 'temporary files not removed'
+    [ "$(git -C "$repo" worktree list | wc -l)" -eq 1 ] || fail 'worktree not removed'
+}
+
 expect() {
     local expected=$1 wanted=$2 actual
     shift 2
-    output=$(bash "$repo/scripts/release.sh" "$@" 2>&1)
-    actual=$?
+    run "$@"
+    actual=$run_status
     [ "$actual" -eq "$expected" ] || fail "expected exit $expected, got $actual"
     printf '%s\n' "$output" | grep -F -q -- "$wanted" || fail 'expected diagnostic absent'
     if printf '%s\n' "$output" | grep -F -i -q -- "$term_title"; then
@@ -167,7 +212,8 @@ refused() {
 
 origin() {
     git init --bare -q "$tmp/origin-$case_number.git" || exit 1
-    git -C "$repo" remote add origin "$tmp/origin-$case_number.git"
+    git -C "$repo" remote add origin git@github.com:example-org/example-repo.git
+    git -C "$repo" config url."$tmp/origin-$case_number.git".insteadOf git@github.com:example-org/example-repo.git
     git -C "$repo" push -q origin main || exit 1
     if [ "$1" = tag ]; then
         git -C "$repo" push -q origin v0.1.0 || exit 1
@@ -177,6 +223,18 @@ origin() {
 no_create() {
     if [ -f "$tmp/calls/gh" ] && grep -q '^release create ' "$tmp/calls/gh"; then
         fail 'created a release after refusal'
+    fi
+}
+
+no_build() {
+    if [ -f "$tmp/calls/cargo" ] && grep -q '^build ' "$tmp/calls/cargo"; then
+        fail 'built after publish refusal'
+    fi
+}
+
+no_edit() {
+    if [ -f "$tmp/calls/gh" ] && grep -q '^release edit ' "$tmp/calls/gh"; then
+        fail 'published before successful read-back'
     fi
 }
 
@@ -219,6 +277,10 @@ if [ -d "$out" ]; then
         archive="$folder.tar.gz"
         printf '%s\n' "$output" | grep -F -q -- "$archive" || fail 'archive absent from output'
         printf '%s\n' "$folder/" "$folder/LICENSE" "$folder/radio" | sort > "$tmp/expected"
+        for pattern in '._' com.example.test xattr; do
+            count=$(gzip -dc "$out/$archive" | LC_ALL=C grep -a -F -c -- "$pattern")
+            [ "$count" -eq 0 ] || fail 'archive holds extended metadata'
+        done
         tar -tzf "$out/$archive" | sort > "$tmp/actual"
         cmp -s "$tmp/expected" "$tmp/actual" || fail 'archive entries differ'
         tar -tvzf "$out/$archive" > "$tmp/listing"
@@ -249,7 +311,9 @@ fi
 if [ -f "$tmp/calls/cargo-env" ]; then
     [ "$(wc -l < "$tmp/calls/cargo-env")" -eq 2 ] || fail 'build environment count differs'
     [ "$(grep -c '^RUSTFLAGS=; ' "$tmp/calls/cargo-env")" -eq 2 ] || fail 'inherited rust flags'
-    [ "$(grep -F -c -- "--remap-path-prefix=$HOME=/home | " "$tmp/calls/cargo-env")" -eq 2 ] || fail 'home remap absent'
+    build_work=$(dirname "$(head -1 "$tmp/calls/cargo-dirs")")
+    expected_flags="RUSTFLAGS=; CARGO_ENCODED_RUSTFLAGS=--remap-path-prefix=$HOME=/home | --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo | --remap-path-prefix=${RUSTUP_HOME:-$HOME/.rustup}=/rustup | --remap-path-prefix=$build_work=/build"
+    [ "$(grep -F -x -c -- "$expected_flags" "$tmp/calls/cargo-env")" -eq 2 ] || fail 'remap flags differ'
 else
     fail 'build environment absent'
 fi
@@ -271,6 +335,9 @@ fi
 new_case 7
 export STUB_BINARY_TEXT="$HOME/src/lib.rs"
 refused 1 'holds a build path' v0.1.0
+if printf '%s\n' "$output" | grep -F -q -- "$HOME/src"; then
+    fail 'output exposed the build path'
+fi
 
 new_case 8
 export STUB_BINARY_TEXT="the ${term_title}App"
@@ -293,7 +360,12 @@ fi
 
 new_case 11
 origin main
+expect 0 'release: built v0.1.0' v0.1.0
+cp "$out/SHA256SUMS" "$tmp/prior-sums"
+builds_before=$(grep -c '^build ' "$tmp/calls/cargo")
 expect 1 'release: v0.1.0 is not on origin' v0.1.0 --publish
+cmp -s "$tmp/prior-sums" "$out/SHA256SUMS" || fail 'publish refusal changed prior dist'
+[ "$(grep -c '^build ' "$tmp/calls/cargo")" -eq "$builds_before" ] || fail 'built after tag refusal'
 no_create
 
 new_case 12
@@ -304,10 +376,18 @@ no_create
 
 new_case 13
 origin tag
-expect 0 'release: published v0.1.0 (3 files, read back)' v0.1.0 --publish
+export GH_REPO=other/repo
+expect 0 'release: published v0.1.0 to example-org/example-repo (3 files, read back)' v0.1.0 --publish
 if [ -f "$tmp/calls/gh" ]; then
-    grep -F -q "release create v0.1.0 --verify-tag --title radio v0.1.0 --notes-file " "$tmp/calls/gh" || fail 'create options differ'
+    grep -F -q "release create v0.1.0 -R example-org/example-repo --draft --verify-tag --title radio v0.1.0 --notes-file " "$tmp/calls/gh" || fail 'create options differ'
     grep -F -q "$out/radio-v0.1.0-macos-arm64.tar.gz $out/radio-v0.1.0-macos-x86_64.tar.gz $out/SHA256SUMS" "$tmp/calls/gh" || fail 'upload order differs'
+    [ "$(grep -F -c -- '-R example-org/example-repo' "$tmp/calls/gh")" -eq "$(wc -l < "$tmp/calls/gh")" ] || fail 'gh repository differs'
+    grep -F -x -q 'release edit v0.1.0 -R example-org/example-repo --draft=false' "$tmp/calls/gh" || fail 'draft publish absent'
+    download_line=$(sed -n '/^release download /=' "$tmp/calls/gh")
+    edit_line=$(sed -n '/^release edit /=' "$tmp/calls/gh")
+    [ -n "$edit_line" ] && [ "$edit_line" -gt "$download_line" ] || fail 'published before download'
+    [ "$(find "$tmp/server" -type f | wc -l)" -eq 3 ] || fail 'uploaded file count differs'
+    [ "$(grep -c '^GH_REPO=$' "$tmp/calls/gh-env")" -eq "$(wc -l < "$tmp/calls/gh-env")" ] || fail 'inherited gh repository'
 else
     fail 'publish calls absent'
 fi
@@ -316,6 +396,8 @@ new_case 14
 origin tag
 export STUB_GH_CORRUPT=1
 expect 1 'did not read back' v0.1.0 --publish
+no_edit
+printf '%s\n' "$output" | grep -F -q 'gh release delete' || fail 'draft removal command absent'
 
 new_case 15
 export STUB_BINARY_TEXT="debugmap=$HOME/lib/libstd.rlib"
@@ -337,6 +419,94 @@ new_case 17
 STUB_BINARY_TEXT="built by $(id -un)"
 export STUB_BINARY_TEXT
 refused 1 'release: the aarch64-apple-darwin binary names this account' v0.1.0
+
+new_case 18
+export STUB_GREP_FAIL=1
+refused 1 'could not scan' v0.1.0
+export STUB_GREP_FAIL=terms
+refused 1 'could not scan' v0.1.0
+
+new_case 19
+export STUB_BINARY_TEXT="$repo/x"
+refused 1 'holds a build path' v0.1.0
+
+new_case 20
+export STUB_EMBED_WORK=1
+refused 1 'holds a build path' v0.1.0
+
+new_case 21
+export STUB_BINARY_TEXT="value${term_title}disable"
+refused 1 'names a private term' v0.1.0
+
+new_case 22
+export STUB_BINARY_TEXT=BRAMBLE'wick'
+refused 1 'names a private term' v0.1.0
+
+new_case 23
+STUB_BINARY_TEXT="builtby$(id -un)x"
+export STUB_BINARY_TEXT
+refused 1 'names this account' v0.1.0
+STUB_BINARY_TEXT="builtby$(id -un | tr '[:lower:]' '[:upper:]')x"
+export STUB_BINARY_TEXT
+refused 1 'names this account' v0.1.0
+
+new_case 24
+printf '%s\nzq\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=xzqx
+expect 0 'release: built v0.1.0' v0.1.0
+export STUB_BINARY_TEXT='a zq b'
+expect 1 'names a private term' v0.1.0
+
+new_case 25
+origin tag
+export STUB_GH_VIEW_ERROR=1
+refused 1 'could not ask GitHub' v0.1.0 --publish
+no_create
+no_build
+
+new_case 26
+origin tag
+export STUB_GH_CORRUPT_ARCHIVE=1
+expect 1 'did not read back' v0.1.0 --publish
+no_edit
+
+new_case 27
+origin tag
+export STUB_GH_DROP=1
+expect 1 'did not read back' v0.1.0 --publish
+no_edit
+
+new_case 28
+origin tag
+export STUB_GH_STILL_DRAFT=1
+expect 1 'is still a draft' v0.1.0 --publish
+
+new_case 29
+origin tag
+git -C "$repo" config remote.origin.url https://github.com/example-org/example-repo
+git -C "$repo" config url."$tmp/origin-$case_number.git".insteadOf https://github.com/example-org/example-repo
+expect 0 'release: published v0.1.0 to example-org/example-repo' v0.1.0 --publish
+grep -F -q -- '-R example-org/example-repo' "$tmp/calls/gh" || fail 'gh repository absent'
+
+new_case 30
+origin tag
+git -C "$repo" config remote.origin.url git@gitlab.example:example-org/example-repo.git
+git -C "$repo" config url."$tmp/origin-$case_number.git".insteadOf git@gitlab.example:example-org/example-repo.git
+refused 1 'origin is not a GitHub repository' v0.1.0 --publish
+no_build
+
+new_case 31
+origin tag
+export STUB_GH_EXISTS=1
+refused 1 'gh release delete v0.1.0 -R example-org/example-repo --yes' v0.1.0 --publish
+no_build
+
+# A missing file also fails cmp; an extra file specifically tests the exact list.
+new_case 32
+origin tag
+export STUB_GH_EXTRA=1
+expect 1 'did not read back' v0.1.0 --publish
+no_edit
 
 if [ "$failed" -ne 0 ]; then
     exit 1
