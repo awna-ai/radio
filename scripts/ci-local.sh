@@ -21,6 +21,8 @@ fi
 
 echo 'bash tests/term_check_test.sh'
 bash tests/term_check_test.sh
+echo 'bash tests/release_test.sh'
+bash tests/release_test.sh
 echo 'bash scripts/term-check.sh'
 term_status=0
 term_output=$(bash scripts/term-check.sh) || term_status=$?

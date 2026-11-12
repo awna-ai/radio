@@ -1,0 +1,344 @@
+#!/usr/bin/env bash
+set -u -o pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+tmp=$(mktemp -d)
+tmp=$(cd "$tmp" && pwd -P)
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/bin" "$tmp/calls"
+export STUB_ROOT="$tmp"
+export PATH="$tmp/bin:$PATH"
+term_title=Bramble'wick'
+printf '# invented terms\n\n  # comment\n%s  \r\n' "$term_title" > "$tmp/terms.txt"
+failed=0
+
+cat > "$tmp/bin/cargo" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$STUB_ROOT/calls/cargo"
+if [ "$1" = pkgid ]; then
+    version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml)
+    printf 'path+file://%s/crates/radio#%s\n' "$PWD" "$version"
+else
+    git rev-parse HEAD >> "$STUB_ROOT/calls/cargo-head"
+    target='' dest=''
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --target) target=$2; shift ;;
+            --target-dir) dest=$2; shift ;;
+        esac
+        shift
+    done
+    case "$target" in
+        aarch64-apple-darwin) arch=arm64 ;;
+        x86_64-apple-darwin) arch=x86_64 ;;
+        *) exit 1 ;;
+    esac
+    mkdir -p "$dest/$target/release"
+    printf 'arch=%s\n%s\n' "$arch" "${STUB_BINARY_TEXT:-}" > "$dest/$target/release/radio"
+    chmod 755 "$dest/$target/release/radio"
+    flags=${CARGO_ENCODED_RUSTFLAGS:-}
+    printf 'RUSTFLAGS=%s; CARGO_ENCODED_RUSTFLAGS=%s\n' "${RUSTFLAGS:-}" "${flags//$'\x1f'/ | }" >> "$STUB_ROOT/calls/cargo-env"
+fi
+STUB
+cat > "$tmp/bin/rustup" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$STUB_ROOT/calls/rustup"
+printf '%s\n' "${STUB_TARGETS-aarch64-apple-darwin x86_64-apple-darwin}" | tr ' ' '\n'
+STUB
+cat > "$tmp/bin/lipo" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$STUB_ROOT/calls/lipo"
+if [ -n "${STUB_LIPO_ARCH:-}" ]; then
+    printf '%s\n' "$STUB_LIPO_ARCH"
+else
+    sed -n 's/^arch=//p' "$2"
+fi
+STUB
+cat > "$tmp/bin/codesign" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$STUB_ROOT/calls/codesign"
+STUB
+cat > "$tmp/bin/strip" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$STUB_ROOT/calls/strip"
+[ "${STUB_STRIP_FAIL:-0}" != 1 ] || exit 1
+[ "$#" -eq 2 ] && [ "$1" = -S ] || exit 1
+sed '/^debugmap=/d' "$2" > "$STUB_ROOT/stripped"
+cat "$STUB_ROOT/stripped" > "$2"
+chmod 755 "$2"
+STUB
+cat > "$tmp/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$STUB_ROOT/calls/gh"
+case "$2" in
+    view)
+        [ "${STUB_GH_EXISTS:-0}" = 1 ] && exit 0
+        echo 'release not found' >&2
+        exit 1
+        ;;
+    create)
+        mkdir -p "$STUB_ROOT/server"
+        shift 3
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --verify-tag) ;;
+                --title) shift ;;
+                --notes-file) cp "$2" "$STUB_ROOT/notes.md"; shift ;;
+                *) cp "$1" "$STUB_ROOT/server/" ;;
+            esac
+            shift
+        done
+        ;;
+    download)
+        shift 3
+        dest=''
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --dir) dest=$2; shift ;;
+                --pattern) shift ;;
+            esac
+            shift
+        done
+        mkdir -p "$dest"
+        cp "$STUB_ROOT/server/"* "$dest/"
+        if [ "${STUB_GH_CORRUPT:-0}" = 1 ]; then
+            printf x >> "$dest/SHA256SUMS"
+        fi
+        ;;
+    *) exit 1 ;;
+esac
+STUB
+chmod 755 "$tmp/bin/"*
+
+fail() {
+    printf 'release_test: FAIL %s: %s\n' "$case_number" "$1"
+    failed=1
+}
+
+new_case() {
+    case_number=$1
+    repo="$tmp/case-$case_number"
+    mkdir -p "$repo/scripts"
+    rm -rf "$tmp/calls" "$tmp/server"
+    mkdir "$tmp/calls"
+    unset STUB_BINARY_TEXT STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
+    unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
+    export RADIO_TERMS_FILE="$tmp/terms.txt"
+    git init -q -b main "$repo" || exit 1
+    git -C "$repo" config user.name Test
+    git -C "$repo" config user.email test@example.invalid
+    git -C "$repo" config commit.gpgsign false
+    printf '[workspace.package]\nversion = "0.1.0"\n' > "$repo/Cargo.toml"
+    printf 'MIT test licence v1\n' > "$repo/LICENSE"
+    if [ -f "$root/scripts/release.sh" ]; then
+        cp "$root/scripts/release.sh" "$repo/scripts/release.sh"
+    fi
+    git -C "$repo" add .
+    git -C "$repo" commit -qm 'add source' || exit 1
+    git -C "$repo" tag -a -m v0.1.0 v0.1.0 || exit 1
+    printf 'MIT test licence v2\n' > "$repo/LICENSE"
+    git -C "$repo" commit -qam 'update licence' || exit 1
+    printf 'scratch\n' > "$repo/scratch.txt"
+    out="$repo/target/release-dist/v0.1.0"
+}
+
+expect() {
+    local expected=$1 wanted=$2 actual
+    shift 2
+    output=$(bash "$repo/scripts/release.sh" "$@" 2>&1)
+    actual=$?
+    [ "$actual" -eq "$expected" ] || fail "expected exit $expected, got $actual"
+    printf '%s\n' "$output" | grep -F -q -- "$wanted" || fail 'expected diagnostic absent'
+    if printf '%s\n' "$output" | grep -F -i -q -- "$term_title"; then
+        fail 'output exposed a private term'
+    fi
+}
+
+refused() {
+    expect "$@"
+    [ ! -e "$out" ] || fail 'refused build created a dist'
+}
+
+origin() {
+    git init --bare -q "$tmp/origin-$case_number.git" || exit 1
+    git -C "$repo" remote add origin "$tmp/origin-$case_number.git"
+    git -C "$repo" push -q origin main || exit 1
+    if [ "$1" = tag ]; then
+        git -C "$repo" push -q origin v0.1.0 || exit 1
+    fi
+}
+
+no_create() {
+    if [ -f "$tmp/calls/gh" ] && grep -q '^release create ' "$tmp/calls/gh"; then
+        fail 'created a release after refusal'
+    fi
+}
+
+new_case 1
+refused 2 usage:
+refused 2 usage: v1.2
+refused 2 usage: v01.2.3
+refused 2 usage: v0.1.0 --bogus
+refused 2 usage: v0.1.0 --publish extra
+
+new_case 2
+refused 1 'release: no tag v9.9.9' v9.9.9
+
+new_case 3
+git -C "$repo" tag v0.2.0 'v0.1.0^{commit}'
+refused 1 'is not the workspace version 0.1.0' v0.2.0
+[ ! -e "$repo/target/release-dist/v0.2.0" ] || fail 'refused version created a dist'
+
+new_case 4
+export STUB_TARGETS=aarch64-apple-darwin
+refused 1 'rustup target add x86_64-apple-darwin' v0.1.0
+if [ -f "$tmp/calls/cargo" ] && grep -q '^build ' "$tmp/calls/cargo"; then
+    fail 'built with a missing target'
+fi
+
+new_case 5
+export RADIO_TERMS_FILE="$tmp/absent.txt"
+refused 1 'release: no term list' v0.1.0
+
+new_case 6
+export RUSTFLAGS=--bogus
+expect 0 'release: to publish it, run: bash scripts/release.sh v0.1.0 --publish' v0.1.0
+printf '%s\n' radio-v0.1.0-macos-arm64.tar.gz radio-v0.1.0-macos-x86_64.tar.gz SHA256SUMS | sort > "$tmp/expected"
+if [ -d "$out" ]; then
+    (cd "$out" && find . -type f | sed 's|^./||' | sort) > "$tmp/actual"
+    cmp -s "$tmp/expected" "$tmp/actual" || fail 'dist file names differ'
+    (cd "$out" && shasum -a 256 -c SHA256SUMS) > /dev/null 2>&1 || fail 'checksums differ'
+    for arch in arm64 x86_64; do
+        folder="radio-v0.1.0-macos-$arch"
+        archive="$folder.tar.gz"
+        printf '%s\n' "$output" | grep -F -q -- "$archive" || fail 'archive absent from output'
+        printf '%s\n' "$folder/" "$folder/LICENSE" "$folder/radio" | sort > "$tmp/expected"
+        tar -tzf "$out/$archive" | sort > "$tmp/actual"
+        cmp -s "$tmp/expected" "$tmp/actual" || fail 'archive entries differ'
+        tar -tvzf "$out/$archive" > "$tmp/listing"
+        [ "$(grep -c 'root[[:space:]]*wheel' "$tmp/listing")" -eq 3 ] || fail 'archive owner differs'
+        grep -q "^-rwxr-xr-x.*$folder/radio$" "$tmp/listing" || fail 'binary mode differs'
+        grep -q "^drwxr-xr-x.*$folder/$" "$tmp/listing" || fail 'folder mode differs'
+        grep -q "^-rw-r--r--.*$folder/LICENSE$" "$tmp/listing" || fail 'licence mode differs'
+        mkdir "$tmp/extract-$arch"
+        tar -xzf "$out/$archive" -C "$tmp/extract-$arch"
+        [ "$(cat "$tmp/extract-$arch/$folder/LICENSE")" = 'MIT test licence v1' ] || fail 'licence is not from tag'
+        grep -q "^arch=$arch$" "$tmp/extract-$arch/$folder/radio" || fail 'binary architecture differs'
+    done
+else
+    fail 'dist absent'
+fi
+printf '%s\n' "$output" | grep -F -q SHA256SUMS || fail 'checksum file absent from output'
+for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    if [ ! -f "$tmp/calls/cargo" ] || ! grep -q "^build --release --locked -p radio --target $target --target-dir " "$tmp/calls/cargo"; then
+        fail 'build flags differ'
+    fi
+done
+if [ -f "$tmp/calls/cargo-head" ]; then
+    tag_commit=$(git -C "$repo" rev-parse 'v0.1.0^{commit}')
+    [ "$(grep -F -x -c "$tag_commit" "$tmp/calls/cargo-head")" -eq 2 ] || fail 'build is not from tag'
+else
+    fail 'build source absent'
+fi
+if [ -f "$tmp/calls/cargo-env" ]; then
+    [ "$(wc -l < "$tmp/calls/cargo-env")" -eq 2 ] || fail 'build environment count differs'
+    [ "$(grep -c '^RUSTFLAGS=; ' "$tmp/calls/cargo-env")" -eq 2 ] || fail 'inherited rust flags'
+    [ "$(grep -F -c -- "--remap-path-prefix=$HOME=/home | " "$tmp/calls/cargo-env")" -eq 2 ] || fail 'home remap absent'
+else
+    fail 'build environment absent'
+fi
+if [ ! -f "$tmp/calls/codesign" ] || [ "$(grep -c -- '--sign - --identifier ai.awna.radio' "$tmp/calls/codesign")" -ne 2 ]; then
+    fail 'ad hoc signing calls differ'
+fi
+if [ -f "$tmp/calls/strip" ]; then
+    [ "$(wc -l < "$tmp/calls/strip")" -eq 2 ] || fail 'strip call count differs'
+    sed -E 's|^-S .*/target/|-S |' "$tmp/calls/strip" > "$tmp/actual"
+    printf '%s\n' '-S aarch64-apple-darwin/release/radio' '-S x86_64-apple-darwin/release/radio' > "$tmp/expected"
+    cmp -s "$tmp/expected" "$tmp/actual" || fail 'strip arguments differ'
+else
+    fail 'strip calls absent'
+fi
+[ ! -f "$tmp/calls/gh" ] || fail 'local build called gh'
+[ "$(git -C "$repo" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ] || fail 'worktree not removed'
+[ -f "$repo/scratch.txt" ] || fail 'dirty file removed'
+
+new_case 7
+export STUB_BINARY_TEXT="$HOME/src/lib.rs"
+refused 1 'holds a build path' v0.1.0
+
+new_case 8
+export STUB_BINARY_TEXT="the ${term_title}App"
+refused 1 'names a private term' v0.1.0
+
+new_case 9
+export STUB_LIPO_ARCH=x86_64
+refused 1 'release: the aarch64-apple-darwin binary is not arm64' v0.1.0
+
+new_case 10
+expect 0 'release: built v0.1.0' v0.1.0
+if [ -f "$out/SHA256SUMS" ]; then
+    cp "$out/SHA256SUMS" "$tmp/prior-sums"
+    export STUB_BINARY_TEXT="$HOME/src/lib.rs"
+    expect 1 'holds a build path' v0.1.0
+    cmp -s "$tmp/prior-sums" "$out/SHA256SUMS" || fail 'failed build changed prior dist'
+else
+    fail 'prior dist absent'
+fi
+
+new_case 11
+origin main
+expect 1 'release: v0.1.0 is not on origin' v0.1.0 --publish
+no_create
+
+new_case 12
+origin tag
+export STUB_GH_EXISTS=1
+expect 1 'already has a release' v0.1.0 --publish
+no_create
+
+new_case 13
+origin tag
+expect 0 'release: published v0.1.0 (3 files, read back)' v0.1.0 --publish
+if [ -f "$tmp/calls/gh" ]; then
+    grep -F -q "release create v0.1.0 --verify-tag --title radio v0.1.0 --notes-file " "$tmp/calls/gh" || fail 'create options differ'
+    grep -F -q "$out/radio-v0.1.0-macos-arm64.tar.gz $out/radio-v0.1.0-macos-x86_64.tar.gz $out/SHA256SUMS" "$tmp/calls/gh" || fail 'upload order differs'
+else
+    fail 'publish calls absent'
+fi
+
+new_case 14
+origin tag
+export STUB_GH_CORRUPT=1
+expect 1 'did not read back' v0.1.0 --publish
+
+new_case 15
+export STUB_BINARY_TEXT="debugmap=$HOME/lib/libstd.rlib"
+expect 0 'release: built v0.1.0' v0.1.0
+printf '%s\n' radio-v0.1.0-macos-arm64.tar.gz radio-v0.1.0-macos-x86_64.tar.gz SHA256SUMS | sort > "$tmp/expected"
+if [ -d "$out" ]; then
+    (cd "$out" && find . -type f | sed 's|^./||' | sort) > "$tmp/actual"
+    cmp -s "$tmp/expected" "$tmp/actual" || fail 'dist file names differ'
+else
+    fail 'dist absent'
+fi
+
+new_case 16
+export STUB_STRIP_FAIL=1
+refused 1 'release: could not strip the aarch64-apple-darwin binary' v0.1.0
+[ ! -f "$tmp/calls/codesign" ] || fail 'signed after strip failed'
+
+new_case 17
+STUB_BINARY_TEXT="built by $(id -un)"
+export STUB_BINARY_TEXT
+refused 1 'release: the aarch64-apple-darwin binary names this account' v0.1.0
+
+if [ "$failed" -ne 0 ]; then
+    exit 1
+fi
+printf 'release_test: all passed\n'
