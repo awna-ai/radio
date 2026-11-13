@@ -315,18 +315,33 @@ fn install_status_and_uninstall_by_two_apps() {
     assert!(!f.agent().exists());
     assert!(!f.home.join(".local/libexec/radio").exists());
     assert!(f.state().join("rooms.db").exists());
+    assert!(f.state().join("radio.log").exists());
+    for name in ["radio.sock", "radio.sock.lock", "install.lock"] {
+        assert!(!f.state().join(name).exists(), "{name} remains");
+    }
+    let files = || {
+        let mut files: Vec<_> = fs::read_dir(f.state())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        files.sort();
+        files
+    };
+    let after_uninstall = files();
     assert_output(
         &f.run(&["status"]),
         1,
         "radio: not installed\nclients: none\nsocket: no answer\n",
         "",
     );
+    assert_eq!(files(), after_uninstall);
     assert_output(
         &f.run(&["uninstall", "--app", "kiteapp"]),
         0,
         "kiteapp was not a client\n",
         "",
     );
+    assert_eq!(files(), after_uninstall);
 }
 
 #[test]

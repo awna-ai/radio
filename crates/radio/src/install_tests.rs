@@ -10,6 +10,7 @@ use std::{
         unix::{
             ffi::OsStringExt,
             fs::{MetadataExt, PermissionsExt, symlink},
+            net::UnixListener,
         },
     },
     sync::{
@@ -177,7 +178,7 @@ impl Fixture {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let home = std::env::temp_dir().join(format!(
-            "radio-install-{}-{}&home",
+            "ri-{}-{}&",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -338,6 +339,32 @@ fn two_installs_at_once_queue() {
     assert_eq!(versions, expected);
     assert!(f.paths().clients.join("gardenapp.json").is_file());
     assert!(f.paths().clients.join("kiteapp.json").is_file());
+}
+
+#[test]
+fn a_waiting_installer_never_locks_a_removed_file() {
+    let f = Fixture::new();
+    let p = f.paths();
+    let mut timing = f.installer("1.0.0").timing;
+    timing.lock_wait = Duration::from_secs(2);
+    timing.lock_poll = Duration::from_millis(10);
+    let first = lock(&p, timing).unwrap();
+    let waiting_paths = p.clone();
+    let waiting = thread::spawn(move || lock(&waiting_paths, timing));
+    thread::sleep(Duration::from_millis(100));
+    fs::remove_file(&p.lock).unwrap();
+    let replacement = fs::File::create(&p.lock).unwrap();
+    // SAFETY: replacement is live; flock has no pointer preconditions.
+    assert_eq!(
+        unsafe { libc::flock(replacement.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
+    thread::sleep(Duration::from_millis(100));
+    drop(first);
+    assert_eq!(
+        waiting.join().unwrap().unwrap_err(),
+        Failure::new(1, "another install did not finish in time")
+    );
 }
 
 #[test]
@@ -798,7 +825,10 @@ fn uninstall_keeps_data_and_waits_for_the_last_client() {
         !p.binary("1.0.0").parent().unwrap().exists()
             && !p.binary("2.0.0").parent().unwrap().exists()
     );
-    assert!(p.clients.is_dir() && p.log.is_file() && p.lock.is_file());
+    assert!(p.clients.is_dir() && p.log.is_file());
+    assert!(!p.lock.exists());
+    assert!(!p.socket.exists());
+    assert!(!p.state.join("radio.sock.lock").exists());
     assert_eq!(f.last_log_line(), "uninstall removed app=\"kiteapp\"");
     assert_eq!(fs::read(p.rooms).unwrap(), b"rooms kept");
     assert_eq!(fs::read(p.state.join("rooms.db-wal")).unwrap(), b"wal kept");
@@ -809,6 +839,57 @@ fn uninstall_keeps_data_and_waits_for_the_last_client() {
             .unwrap()
             .is_symlink()
     );
+}
+
+#[test]
+fn uninstall_keeps_a_socket_while_the_daemon_holds_its_lock() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let p = f.paths();
+    let _listener = UnixListener::bind(&p.socket).unwrap();
+    let socket_lock = p.state.join("radio.sock.lock");
+    let held = fs::File::create(&socket_lock).unwrap();
+    // SAFETY: held is live; flock has no pointer preconditions.
+    assert_eq!(
+        unsafe { libc::flock(held.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
+    assert_eq!(
+        f.installer("1.0.0").uninstall("kiteapp").unwrap(),
+        Uninstalled::Removed { last: true }
+    );
+    assert!(p.socket.exists());
+    assert!(socket_lock.exists());
+    assert!(!p.lock.exists());
+}
+
+#[test]
+fn uninstall_keeps_a_regular_file_at_the_socket_path() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let p = f.paths();
+    fs::write(&p.socket, b"keep").unwrap();
+    let socket_lock = p.state.join("radio.sock.lock");
+    fs::write(&socket_lock, b"").unwrap();
+    assert_eq!(
+        f.installer("1.0.0").uninstall("kiteapp").unwrap(),
+        Uninstalled::Removed { last: true }
+    );
+    assert_eq!(fs::read(&p.socket).unwrap(), b"keep");
+    assert!(!socket_lock.exists());
+    assert!(!p.lock.exists());
+}
+
+#[test]
+fn uninstalling_an_unknown_app_creates_no_state() {
+    let f = Fixture::new();
+    let p = f.paths();
+    assert!(!p.state.exists());
+    assert_eq!(
+        f.installer("1.0.0").uninstall("kiteapp").unwrap(),
+        Uninstalled::NotAClient
+    );
+    assert!(!p.state.exists());
 }
 
 #[test]

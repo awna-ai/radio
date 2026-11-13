@@ -8,7 +8,7 @@ use std::{
     io::{Read, Write},
     os::{
         fd::AsRawFd,
-        unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+        unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     },
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -503,33 +503,48 @@ impl From<String> for Failure {
 // The file's lifetime is the lock's lifetime, including every early return.
 fn lock(paths: &Paths, timing: Timing) -> Result<fs::File, Failure> {
     radio_rooms::private_dir(&paths.state, true).map_err(|_| Failure::new(1, FILES))?;
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(&paths.lock)
-        .map_err(|_| Failure::new(1, FILES))?;
-    if !file
-        .metadata()
-        .map_err(|_| Failure::new(1, FILES))?
-        .is_file()
-    {
-        return Err(Failure::new(1, FILES));
-    }
-    file.set_permissions(fs::Permissions::from_mode(0o600))
-        .map_err(|_| Failure::new(1, FILES))?;
+    let open = || {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(&paths.lock)
+            .map_err(|_| Failure::new(1, FILES))?;
+        if !file
+            .metadata()
+            .map_err(|_| Failure::new(1, FILES))?
+            .is_file()
+        {
+            return Err(Failure::new(1, FILES));
+        }
+        file.set_permissions(fs::Permissions::from_mode(0o600))
+            .map_err(|_| Failure::new(1, FILES))?;
+        Ok(file)
+    };
     let start = Instant::now();
+    let mut file = open()?;
     loop {
         // SAFETY: file is live; flock has no pointer preconditions.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(file);
-        }
-        let code = std::io::Error::last_os_error().raw_os_error();
-        if !matches!(code, Some(libc::EWOULDBLOCK) | Some(libc::EINTR)) {
-            return Err(Failure::new(1, FILES));
+            let opened = file.metadata().map_err(|_| Failure::new(1, FILES))?;
+            match fs::symlink_metadata(&paths.lock) {
+                Ok(current) if (opened.dev(), opened.ino()) == (current.dev(), current.ino()) => {
+                    return Ok(file);
+                }
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err(Failure::new(1, FILES)),
+            }
+            drop(file);
+            file = open()?;
+        } else {
+            let code = std::io::Error::last_os_error().raw_os_error();
+            if !matches!(code, Some(libc::EWOULDBLOCK) | Some(libc::EINTR)) {
+                return Err(Failure::new(1, FILES));
+            }
         }
         if start.elapsed() >= timing.lock_wait {
             return Err(Failure::new(1, "another install did not finish in time"));
@@ -1229,10 +1244,14 @@ impl Installer<'_> {
         if !app_name(app) {
             return Err(Failure::new(2, "not an app name"));
         }
+        let client = self.paths.clients.join(format!("{app}.json"));
+        if matches!(fs::symlink_metadata(&client), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+        {
+            return Ok(Uninstalled::NotAClient);
+        }
         let _lock = lock(&self.paths, self.timing)?;
         self.binary_directories()?;
         self.clean_temps()?;
-        let client = self.paths.clients.join(format!("{app}.json"));
         match fs::symlink_metadata(&client) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Uninstalled::NotAClient);
@@ -1271,6 +1290,8 @@ impl Installer<'_> {
                 }
                 _ => {}
             }
+            remove_unused_socket(&self.paths);
+            let _ = fs::remove_file(&self.paths.lock);
         }
         Ok(Uninstalled::Removed { last })
     }
@@ -1279,6 +1300,30 @@ impl Installer<'_> {
     pub fn status(&self) -> StatusReport {
         status(&self.paths, self.probe)
     }
+}
+
+fn remove_unused_socket(paths: &Paths) {
+    let mut lock_path = paths.socket.as_os_str().to_os_string();
+    lock_path.push(".lock");
+    let Ok(file) = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(&lock_path)
+    else {
+        return;
+    };
+    if !file.metadata().is_ok_and(|meta| meta.is_file()) {
+        return;
+    }
+    // SAFETY: file is live; flock has no pointer preconditions.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return;
+    }
+    if fs::symlink_metadata(&paths.socket).is_ok_and(|meta| meta.file_type().is_socket()) {
+        let _ = fs::remove_file(&paths.socket);
+    }
+    let _ = fs::remove_file(&lock_path);
 }
 
 /// Reads validated install records and probes the socket without consulting launchd.
