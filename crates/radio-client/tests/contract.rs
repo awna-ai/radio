@@ -73,15 +73,14 @@ fn file_requests_round_trip_and_refuse_unknown_fields() {
 
 #[test]
 fn delivery_answers_round_trip() {
-    let value = serde_json::json!({"ok":true,"size":5,"deliveries":[{"id":7,"computer":"birch","name":"letter","size":5,"at":1700000000.5}]});
+    let value = serde_json::json!({"ok":true,"size":5,"deliveries":[{"id":7,"computer":"birch","key":"b".repeat(64),"name":"letter","size":5,"at":1700000000.5}]});
     let response: radio_client::Response = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(serde_json::to_value(response).unwrap(), value);
 }
 
 #[test]
 fn delivery_type_round_trips_and_accepts_future_fields() {
-    let value =
-        serde_json::json!({"id":7,"computer":"birch","name":"letter","size":5,"at":1700000000.5});
+    let value = serde_json::json!({"id":7,"computer":"birch","key":"b".repeat(64),"name":"letter","size":5,"at":1700000000.5});
     let delivery: radio_client::Delivery = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(serde_json::to_value(&delivery).unwrap(), value);
     let mut future = value;

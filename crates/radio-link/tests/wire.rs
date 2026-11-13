@@ -185,6 +185,7 @@ async fn hook_refuses_unknown_and_removed_keys_with_empty_reasons() {
             radio_link::link::Local {
                 name: "garden".into(),
                 sha: SHA.into(),
+                clients: None,
             },
         ))
         .await
@@ -589,6 +590,7 @@ async fn closed_key_cannot_deliver_events_after_the_channel_drains() {
             radio_link::link::Local {
                 name: "garden".into(),
                 sha: SHA.into(),
+                clients: None,
             },
         ))
         .await
@@ -655,6 +657,7 @@ async fn refused_key_cannot_deliver_events_after_the_channel_drains() {
             radio_link::link::Local {
                 name: "garden".into(),
                 sha: SHA.into(),
+                clients: None,
             },
         ))
         .await
@@ -726,6 +729,7 @@ async fn blocked_hello_events_bound_stream_tasks_and_recover_after_draining() {
         radio_link::link::Local {
             name: "garden".into(),
             sha: SHA.into(),
+            clients: None,
         },
     ))
     .await
@@ -841,6 +845,7 @@ async fn join_rechecks_the_code_before_handing_out_the_connection() {
         radio_link::link::Local {
             name: "garden".into(),
             sha: SHA.into(),
+            clients: None,
         },
     ))
     .await

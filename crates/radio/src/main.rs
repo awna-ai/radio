@@ -277,6 +277,7 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
         server
             .with_link_dir(home.join(".config/radio"))
             .with_fleet_db(home.join(".local/state/radio/fleet.db"))
+            .with_clients_dir(paths.clients)
             .with_log(log)
             .start_link_now()
             .serve();

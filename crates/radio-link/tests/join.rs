@@ -77,6 +77,7 @@ async fn computer_key(name: &str, limits: Limits, key: SecretKey) -> Computer {
             Local {
                 name: name.into(),
                 sha: SHA.into(),
+                clients: None,
             },
         ))
         .await
@@ -570,6 +571,7 @@ async fn a_forged_record_is_reset_without_an_event() {
         Local {
             name: "garden".into(),
             sha: SHA.into(),
+            clients: None,
         },
     ))
     .await

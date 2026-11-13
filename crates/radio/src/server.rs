@@ -18,7 +18,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -52,7 +52,7 @@ fn failure(error: String) -> Response {
     }
 }
 
-/// A serial local socket server that owns the rooms store and socket lock.
+/// A local socket server that owns the stores and answers pending sends on separate threads.
 pub struct Server {
     listener: UnixListener,
     /// Holds the exclusive socket lock until the server is dropped.
@@ -60,6 +60,10 @@ pub struct Server {
     store: RoomStore,
     host: String,
     link_dir: Option<PathBuf>,
+    clients_dir: Option<PathBuf>,
+    pending_send: Option<radio_link::node::PendingSend>,
+    waiting_sends: Arc<AtomicUsize>,
+    send_cap: usize,
     fleet_db_path: Option<PathBuf>,
     fleet_db: Option<Arc<Mutex<radio_link::fleet_db::FleetDb>>>,
     link: Option<radio_link::node::Node>,
@@ -148,6 +152,10 @@ impl Server {
             store,
             host,
             link_dir: None,
+            clients_dir: None,
+            pending_send: None,
+            waiting_sends: Arc::new(AtomicUsize::new(0)),
+            send_cap: 4,
             fleet_db_path: None,
             fleet_db: None,
             link: None,
@@ -164,6 +172,18 @@ impl Server {
     /// Sets the folder holding this computer's link key.
     pub fn with_link_dir(mut self, dir: PathBuf) -> Self {
         self.link_dir = Some(dir);
+        self
+    }
+
+    /// Sets the folder containing installed apps' client records.
+    pub fn with_clients_dir(mut self, dir: PathBuf) -> Self {
+        self.clients_dir = Some(dir);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_send_cap(mut self, cap: usize) -> Self {
+        self.send_cap = cap;
         self
     }
 
@@ -207,6 +227,10 @@ impl Server {
         }) {
             return self;
         }
+        let clients = self.clients_dir.clone();
+        if let Ok(mut db) = self.fleet_db() {
+            radio_link::delivery::sweep(&mut db, clients.as_deref());
+        }
         let _ = self.start_link();
         self
     }
@@ -238,6 +262,7 @@ impl Server {
                 .ok_or("the build's hash could not be read")?;
             let local = radio_link::link::Local {
                 name: self.host.clone(),
+                clients: self.clients_dir.clone(),
                 sha: crate::install::hash(&bytes),
             };
             let db = self.fleet_db.as_ref().unwrap().clone();
@@ -315,31 +340,34 @@ impl Server {
                 });
             result.unwrap_or_else(failure)
         };
-        if !response.ok {
-            let mut fields = vec![
-                ("op", Field::Text(&op)),
-                (
-                    "error",
-                    Field::Text(response.error.as_deref().unwrap_or(NOT_REQUEST)),
-                ),
-            ];
-            if wrong_uid && let Some(uid) = uid {
-                fields.push(("uid", Field::Number(u64::from(uid))));
-            }
-            self.log.event(
-                "serve",
-                if response.refused == Some(true) {
-                    "refused"
-                } else {
-                    "failed"
-                },
-                &fields,
-            );
+        if response.ok
+            && let Some(pending) = self.pending_send.take()
+        {
+            let log = self.log.clone();
+            let deadline = self.answer_deadline;
+            let waiting = self.waiting_sends.clone();
+            std::thread::spawn(move || {
+                let _waiting = WaitingSend(waiting);
+                let response = match pending.wait() {
+                    Ok(size) => Response {
+                        size: Some(size),
+                        ..success()
+                    },
+                    Err(error) => failure(error.into()),
+                };
+                answer(&mut stream, &response, &op, wrong_uid, uid, &log, deadline);
+            });
+            return;
         }
-        if write_line(&mut stream, &response, self.answer_deadline).is_err() {
-            self.log
-                .event("serve", "unanswered", &[("op", Field::Text(&op))]);
-        }
+        answer(
+            &mut stream,
+            &response,
+            &op,
+            wrong_uid,
+            uid,
+            &self.log,
+            self.answer_deadline,
+        );
     }
 
     fn dispatch(&mut self, mut value: serde_json::Value) -> Result<Response, String> {
@@ -423,17 +451,25 @@ impl Server {
                 if !radio_link::wire::file_name(&name) {
                     return Err("not a file name".into());
                 }
-                response.size = Some(self.link.as_ref().unwrap().send_file(
+                if self.waiting_sends.load(Ordering::Acquire) >= self.send_cap {
+                    return Err("too many sends at once; try again".into());
+                }
+                let pending = self.link.as_ref().unwrap().start_send(
                     &computer,
                     &app,
                     &name,
                     Path::new(&file),
-                )?);
+                )?;
+                self.waiting_sends.fetch_add(1, Ordering::AcqRel);
+                self.pending_send = Some(pending);
             }
             Request::DeliveryFolderSet { app, folder } => {
                 drop(self.fleet_db()?);
                 if !self.store.registered(&app)? {
                     return Err("the app is not registered".into());
+                }
+                if !radio_link::delivery::installed(self.clients_dir.as_deref(), &app) {
+                    return Err("the app is not installed".into());
                 }
                 self.fleet_db()?
                     .set_delivery_folder(&app, Path::new(&folder))?;
@@ -463,6 +499,7 @@ impl Server {
                         .map(|row| Delivery {
                             id: row.id,
                             computer: row.computer,
+                            key: row.key,
                             name: row.name,
                             size: row.size,
                             at: row.at,
@@ -952,6 +989,49 @@ fn member(author: Author) -> Member {
     Member {
         kind: author.kind,
         name: author.name,
+    }
+}
+
+// The serial dispatcher reserves a slot before handing the answer to its thread.
+struct WaitingSend(Arc<AtomicUsize>);
+impl Drop for WaitingSend {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn answer(
+    stream: &mut UnixStream,
+    response: &Response,
+    op: &str,
+    wrong_uid: bool,
+    uid: Option<u32>,
+    log: &Log,
+    deadline: Duration,
+) {
+    if !response.ok {
+        let mut fields = vec![
+            ("op", Field::Text(op)),
+            (
+                "error",
+                Field::Text(response.error.as_deref().unwrap_or(NOT_REQUEST)),
+            ),
+        ];
+        if wrong_uid && let Some(uid) = uid {
+            fields.push(("uid", Field::Number(u64::from(uid))));
+        }
+        log.event(
+            "serve",
+            if response.refused == Some(true) {
+                "refused"
+            } else {
+                "failed"
+            },
+            &fields,
+        );
+    }
+    if write_line(stream, response, deadline).is_err() {
+        log.event("serve", "unanswered", &[("op", Field::Text(op))]);
     }
 }
 

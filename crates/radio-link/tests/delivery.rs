@@ -55,6 +55,7 @@ impl Computer {
             Local {
                 name: name.into(),
                 sha: SHA.into(),
+                clients: Some(dir.join("clients")),
             },
             limits,
         )
@@ -134,8 +135,8 @@ fn joined() -> (Computer, Computer) {
 
 fn folder(computer: &Computer) -> PathBuf {
     let path = computer.dir.0.join("inbox");
-    fs::create_dir(&path).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::create_dir_all(computer.dir.0.join("clients")).unwrap();
+    fs::write(computer.dir.0.join("clients/notes.json"), b"{}").unwrap();
     computer
         .db
         .lock()
@@ -189,6 +190,7 @@ fn a_mebibyte_arrives_with_private_mode_and_sender_name() {
     });
     let rows = a.db.lock().unwrap().arrivals("notes", 0, 10).unwrap();
     assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].key, b.node.id().to_string());
     assert_eq!(
         (&*rows[0].computer, &*rows[0].name, rows[0].size),
         ("birch", "letter", bytes.len() as u64)
@@ -361,7 +363,7 @@ fn a_held_body_makes_the_next_delivery_busy() {
     let a = Computer::with_limits(
         "garden",
         Limits {
-            deliveries: 1,
+            deliveries: 4,
             ..Limits::default()
         },
     );
@@ -441,4 +443,181 @@ fn an_unreachable_computer_fails_within_the_dial_deadline() {
         Err("the computer could not be reached")
     );
     assert!(start.elapsed() < Duration::from_millis(2100));
+}
+
+#[test]
+fn an_app_without_a_client_record_takes_no_file() {
+    let (a, b) = joined();
+    let inbox = folder(&a);
+    fs::remove_file(a.dir.0.join("clients/notes.json")).unwrap();
+    let path = source(&b, b"hello");
+    assert_eq!(
+        b.node.send_file("garden", "notes", "report.txt", &path),
+        Err("that app takes no files on that computer")
+    );
+    assert_eq!(fs::read_dir(inbox).unwrap().count(), 0);
+    no_arrivals(&a);
+}
+
+#[test]
+fn a_full_folder_takes_no_file() {
+    let (a, b) = joined();
+    let inbox = folder(&a);
+    for i in 0..64 {
+        fs::write(inbox.join(format!("report-{i}.txt")), b"").unwrap();
+    }
+    let path = source(&b, b"hello");
+    assert_eq!(
+        b.node.send_file("garden", "notes", "report.txt", &path),
+        Err("that app's folder on that computer is full")
+    );
+    assert_eq!(fs::read_dir(inbox).unwrap().count(), 64);
+    no_arrivals(&a);
+}
+
+#[test]
+fn a_stalled_body_is_reset_and_removed() {
+    let a = Computer::with_limits(
+        "garden",
+        Limits {
+            stall: Duration::from_millis(80),
+            ..Limits::default()
+        },
+    );
+    let b = Computer::new("birch");
+    a.found();
+    b.node.join(a.code(), now()).unwrap();
+    wait(|| a.state(&b) == Some(State::Accepted));
+    let inbox = folder(&a);
+    runtime().block_on(bounded(async {
+        let peer = b.node.link().dial(a.node.id(), &a.node.addrs()).await.unwrap();
+        let (mut send, mut recv) = peer.connection().open_bi().await.unwrap();
+        radio_link::frame::write(&mut send, &radio_link::wire::Request::File { to: a.node.id().to_string(), app: "notes".into(), name: "report.txt".into(), size: 3 }, radio_link::frame::CONTROL_CAP).await.unwrap();
+        send.write_all(b"a").await.unwrap();
+        let started = Instant::now();
+        let result = tokio::time::timeout(Duration::from_millis(600), recv.read_chunk(1)).await;
+        assert!(matches!(result, Ok(Err(iroh::endpoint::ReadError::Reset(code))) if code == radio_link::link::BAD_FRAME.into()));
+        assert!(started.elapsed() < Duration::from_millis(600));
+    }));
+    wait(|| fs::read_dir(&inbox).unwrap().count() == 0);
+    no_arrivals(&a);
+}
+
+#[test]
+fn a_body_finishing_near_its_deadline_is_answered() {
+    let a = Computer::with_limits(
+        "garden",
+        Limits {
+            file: Duration::from_millis(250),
+            ..Limits::default()
+        },
+    );
+    let b = Computer::new("birch");
+    a.found();
+    b.node.join(a.code(), now()).unwrap();
+    wait(|| a.state(&b) == Some(State::Accepted));
+    let inbox = folder(&a);
+    runtime().block_on(bounded(async {
+        let peer = b
+            .node
+            .link()
+            .dial(a.node.id(), &a.node.addrs())
+            .await
+            .unwrap();
+        let (mut send, mut recv) = peer.connection().open_bi().await.unwrap();
+        radio_link::frame::write(
+            &mut send,
+            &radio_link::wire::Request::File {
+                to: a.node.id().to_string(),
+                app: "notes".into(),
+                name: "report.txt".into(),
+                size: 3,
+            },
+            radio_link::frame::CONTROL_CAP,
+        )
+        .await
+        .unwrap();
+        send.write_all(b"a").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        send.write_all(b"bc").await.unwrap();
+        send.finish().unwrap();
+        assert_eq!(
+            radio_link::frame::read::<radio_link::wire::Answer, _>(
+                &mut recv,
+                radio_link::frame::CONTROL_CAP
+            )
+            .await,
+            Ok(radio_link::wire::Answer::Ok)
+        );
+    }));
+    assert_eq!(fs::read(inbox.join("report.txt")).unwrap(), b"abc");
+}
+
+#[test]
+fn two_keys_can_deliver_overlapping_bodies() {
+    let (a, b) = joined();
+    let c = Computer::new("cedar");
+    c.node.join(a.code(), now()).unwrap();
+    wait(|| a.state(&c) == Some(State::Accepted));
+    let inbox = folder(&a);
+    runtime().block_on(bounded(async {
+        let first = b
+            .node
+            .link()
+            .dial(a.node.id(), &a.node.addrs())
+            .await
+            .unwrap();
+        let second = c
+            .node
+            .link()
+            .dial(a.node.id(), &a.node.addrs())
+            .await
+            .unwrap();
+        let (mut first_send, mut first_recv) = first.connection().open_bi().await.unwrap();
+        let (mut second_send, mut second_recv) = second.connection().open_bi().await.unwrap();
+        for (send, name) in [(&mut first_send, "one.txt"), (&mut second_send, "two.txt")] {
+            radio_link::frame::write(
+                send,
+                &radio_link::wire::Request::File {
+                    to: a.node.id().to_string(),
+                    app: "notes".into(),
+                    name: name.into(),
+                    size: 3,
+                },
+                radio_link::frame::CONTROL_CAP,
+            )
+            .await
+            .unwrap();
+            send.write_all(b"a").await.unwrap();
+        }
+        while fs::read_dir(&inbox).unwrap().count() != 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        first_send.write_all(b"bc").await.unwrap();
+        second_send.write_all(b"de").await.unwrap();
+        first_send.finish().unwrap();
+        second_send.finish().unwrap();
+        for recv in [&mut first_recv, &mut second_recv] {
+            assert_eq!(
+                radio_link::frame::read::<radio_link::wire::Answer, _>(
+                    recv,
+                    radio_link::frame::CONTROL_CAP
+                )
+                .await,
+                Ok(radio_link::wire::Answer::Ok)
+            );
+        }
+    }));
+    assert_eq!(fs::read(inbox.join("one.txt")).unwrap(), b"abc");
+    assert_eq!(fs::read(inbox.join("two.txt")).unwrap(), b"ade");
+    wait(|| a.db.lock().unwrap().arrivals("notes", 0, 10).unwrap().len() == 2);
+    let rows = a.db.lock().unwrap().arrivals("notes", 0, 10).unwrap();
+    assert!(
+        rows.iter()
+            .any(|row| row.name == "one.txt" && row.key == b.node.id().to_string())
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.name == "two.txt" && row.key == c.node.id().to_string())
+    );
 }

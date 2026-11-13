@@ -2668,7 +2668,7 @@ fn send_refuses_invalid_sources_and_unknown_computers() {
 }
 
 #[test]
-fn delivery_folders_check_paths_and_clear_without_a_fleet() {
+fn delivery_folders_require_install_make_private_and_repeat() {
     let fixture = Fixture::new();
     let mut server = fixture
         .bind()
@@ -2676,28 +2676,25 @@ fn delivery_folders_check_paths_and_clear_without_a_fleet() {
         .with_fleet_db(fixture.0.join("fleet.db"));
     register_notes(&mut server);
     let folder = fixture.0.join("inbox");
-    fs::create_dir(&folder).unwrap();
-    fs::set_permissions(&folder, fs::Permissions::from_mode(0o700)).unwrap();
-    let link = fixture.0.join("folder-link");
-    symlink(&folder, &link).unwrap();
-    let public = fixture.0.join("public");
-    fs::create_dir(&public).unwrap();
-    fs::set_permissions(&public, fs::Permissions::from_mode(0o777)).unwrap();
-    for (folder, phrase) in [
-        (Path::new("relative"), "the folder must be an absolute path"),
-        (link.as_path(), "the folder could not be opened"),
-        (public.as_path(), "the folder is writable by others"),
-    ] {
-        assert_eq!(server.dispatch(serde_json::json!({"v":1,"op":"delivery_folder_set","app":"notes","folder":folder})).unwrap_err(), phrase);
-    }
-    assert!(
-        server
-            .dispatch(
-                serde_json::json!({"v":1,"op":"delivery_folder_set","app":"notes","folder":folder})
-            )
-            .unwrap()
-            .ok
+    let set = serde_json::json!({"v":1,"op":"delivery_folder_set","app":"notes","folder":folder});
+    assert_eq!(
+        server.dispatch(set.clone()).unwrap_err(),
+        "the app is not installed"
     );
+    let clients = fixture.0.join("clients");
+    fs::create_dir(&clients).unwrap();
+    fs::write(clients.join("notes.json"), b"{}").unwrap();
+    server = server.with_clients_dir(clients);
+    assert!(server.dispatch(set.clone()).unwrap().ok);
+    assert_eq!(
+        fs::metadata(&folder).unwrap().permissions().mode() & 0o7777,
+        0o700
+    );
+    assert!(server.dispatch(set).unwrap().ok);
+    let existing = fixture.0.join("existing");
+    fs::create_dir(&existing).unwrap();
+    assert_eq!(server.dispatch(serde_json::json!({"v":1,"op":"delivery_folder_set","app":"notes","folder":existing})).unwrap_err(), "the folder already exists; name a new one");
+    assert_eq!(server.dispatch(serde_json::json!({"v":1,"op":"delivery_folder_set","app":"notes","folder":"relative"})).unwrap_err(), "the folder must be an absolute path");
     for removed in [true, false] {
         assert_eq!(
             server
@@ -2707,6 +2704,7 @@ fn delivery_folders_check_paths_and_clear_without_a_fleet() {
             Some(removed)
         );
     }
+    assert!(folder.is_dir());
 }
 
 #[test]
@@ -2741,7 +2739,7 @@ fn deliveries_check_limits_and_page_only_the_registered_apps_arrivals() {
         server
             .fleet_db()
             .unwrap()
-            .add_arrival(app, name, 5, "birch", at)
+            .add_arrival(app, name, 5, "birch", &"b".repeat(64), at)
             .unwrap();
     }
     let rows = |server: &mut Server, fields: serde_json::Value| {
@@ -2755,8 +2753,8 @@ fn deliveries_check_limits_and_page_only_the_registered_apps_arrivals() {
     assert_eq!(
         rows(&mut server, serde_json::json!({})),
         serde_json::json!([
-            {"id":1,"computer":"birch","name":"first","size":5,"at":2.0},
-            {"id":3,"computer":"birch","name":"second","size":5,"at":0.0},
+            {"id":1,"computer":"birch","key":"b".repeat(64),"name":"first","size":5,"at":2.0},
+            {"id":3,"computer":"birch","key":"b".repeat(64),"name":"second","size":5,"at":0.0},
         ])
     );
     assert_eq!(
@@ -2778,7 +2776,7 @@ fn deliveries_check_limits_and_page_only_the_registered_apps_arrivals() {
         server
             .fleet_db()
             .unwrap()
-            .add_arrival("notes", "later", 1, "birch", 3.0)
+            .add_arrival("notes", "later", 1, "birch", &"b".repeat(64), 3.0)
             .unwrap();
     }
     assert_eq!(
@@ -2818,5 +2816,132 @@ fn a_failed_send_logs_neither_file_name_nor_path() {
         "birch",
     ] {
         assert!(!log.contains(private), "{private}");
+    }
+}
+
+fn unreachable_send_server(fixture: &Fixture) -> (Server, Request) {
+    use radio_link::{SecretKey, code::Hints, membership};
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0);
+    register_notes(&mut server);
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    server
+        .apply(Request::FleetInit {
+            name: "harbor".into(),
+        })
+        .unwrap();
+    let key = radio_link::key::load_or_create(&fixture.0.join("link")).unwrap();
+    let other = SecretKey::generate();
+    // Reserve then close a local UDP port so the dial has no answering endpoint.
+    let port = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let address = port.local_addr().unwrap();
+    drop(port);
+    let mut db = server.fleet_db().unwrap();
+    let code = db
+        .create_code(&key, None, None, Hints { direct: vec![] }, now().unwrap())
+        .unwrap()
+        .0;
+    db.admit(
+        &key,
+        "test-host",
+        &[],
+        &code,
+        &other.public(),
+        "birch",
+        &[address],
+        &membership::consent(
+            &other,
+            &code.fleet,
+            &key.public().to_string(),
+            "birch",
+            &[address],
+        ),
+        now().unwrap(),
+    )
+    .unwrap();
+    drop(db);
+    let path = fixture.0.join("private-source.txt");
+    fs::write(&path, b"hello").unwrap();
+    (
+        server,
+        Request::Send {
+            app: "notes".into(),
+            computer: "birch".into(),
+            name: "private-letter.txt".into(),
+            file: path.to_string_lossy().into_owned(),
+        },
+    )
+}
+
+#[test]
+fn a_waiting_send_serves_hello_and_logs_its_later_failure() {
+    waiting_send(false);
+}
+
+#[test]
+fn a_second_waiting_send_is_refused_at_the_send_cap() {
+    waiting_send(true);
+}
+
+fn waiting_send(check_cap: bool) {
+    let fixture = Fixture::new();
+    let (server, send) = unreachable_send_server(&fixture);
+    let log_path = fixture.0.join("radio.log");
+    let server = server.with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    let server = if check_cap {
+        server.with_send_cap(1)
+    } else {
+        server
+    };
+    let worker = start(server, if check_cap { 4 } else { 3 });
+    let second = send.clone();
+    let mut pending = UnixStream::connect(fixture.socket()).unwrap();
+    let mut value = serde_json::to_value(send).unwrap();
+    value["v"] = 1.into();
+    writeln!(pending, "{value}").unwrap();
+    if check_cap {
+        let response = request(&fixture.socket(), &second).unwrap();
+        assert_eq!(
+            response.error.as_deref(),
+            Some("too many sends at once; try again")
+        );
+    }
+    // A later hello keeps the node alive until the send's answer has been read.
+    let started = Instant::now();
+    let hello = request(&fixture.socket(), &Request::Hello {}).unwrap();
+    assert!(hello.ok);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "hello waited {:?}",
+        started.elapsed()
+    );
+    read_timeout(&pending, Duration::from_secs(7));
+    let mut line = String::new();
+    BufReader::new(pending).read_line(&mut line).unwrap();
+    let response: Response = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        response.error.as_deref(),
+        Some("the computer could not be reached")
+    );
+    assert!(request(&fixture.socket(), &Request::Hello {}).unwrap().ok);
+    worker.join().unwrap();
+    let log = fs::read_to_string(log_path).unwrap();
+    assert!(
+        log.contains("serve failed op=\"send\" error=\"the computer could not be reached\""),
+        "{log}"
+    );
+    for secret in [
+        "private-letter.txt",
+        "private-source.txt",
+        fixture.0.to_str().unwrap(),
+    ] {
+        assert!(!log.contains(secret), "{log}");
     }
 }

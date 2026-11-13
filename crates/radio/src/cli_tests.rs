@@ -1233,3 +1233,11 @@ fn file_commands_keep_final_links_unresolved() {
         link.to_str().unwrap()
     );
 }
+
+#[test]
+fn send_defaults_preserve_names_for_daemon_validation() {
+    for name in ["a b", "é", "a:b", &"x".repeat(129)] {
+        let parsed = parse(&args(&["send", "garden", name, "--app", "notes"])).unwrap();
+        assert_eq!(serde_json::to_value(parsed.request).unwrap()["name"], name);
+    }
+}

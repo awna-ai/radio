@@ -87,6 +87,7 @@ pub async fn bind_key(
         Local {
             name: "garden".into(),
             sha: SHA.into(),
+            clients: None,
         },
     ))
     .await

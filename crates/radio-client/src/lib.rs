@@ -297,6 +297,8 @@ pub struct Delivery {
     pub id: i64,
     /// The sending computer's name, or its public link id when unnamed.
     pub computer: String,
+    /// The sending computer's public link id.
+    pub key: String,
     /// The name of the file in this app's delivery folder.
     pub name: String,
     /// The file's size in bytes.

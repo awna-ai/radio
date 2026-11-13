@@ -7,6 +7,10 @@ pub const EXISTS: &str = "exists";
 pub const BUSY: &str = "busy";
 pub const FOLDER: &str = "folder";
 pub const WRITE: &str = "write";
+pub const FULL: &str = "full";
+pub const SPACE: &str = "space";
+pub const FOLDER_FILES: usize = 64;
+pub const FOLDER_BYTES: u64 = 1 << 30;
 pub const FILE_CAP: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,11 +149,11 @@ pub(crate) fn valid_app(to: &str, app: &str, local: &iroh::EndpointId) -> bool {
 
 pub fn file_name(name: &str) -> bool {
     !name.is_empty()
-        && name.len() <= 255
+        && name.len() <= 128
         && !name.starts_with('.')
         && name
             .bytes()
-            .all(|b| b >= 0x20 && b != 0x7f && b != b'/' && b != b'\\')
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 pub(crate) fn valid_file(

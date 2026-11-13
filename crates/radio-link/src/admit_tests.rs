@@ -50,3 +50,53 @@ fn debug_hides_membership() {
     let gate = Gate::new(Arc::new(Book(Standing::Accepted)), Limits::default());
     assert_eq!(format!("{gate:?}"), "Gate { .. }");
 }
+
+#[test]
+fn delivery_reservations_bound_keys_slots_and_folder_bytes_and_drop_releases_them() {
+    let path = std::env::temp_dir().join(format!("radio-gate-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    let mut db = FleetDb::open(&path.join("fleet.db")).unwrap();
+    db.set_delivery_folder("notes", &path.join("inbox"))
+        .unwrap();
+    let folder = db.delivery_folder("notes").unwrap().unwrap();
+    let gate = Gate::new(
+        Arc::new(Book(Standing::Accepted)),
+        Limits {
+            deliveries: 2,
+            ..Limits::default()
+        },
+    );
+    let a = iroh::SecretKey::generate().public();
+    let b = iroh::SecretKey::generate().public();
+    let c = iroh::SecretKey::generate().public();
+    let (_, first) = gate.reserve_delivery(a, &folder, "one.txt", 3).unwrap();
+    assert_eq!(
+        gate.reserve_delivery(a, &folder, "two.txt", 1).err(),
+        Some(crate::wire::BUSY)
+    );
+    let (_, second) = gate.reserve_delivery(b, &folder, "two.txt", 4).unwrap();
+    assert_eq!(
+        gate.reserve_delivery(c, &folder, "three.txt", 1).err(),
+        Some(crate::wire::BUSY)
+    );
+    assert_eq!(
+        gate.files.lock().unwrap().folders[&(folder.dev, folder.ino)],
+        (2, 7)
+    );
+    drop(first);
+    let (_, third) = gate.reserve_delivery(a, &folder, "one.txt", 5).unwrap();
+    drop(second);
+    drop(third);
+    assert!(gate.files.lock().unwrap().keys.is_empty());
+    assert!(gate.files.lock().unwrap().folders.is_empty());
+    assert_eq!(gate.deliveries.available_permits(), 2);
+    let (_, reservation) = gate.reserve_delivery(a, &folder, "one.txt", 1).unwrap();
+    let dir = crate::delivery::prepare(&folder, "one.txt").unwrap();
+    assert_eq!(
+        crate::delivery::write_open(&dir, "one.txt", |_| Err("stopped")),
+        Err("stopped")
+    );
+    drop(reservation);
+    assert!(gate.reserve_delivery(a, &folder, "one.txt", 1).is_ok());
+    std::fs::remove_dir_all(path).unwrap();
+}

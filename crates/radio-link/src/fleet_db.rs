@@ -16,7 +16,10 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     net::{IpAddr, SocketAddr},
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -104,11 +107,11 @@ CREATE TABLE link_addresses (
 ";
 
 const SCHEMA_5: &str = "
-CREATE TABLE delivery_folders (app TEXT PRIMARY KEY, folder TEXT NOT NULL) STRICT;
+CREATE TABLE delivery_folders (app TEXT PRIMARY KEY, folder TEXT NOT NULL UNIQUE, dev INTEGER NOT NULL, ino INTEGER NOT NULL) STRICT;
 CREATE TABLE arrivals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     app TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL,
-    computer TEXT NOT NULL, at REAL NOT NULL
+    computer TEXT NOT NULL, key TEXT NOT NULL, at REAL NOT NULL
 ) STRICT;
 ";
 
@@ -164,12 +167,20 @@ pub struct CodeRow {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DeliveryFolder {
+    pub path: PathBuf,
+    pub dev: u64,
+    pub ino: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Arrival {
     pub id: i64,
     pub app: String,
     pub name: String,
     pub size: u64,
     pub computer: String,
+    pub key: String,
     pub at: f64,
 }
 
@@ -225,9 +236,38 @@ impl FleetDb {
         if !folder.is_absolute() {
             return Err("the folder must be an absolute path");
         }
-        let _folder = crate::delivery::check_folder(folder)?;
-        let folder = folder.to_str().ok_or(WRITE)?;
-        self.conn.execute("INSERT INTO delivery_folders (app, folder) VALUES (?1, ?2) ON CONFLICT(app) DO UPDATE SET folder = excluded.folder", params![app, folder]).map_err(|_| WRITE)?;
+        let bytes = folder.as_os_str().as_bytes();
+        let mut end = bytes.len();
+        while end > 1 && bytes[end - 1] == b'/' {
+            end -= 1;
+        }
+        let folder = Path::new(std::ffi::OsStr::from_bytes(&bytes[..end]));
+        let folder_text = folder.to_str().ok_or(WRITE)?;
+        let held: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM delivery_folders WHERE folder = ?1 AND app != ?2)",
+                params![folder_text, app],
+                |row| row.get(0),
+            )
+            .map_err(|_| READ)?;
+        if held {
+            return Err("that folder is another app's");
+        }
+        let made = match crate::delivery::make_folder(folder) {
+            Ok(made) => made,
+            Err("the folder already exists; name a new one") => {
+                if let Some(existing) = self.delivery_folder(app)?
+                    && existing.path == folder
+                    && crate::delivery::open_folder(&existing).is_ok()
+                {
+                    return Ok(());
+                }
+                return Err("the folder already exists; name a new one");
+            }
+            Err(error) => return Err(error),
+        };
+        self.conn.execute("INSERT INTO delivery_folders (app, folder, dev, ino) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(app) DO UPDATE SET folder = excluded.folder, dev = excluded.dev, ino = excluded.ino", params![app, folder_text, made.dev as i64, made.ino as i64]).map_err(|_| WRITE)?;
         Ok(())
     }
     pub fn clear_delivery_folder(&mut self, app: &str) -> Result<bool, &'static str> {
@@ -236,16 +276,33 @@ impl FleetDb {
             .map(|rows| rows != 0)
             .map_err(|_| WRITE)
     }
-    pub fn delivery_folder(&self, app: &str) -> Result<Option<PathBuf>, &'static str> {
+    pub fn delivery_folder(&self, app: &str) -> Result<Option<DeliveryFolder>, &'static str> {
         self.conn
             .query_row(
-                "SELECT folder FROM delivery_folders WHERE app = ?1",
+                "SELECT folder, dev, ino FROM delivery_folders WHERE app = ?1",
                 [app],
-                |row| row.get::<_, String>(0),
+                delivery_folder_row,
             )
             .optional()
-            .map(|folder| folder.map(PathBuf::from))
             .map_err(|_| READ)
+    }
+    pub fn delivery_folders(&self) -> Result<Vec<(String, DeliveryFolder)>, &'static str> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT app, folder, dev, ino FROM delivery_folders ORDER BY app")
+            .map_err(|_| READ)?;
+        stmt.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                DeliveryFolder {
+                    path: PathBuf::from(row.get::<_, String>(1)?),
+                    dev: row.get::<_, i64>(2)? as u64,
+                    ino: row.get::<_, i64>(3)? as u64,
+                },
+            ))
+        })
+        .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+        .map_err(|_| READ)
     }
     pub fn add_arrival(
         &mut self,
@@ -253,6 +310,7 @@ impl FleetDb {
         name: &str,
         size: u64,
         computer: &str,
+        key: &str,
         at: f64,
     ) -> Result<i64, &'static str> {
         let tx = self
@@ -260,12 +318,13 @@ impl FleetDb {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| WRITE)?;
         tx.execute(
-            "INSERT INTO arrivals (app, name, size, computer, at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO arrivals (app, name, size, computer, key, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 app,
                 name,
                 i64::try_from(size).map_err(|_| WRITE)?,
                 computer,
+                key,
                 at
             ],
         )
@@ -281,7 +340,7 @@ impl FleetDb {
         after: i64,
         limit: usize,
     ) -> Result<Vec<Arrival>, &'static str> {
-        let mut stmt = self.conn.prepare("SELECT id, app, name, size, computer, at FROM arrivals WHERE app = ?1 AND id > ?2 ORDER BY id LIMIT ?3").map_err(|_| READ)?;
+        let mut stmt = self.conn.prepare("SELECT id, app, name, size, computer, key, at FROM arrivals WHERE app = ?1 AND id > ?2 ORDER BY id LIMIT ?3").map_err(|_| READ)?;
         stmt.query_map(params![app, after, limit.clamp(1, 500) as i64], |row| {
             Ok(Arrival {
                 id: row.get(0)?,
@@ -290,7 +349,8 @@ impl FleetDb {
                 size: u64::try_from(row.get::<_, i64>(3)?)
                     .map_err(|_| rusqlite::Error::InvalidQuery)?,
                 computer: row.get(4)?,
-                at: row.get(5)?,
+                key: row.get(5)?,
+                at: row.get(6)?,
             })
         })
         .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
@@ -1626,3 +1686,11 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
 #[cfg(test)]
 #[path = "fleet_db_tests.rs"]
 mod tests;
+
+fn delivery_folder_row(row: &Row<'_>) -> rusqlite::Result<DeliveryFolder> {
+    Ok(DeliveryFolder {
+        path: PathBuf::from(row.get::<_, String>(0)?),
+        dev: row.get::<_, i64>(1)? as u64,
+        ino: row.get::<_, i64>(2)? as u64,
+    })
+}

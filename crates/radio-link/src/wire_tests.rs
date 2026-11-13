@@ -240,7 +240,7 @@ fn computer_request_round_trips_and_refuses_unknown_fields() {
 
 #[test]
 fn file_names_obey_byte_and_path_rules() {
-    for name in ["x", "report.txt", "résumé", &"a".repeat(255)] {
+    for name in ["report-1.final_v2.txt", &"x".repeat(128)] {
         assert!(file_name(name), "{name:?}");
     }
     for name in [
@@ -248,7 +248,10 @@ fn file_names_obey_byte_and_path_rules() {
         "a/b",
         ".hidden",
         "",
-        &"a".repeat(256),
+        &"x".repeat(129),
+        "a b",
+        "é",
+        "a:b",
         "a\n",
         "a\0",
         "a\\b",

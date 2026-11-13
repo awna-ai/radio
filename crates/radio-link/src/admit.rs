@@ -1,5 +1,7 @@
 use std::{
+    collections::{HashMap, HashSet},
     fmt,
+    os::fd::OwnedFd,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -32,13 +34,13 @@ pub trait Admission: Send + Sync + 'static {
     fn standing(&self, key: &EndpointId) -> Standing;
     fn join_open(&self) -> bool;
     fn fleet(&self) -> Option<String>;
-    fn delivery_folder(&self, _app: &str) -> Option<std::path::PathBuf> {
+    fn delivery_folder(&self, _app: &str) -> Option<crate::fleet_db::DeliveryFolder> {
         None
     }
 }
 
 impl Admission for Mutex<FleetDb> {
-    fn delivery_folder(&self, app: &str) -> Option<std::path::PathBuf> {
+    fn delivery_folder(&self, app: &str) -> Option<crate::fleet_db::DeliveryFolder> {
         self.lock()
             .ok()
             .and_then(|db| db.delivery_folder(app).ok().flatten())
@@ -71,6 +73,7 @@ impl Admission for Mutex<FleetDb> {
 #[derive(Clone)]
 pub struct Limits {
     pub file: Duration,
+    pub stall: Duration,
     pub deliveries: usize,
     pub connections: usize,
     pub per_key: usize,
@@ -86,7 +89,8 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             file: Duration::from_secs(120),
-            deliveries: 2,
+            deliveries: 4,
+            stall: Duration::from_secs(30),
             connections: 32,
             per_key: 4,
             joins: 4,
@@ -110,7 +114,37 @@ pub struct Gate {
     pub(crate) admission: Arc<dyn Admission>,
     pub(crate) limits: Limits,
     live: Mutex<Vec<Live>>,
+    files: Arc<Mutex<Files>>,
     pub(crate) deliveries: Arc<tokio::sync::Semaphore>,
+}
+
+#[derive(Default)]
+struct Files {
+    keys: HashSet<EndpointId>,
+    folders: HashMap<(u64, u64), (usize, u64)>,
+}
+
+pub(crate) struct DeliveryReservation {
+    state: Arc<Mutex<Files>>,
+    key: EndpointId,
+    folder: (u64, u64),
+    size: u64,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl Drop for DeliveryReservation {
+    fn drop(&mut self) {
+        if let Ok(mut files) = self.state.lock() {
+            files.keys.remove(&self.key);
+            if let Some((count, bytes)) = files.folders.get_mut(&self.folder) {
+                *count -= 1;
+                *bytes -= self.size;
+                if *count == 0 {
+                    files.folders.remove(&self.folder);
+                }
+            }
+        }
+    }
 }
 
 impl fmt::Debug for Gate {
@@ -120,10 +154,42 @@ impl fmt::Debug for Gate {
 }
 
 impl Gate {
-    pub(crate) fn deliveries_permit(
+    pub(crate) fn reserve_delivery(
         &self,
-    ) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
-        self.deliveries.clone().try_acquire_owned()
+        key: EndpointId,
+        folder: &crate::fleet_db::DeliveryFolder,
+        name: &str,
+        size: u64,
+    ) -> Result<(OwnedFd, DeliveryReservation), &'static str> {
+        let mut files = self.files.lock().map_err(|_| crate::wire::BUSY)?;
+        if files.keys.contains(&key) {
+            return Err(crate::wire::BUSY);
+        }
+        let permit = self
+            .deliveries
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| crate::wire::BUSY)?;
+        let dir = crate::delivery::prepare(folder, name)?;
+        let (entries, bytes) = crate::delivery::scan(&dir)?;
+        let available = crate::delivery::available(&dir)?;
+        let id = (folder.dev, folder.ino);
+        let (reserved, reserved_bytes) = files.folders.get(&id).copied().unwrap_or_default();
+        crate::delivery::fits(entries, bytes, reserved, reserved_bytes, size, available)?;
+        files.keys.insert(key);
+        files
+            .folders
+            .insert(id, (reserved + 1, reserved_bytes + size));
+        Ok((
+            dir,
+            DeliveryReservation {
+                state: self.files.clone(),
+                key,
+                folder: id,
+                size,
+                _permit: permit,
+            },
+        ))
     }
 
     pub fn new(admission: Arc<dyn Admission>, limits: Limits) -> Self {
@@ -132,6 +198,7 @@ impl Gate {
             deliveries: Arc::new(tokio::sync::Semaphore::new(limits.deliveries)),
             limits,
             live: Mutex::new(Vec::new()),
+            files: Arc::new(Mutex::new(Files::default())),
         }
     }
 

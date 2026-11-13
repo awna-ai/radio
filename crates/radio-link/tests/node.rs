@@ -51,6 +51,7 @@ impl Computer {
             Local {
                 name: name.into(),
                 sha: SHA.into(),
+                clients: None,
             },
             Limits::default(),
         )

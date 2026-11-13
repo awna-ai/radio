@@ -5,10 +5,10 @@ use std::{
         fd::{AsRawFd, FromRawFd, OwnedFd},
         unix::ffi::OsStrExt,
     },
-    path::Path,
+    path::{Path, PathBuf},
 };
 
-pub fn check_folder(path: &Path) -> Result<OwnedFd, &'static str> {
+fn open_path(path: &Path) -> Result<OwnedFd, &'static str> {
     let mut bytes = path.as_os_str().as_bytes();
     // A trailing slash makes the final link an intermediate component for open.
     // Keep root intact, and leave ancestor components exactly as chosen.
@@ -53,22 +53,33 @@ pub fn check_folder(path: &Path) -> Result<OwnedFd, &'static str> {
 }
 
 pub fn write(
-    folder: &Path,
+    folder: &crate::fleet_db::DeliveryFolder,
+    name: &str,
+    body: impl FnMut(&mut File) -> Result<(), &'static str>,
+) -> Result<(), &'static str> {
+    if !crate::wire::file_name(name) {
+        return Err(crate::wire::WRITE);
+    }
+    let dir = prepare(folder, name)?;
+    let (entries, bytes) = scan(&dir)?;
+    fits(entries, bytes, 0, 0, 0, available(&dir)?)?;
+    write_open(&dir, name, body)
+}
+
+pub fn write_open(
+    dir: &OwnedFd,
     name: &str,
     mut body: impl FnMut(&mut File) -> Result<(), &'static str>,
 ) -> Result<(), &'static str> {
     if !crate::wire::file_name(name) {
         return Err(crate::wire::WRITE);
     }
-    let dir = check_folder(folder).map_err(|_| crate::wire::FOLDER)?;
     let name = CString::new(name).map_err(|_| crate::wire::WRITE)?;
-    let mut random = [0; 8];
+    let mut random = [0; 16];
     getrandom::fill(&mut random).map_err(|_| crate::wire::WRITE)?;
-    let temporary = CString::new(format!(
-        ".radio-incoming-{:016x}",
-        u64::from_ne_bytes(random)
-    ))
-    .map_err(|_| crate::wire::WRITE)?;
+    let hex: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+    let temporary =
+        CString::new(format!(".radio-partial-{hex}")).map_err(|_| crate::wire::WRITE)?;
     // SAFETY: dir is live, the name is NUL-terminated, and O_CREAT receives its mode.
     let fd = unsafe {
         libc::openat(
@@ -82,7 +93,7 @@ pub fn write(
         return Err(crate::wire::WRITE);
     }
     let _cleanup = Temporary {
-        dir: &dir,
+        dir,
         name: &temporary,
     };
     // SAFETY: openat returned a new owned descriptor.
@@ -121,162 +132,281 @@ impl Drop for Temporary<'_> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::{
-        fs,
-        os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt},
-        path::PathBuf,
+pub fn open_folder(folder: &crate::fleet_db::DeliveryFolder) -> Result<OwnedFd, &'static str> {
+    let dir = open_path(&folder.path)?;
+    let stat = folder_stat(&dir)?;
+    if stat.st_dev as u64 != folder.dev || stat.st_ino != folder.ino {
+        return Err("the folder could not be opened");
+    }
+    Ok(dir)
+}
+
+fn folder_stat(dir: &OwnedFd) -> Result<libc::stat, &'static str> {
+    let mut stat = std::mem::MaybeUninit::uninit();
+    // SAFETY: the descriptor is live and stat points to writable storage.
+    if unsafe { libc::fstat(dir.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
+        return Err(crate::wire::FOLDER);
+    }
+    // SAFETY: fstat initialized stat on success.
+    Ok(unsafe { stat.assume_init() })
+}
+
+pub fn make_folder(path: &Path) -> Result<crate::fleet_db::DeliveryFolder, &'static str> {
+    if !path.is_absolute() {
+        return Err("the folder must be an absolute path");
+    }
+    let bytes = path.as_os_str().as_bytes();
+    let end = bytes.iter().rposition(|b| *b != b'/').map_or(0, |i| i + 1);
+    let bytes = &bytes[..end];
+    let split = bytes
+        .iter()
+        .rposition(|b| *b == b'/')
+        .ok_or("not a folder name")?;
+    let last = &bytes[split + 1..];
+    if last.is_empty() || last == b"." || last == b".." {
+        return Err("not a folder name");
+    }
+    let parent = CString::new(if split == 0 {
+        &b"/"[..]
+    } else {
+        &bytes[..split]
+    })
+    .map_err(|_| "not a folder name")?;
+    let last = CString::new(last).map_err(|_| "not a folder name")?;
+    // SAFETY: parent is a NUL-terminated path.
+    let raw = unsafe {
+        libc::open(
+            parent.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        )
     };
-    struct Folder(PathBuf);
-    impl Folder {
-        fn new() -> Self {
-            let mut random = [0; 8];
-            getrandom::fill(&mut random).unwrap();
-            let path =
-                std::env::temp_dir().join(format!("radio-delivery-{}", u64::from_ne_bytes(random)));
-            fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
-            Self(path)
-        }
+    if raw < 0 {
+        return Err("the folder could not be made");
     }
-    impl Drop for Folder {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    #[test]
-    fn delivery_checks_a_private_folder() {
-        let folder = Folder::new();
-        assert!(check_folder(&folder.0).is_ok());
-    }
-    #[test]
-    fn delivery_rejects_a_symlink() {
-        let folder = Folder::new();
-        let link = folder.0.join("link");
-        std::os::unix::fs::symlink(&folder.0, &link).unwrap();
-        assert_eq!(
-            check_folder(&link).unwrap_err(),
-            "the folder could not be opened"
+    // SAFETY: open returned an owned descriptor.
+    let parent = unsafe { OwnedFd::from_raw_fd(raw) };
+    // SAFETY: parent is live and last is a NUL-terminated single component.
+    if unsafe { libc::mkdirat(parent.as_raw_fd(), last.as_ptr(), 0o700) } != 0 {
+        return Err(
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EEXIST) {
+                "the folder already exists; name a new one"
+            } else {
+                "the folder could not be made"
+            },
         );
     }
-
-    #[test]
-    fn delivery_rejects_a_fifo_without_waiting_for_a_writer() {
-        let folder = Folder::new();
-        let path = folder.0.join("pipe");
-        let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
-        // SAFETY: the path is NUL-terminated and valid for the call.
-        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
-        let (sent, received) = std::sync::mpsc::channel();
-        let worker = std::thread::spawn(move || {
-            sent.send(check_folder(&path).unwrap_err()).unwrap();
-        });
-        assert_eq!(
-            received.recv_timeout(std::time::Duration::from_secs(2)),
-            Ok("the folder could not be opened")
-        );
-        worker.join().unwrap();
+    // SAFETY: parent is live and last is a NUL-terminated single component.
+    let raw = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            last.as_ptr(),
+            libc::O_RDONLY
+                | libc::O_DIRECTORY
+                | libc::O_NOFOLLOW
+                | libc::O_CLOEXEC
+                | libc::O_NONBLOCK,
+        )
+    };
+    if raw < 0 {
+        return Err("the folder could not be made");
     }
-
-    #[test]
-    fn delivery_rejects_a_file_as_folder() {
-        let folder = Folder::new();
-        let path = folder.0.join("file");
-        fs::write(&path, []).unwrap();
-        assert_eq!(
-            check_folder(&path).unwrap_err(),
-            "the folder could not be opened"
-        );
+    // SAFETY: openat returned an owned descriptor.
+    let dir = unsafe { OwnedFd::from_raw_fd(raw) };
+    // SAFETY: dir is live and mode is valid.
+    if unsafe { libc::fchmod(dir.as_raw_fd(), 0o700) } != 0 {
+        return Err("the folder could not be made");
     }
+    let stat = folder_stat(&dir).map_err(|_| "the folder could not be made")?;
+    Ok(crate::fleet_db::DeliveryFolder {
+        path: PathBuf::from(std::ffi::OsStr::from_bytes(bytes)),
+        dev: stat.st_dev as u64,
+        ino: stat.st_ino,
+    })
+}
 
-    #[test]
-    fn delivery_rejects_a_writable_folder() {
-        let folder = Folder::new();
-        fs::set_permissions(&folder.0, fs::Permissions::from_mode(0o777)).unwrap();
-        assert_eq!(
-            check_folder(&folder.0).unwrap_err(),
-            "the folder is writable by others"
-        );
-    }
-
-    #[test]
-    fn delivery_writes_private_complete_bytes() {
-        use std::io::Write;
-        let folder = Folder::new();
-        write(&folder.0, "document", |file| {
-            file.write_all(b"contents").map_err(|_| "write")
+pub fn installed(clients: Option<&Path>, app: &str) -> bool {
+    crate::wire::app_name(app)
+        && clients.is_some_and(|clients| {
+            std::fs::symlink_metadata(clients.join(format!("{app}.json")))
+                .is_ok_and(|metadata| metadata.is_file())
         })
-        .unwrap();
-        assert_eq!(fs::read(folder.0.join("document")).unwrap(), b"contents");
-        assert_eq!(
-            fs::metadata(folder.0.join("document")).unwrap().mode() & 0o777,
-            0o600
-        );
-        assert_eq!(fs::read_dir(&folder.0).unwrap().count(), 1);
-    }
+}
 
-    #[test]
-    fn delivery_cleans_up_a_failed_body() {
-        use std::io::Write;
-        let folder = Folder::new();
-        let error = write(&folder.0, "document", |file| {
-            file.write_all(b"partial").unwrap();
-            Err("the file body is not valid")
-        });
-        assert_eq!(error, Err("the file body is not valid"));
-        assert_eq!(fs::read_dir(&folder.0).unwrap().count(), 0);
+pub fn prepare(
+    folder: &crate::fleet_db::DeliveryFolder,
+    name: &str,
+) -> Result<OwnedFd, &'static str> {
+    if !crate::wire::file_name(name) {
+        return Err(crate::wire::WRITE);
     }
-
-    #[test]
-    fn delivery_never_replaces_an_existing_file() {
-        let folder = Folder::new();
-        fs::write(folder.0.join("document"), b"original").unwrap();
-        assert_eq!(
-            write(&folder.0, "document", |_| Ok(())),
-            Err(crate::wire::EXISTS)
-        );
-        assert_eq!(fs::read(folder.0.join("document")).unwrap(), b"original");
-        assert_eq!(fs::read_dir(&folder.0).unwrap().count(), 1);
+    let dir = open_folder(folder).map_err(|_| crate::wire::FOLDER)?;
+    let name = CString::new(name).map_err(|_| crate::wire::WRITE)?;
+    if entry_stat(&dir, &name).is_some() {
+        return Err(crate::wire::EXISTS);
     }
+    Ok(dir)
+}
 
-    #[test]
-    fn delivery_rejects_unsafe_names_before_writing() {
-        let folder = Folder::new();
-        for name in [
-            ".hidden",
-            "../escape",
-            "a/b",
-            "",
-            "a\nb",
-            "a\\b",
-            "a\0b",
-            &"x".repeat(256),
-        ] {
-            let mut called = false;
-            assert_eq!(
-                write(&folder.0, name, |_| {
-                    called = true;
-                    Ok(())
-                }),
-                Err(crate::wire::WRITE)
-            );
-            assert!(!called);
+fn entry_stat(dir: &OwnedFd, name: &std::ffi::CStr) -> Option<libc::stat> {
+    let mut stat = std::mem::MaybeUninit::uninit();
+    // SAFETY: dir is live, name is NUL-terminated, and stat is writable storage.
+    if unsafe {
+        libc::fstatat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    } != 0
+    {
+        return None;
+    }
+    // SAFETY: fstatat initialized stat on success.
+    Some(unsafe { stat.assume_init() })
+}
+
+struct Entries(*mut libc::DIR);
+impl Drop for Entries {
+    fn drop(&mut self) {
+        // SAFETY: fdopendir returned this live stream, which is closed exactly once.
+        unsafe { libc::closedir(self.0) };
+    }
+}
+fn entries(
+    dir: &OwnedFd,
+    strict: bool,
+    mut visit: impl FnMut(&std::ffi::CStr, &libc::stat) -> bool,
+) -> Result<(), &'static str> {
+    // SAFETY: dir is live and the literal is a NUL-terminated relative path.
+    let raw = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            c".".as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        )
+    };
+    if raw < 0 {
+        return Err(crate::wire::FOLDER);
+    }
+    // SAFETY: raw is a new owned directory descriptor; fdopendir takes ownership on success.
+    let stream = unsafe { libc::fdopendir(raw) };
+    if stream.is_null() {
+        // SAFETY: fdopendir failed without taking ownership of raw.
+        unsafe { libc::close(raw) };
+        return Err(crate::wire::FOLDER);
+    }
+    let stream = Entries(stream);
+    loop {
+        // SAFETY: errno returns the current thread's errno pointer on this platform.
+        unsafe { *errno() = 0 };
+        // SAFETY: stream is live; the entry remains valid until the next call.
+        let entry = unsafe { libc::readdir(stream.0) };
+        if entry.is_null() {
+            // SAFETY: __error returns the current thread's errno pointer.
+            if strict && unsafe { *errno() } != 0 {
+                return Err(crate::wire::FOLDER);
+            }
+            break;
         }
-        assert_eq!(fs::read_dir(&folder.0).unwrap().count(), 0);
+        // SAFETY: readdir returned a live entry with a NUL-terminated name.
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        if name.to_bytes() == b"." || name.to_bytes() == b".." {
+            continue;
+        }
+        if let Some(stat) = entry_stat(dir, name) {
+            if !visit(name, &stat) {
+                break;
+            }
+        } else if strict {
+            return Err(crate::wire::FOLDER);
+        }
     }
-    #[test]
-    fn delivery_rejects_a_symlink_with_trailing_slashes() {
-        use std::os::unix::ffi::OsStringExt;
-        let folder = Folder::new();
-        let link = folder.0.join("link");
-        std::os::unix::fs::symlink(&folder.0, &link).unwrap();
-        let mut bytes = link.as_os_str().as_bytes().to_vec();
-        bytes.extend_from_slice(b"///");
-        let path = PathBuf::from(std::ffi::OsString::from_vec(bytes));
-        assert_eq!(
-            check_folder(&path).unwrap_err(),
-            "the folder could not be opened"
-        );
+    Ok(())
+}
+
+pub fn scan(dir: &OwnedFd) -> Result<(usize, u64), &'static str> {
+    let mut count = 0usize;
+    let mut bytes = 0u64;
+    entries(dir, true, |name, stat| {
+        if name.to_bytes().starts_with(b".radio-partial-") {
+            return true;
+        }
+        count += 1;
+        if stat.st_mode & libc::S_IFMT == libc::S_IFREG {
+            bytes = bytes.saturating_add(stat.st_size.max(0) as u64);
+        }
+        count <= crate::wire::FOLDER_FILES
+    })?;
+    Ok((count, bytes))
+}
+
+pub fn available(dir: &OwnedFd) -> Result<u64, &'static str> {
+    let mut stat = std::mem::MaybeUninit::uninit();
+    // SAFETY: dir is live and stat is writable storage.
+    if unsafe { libc::fstatvfs(dir.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
+        return Err(crate::wire::SPACE);
+    }
+    // SAFETY: fstatvfs initialized stat on success.
+    let stat = unsafe { stat.assume_init() };
+    Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize))
+}
+
+pub fn fits(
+    entries: usize,
+    bytes: u64,
+    reserved_files: usize,
+    reserved_bytes: u64,
+    size: u64,
+    available: u64,
+) -> Result<(), &'static str> {
+    if entries.saturating_add(reserved_files).saturating_add(1) > crate::wire::FOLDER_FILES
+        || bytes.saturating_add(reserved_bytes).saturating_add(size) > crate::wire::FOLDER_BYTES
+    {
+        return Err(crate::wire::FULL);
+    }
+    if size.saturating_add(reserved_bytes) > available {
+        return Err(crate::wire::SPACE);
+    }
+    Ok(())
+}
+
+pub fn sweep(db: &mut crate::fleet_db::FleetDb, clients: Option<&Path>) {
+    let Ok(folders) = db.delivery_folders() else {
+        return;
+    };
+    for (app, folder) in folders {
+        if !installed(clients, &app) {
+            let _ = db.clear_delivery_folder(&app);
+            continue;
+        }
+        let Ok(dir) = open_folder(&folder) else {
+            continue;
+        };
+        let _ = entries(&dir, false, |name, stat| {
+            if name.to_bytes().starts_with(b".radio-partial-")
+                && stat.st_mode & libc::S_IFMT == libc::S_IFREG
+            {
+                // SAFETY: dir is live and name is the NUL-terminated relative entry name.
+                unsafe { libc::unlinkat(dir.as_raw_fd(), name.as_ptr(), 0) };
+            }
+            true
+        });
+    }
+}
+
+#[cfg(test)]
+#[path = "delivery_tests.rs"]
+mod tests;
+
+fn errno() -> *mut libc::c_int {
+    #[cfg(target_os = "macos")]
+    // SAFETY: __error returns the current thread's errno pointer.
+    unsafe {
+        libc::__error()
+    }
+    #[cfg(target_os = "linux")]
+    // SAFETY: __errno_location returns the current thread's errno pointer.
+    unsafe {
+        libc::__errno_location()
     }
 }

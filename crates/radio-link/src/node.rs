@@ -157,13 +157,13 @@ impl Node {
         wait(receiver, WAIT, STILL_TELLING)?
     }
 
-    pub fn send_file(
+    pub fn start_send(
         &self,
         computer: &str,
         app: &str,
         name: &str,
         path: &Path,
-    ) -> Result<u64, &'static str> {
+    ) -> Result<PendingSend, &'static str> {
         let (file, size) = open_file(name, path)?;
         let computer = self
             .db
@@ -191,11 +191,23 @@ impl Node {
             .await;
             let _ = sender.send(result);
         });
-        wait(
+        Ok(PendingSend {
             receiver,
-            self.limits.file + self.limits.dial + Duration::from_secs(5),
-            "the send did not finish in time",
-        )?
+            timeout: self.limits.file
+                + self.limits.dial
+                + self.limits.frame
+                + Duration::from_secs(5),
+        })
+    }
+
+    pub fn send_file(
+        &self,
+        computer: &str,
+        app: &str,
+        name: &str,
+        path: &Path,
+    ) -> Result<u64, &'static str> {
+        self.start_send(computer, app, name, path)?.wait()
     }
 
     pub fn block(&self, target: &str) -> Result<Computer, &'static str> {
@@ -209,6 +221,21 @@ impl Node {
 
     pub fn publish(&self, record: ComputerRecord) {
         let _ = self.publish.send(Some(record));
+    }
+}
+
+pub struct PendingSend {
+    receiver: Receiver<Result<u64, &'static str>>,
+    timeout: Duration,
+}
+
+impl PendingSend {
+    pub fn wait(self) -> Result<u64, &'static str> {
+        wait(
+            self.receiver,
+            self.timeout,
+            "the send did not finish in time",
+        )?
     }
 }
 
@@ -268,7 +295,7 @@ async fn drive(
                         let computer = db.computer(&from.to_string()).ok()
                             .and_then(|computer| computer.name)
                             .unwrap_or_else(|| from.to_string());
-                        let _ = db.add_arrival(&app, &name, size, &computer, now());
+                        let _ = db.add_arrival(&app, &name, size, &computer, &from.to_string(), now());
                     }
                 }
                 Some(_) => {},

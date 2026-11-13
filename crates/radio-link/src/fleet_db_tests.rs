@@ -3080,18 +3080,24 @@ fn delivery_folder_sets_replaces_clears_and_survives_forgetting() {
     let (mut db, _) = temp.found();
     let first = temp.0.join("first");
     let second = temp.0.join("second");
-    key::private_folder(&first).unwrap();
-    key::private_folder(&second).unwrap();
     assert_eq!(db.delivery_folder("notes").unwrap(), None);
     assert_eq!(db.set_delivery_folder("notes", &first), Ok(()));
-    assert_eq!(db.delivery_folder("notes").unwrap(), Some(first));
+    assert_eq!(
+        db.delivery_folder("notes").unwrap().map(|f| f.path),
+        Some(first.clone())
+    );
     assert_eq!(db.set_delivery_folder("notes", &second), Ok(()));
     db.forget().unwrap();
     drop(db);
     let mut db = temp.open();
-    assert_eq!(db.delivery_folder("notes").unwrap(), Some(second));
+    assert_eq!(
+        db.delivery_folder("notes").unwrap().map(|f| f.path),
+        Some(second.clone())
+    );
     assert!(db.clear_delivery_folder("notes").unwrap());
     assert!(!db.clear_delivery_folder("notes").unwrap());
+    assert!(first.is_dir());
+    assert!(second.is_dir());
     assert_eq!(db.delivery_folder("notes").unwrap(), None);
 }
 
@@ -3118,20 +3124,22 @@ fn delivery_folder_requires_absolute_path() {
 }
 
 #[test]
-fn delivery_folder_checks_before_replacing_and_preserves_path() {
+fn delivery_folder_reregisters_same_identity_and_refuses_other_app() {
     let temp = Temp::new();
     let mut db = temp.open();
     let folder = temp.0.join("folder");
-    key::private_folder(&folder).unwrap();
-    let chosen = folder.join("..").join("folder");
-    db.set_delivery_folder("notes", &chosen).unwrap();
-    assert_eq!(db.delivery_folder("notes").unwrap(), Some(chosen.clone()));
-    fs::set_permissions(&folder, fs::Permissions::from_mode(0o777)).unwrap();
+    db.set_delivery_folder("notes", &folder).unwrap();
+    let first = db.delivery_folder("notes").unwrap();
+    assert_eq!(db.set_delivery_folder("notes", &folder), Ok(()));
+    assert_eq!(db.delivery_folder("notes").unwrap(), first);
     assert_eq!(
-        db.set_delivery_folder("notes", &folder),
-        Err("the folder is writable by others")
+        db.set_delivery_folder("garden", &folder),
+        Err("that folder is another app's")
     );
-    assert_eq!(db.delivery_folder("notes").unwrap(), Some(chosen));
+    assert_eq!(
+        db.set_delivery_folder("garden", &folder.join("..")),
+        Err("not a folder name")
+    );
 }
 
 #[test]
@@ -3139,12 +3147,15 @@ fn arrivals_list_in_id_order_after_cursor_and_survive_forgetting() {
     let temp = Temp::new();
     let (mut db, _) = temp.found();
     assert_eq!(
-        db.add_arrival("notes", "first.txt", 19, "birch", 30.0),
+        db.add_arrival("notes", "first.txt", 19, "birch", &"a".repeat(64), 30.0),
         Ok(1)
     );
-    assert_eq!(db.add_arrival("other", "other.txt", 1, "cedar", 0.0), Ok(2));
     assert_eq!(
-        db.add_arrival("notes", "second.txt", 20, "cedar", 10.0),
+        db.add_arrival("other", "other.txt", 1, "cedar", &"a".repeat(64), 0.0),
+        Ok(2)
+    );
+    assert_eq!(
+        db.add_arrival("notes", "second.txt", 20, "cedar", &"a".repeat(64), 10.0),
         Ok(3)
     );
     assert_eq!(
@@ -3156,6 +3167,7 @@ fn arrivals_list_in_id_order_after_cursor_and_survive_forgetting() {
                 name: "first.txt".into(),
                 size: 19,
                 computer: "birch".into(),
+                key: "a".repeat(64),
                 at: 30.0
             },
             Arrival {
@@ -3164,6 +3176,7 @@ fn arrivals_list_in_id_order_after_cursor_and_survive_forgetting() {
                 name: "second.txt".into(),
                 size: 20,
                 computer: "cedar".into(),
+                key: "a".repeat(64),
                 at: 10.0
             },
         ]
@@ -3187,7 +3200,7 @@ fn arrivals_clamp_page_limit() {
     let temp = Temp::new();
     let mut db = temp.open();
     for _ in 0..501 {
-        db.add_arrival("notes", "note.txt", 1, "birch", 0.0)
+        db.add_arrival("notes", "note.txt", 1, "birch", &"a".repeat(64), 0.0)
             .unwrap();
     }
     assert_eq!(db.arrivals("notes", 0, 0).unwrap().len(), 1);
@@ -3198,10 +3211,10 @@ fn arrivals_clamp_page_limit() {
 fn arrivals_keep_ten_thousand_per_app() {
     let temp = Temp::new();
     let mut db = temp.open();
-    db.add_arrival("other", "kept.txt", 1, "cedar", 0.0)
+    db.add_arrival("other", "kept.txt", 1, "cedar", &"a".repeat(64), 0.0)
         .unwrap();
     for _ in 0..10_005 {
-        db.add_arrival("notes", "note.txt", 1, "birch", 0.0)
+        db.add_arrival("notes", "note.txt", 1, "birch", &"a".repeat(64), 0.0)
             .unwrap();
     }
     let first = db.arrivals("notes", 0, 1).unwrap();
@@ -3218,4 +3231,74 @@ fn arrivals_keep_ten_thousand_per_app() {
     }
     assert_eq!(count, 10_000);
     assert_eq!(db.arrivals("other", 0, 10).unwrap()[0].name, "kept.txt");
+}
+
+#[test]
+fn delivery_make_new_path_private() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let folder = temp.0.join("new-folder");
+    assert_eq!(db.set_delivery_folder("notes", &folder), Ok(()));
+    assert_eq!(fs::metadata(folder).unwrap().mode() & 0o7777, 0o700);
+}
+#[test]
+fn delivery_make_refuses_existing_paths() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    assert_eq!(
+        db.set_delivery_folder("notes", &temp.0),
+        Err("the folder already exists; name a new one")
+    );
+}
+
+#[test]
+fn delivery_make_refuses_file_link_and_dot_components() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let file = temp.0.join("file");
+    fs::write(&file, []).unwrap();
+    let link = temp.0.join("link");
+    std::os::unix::fs::symlink(&temp.0, &link).unwrap();
+    for path in [&file, &link] {
+        assert_eq!(
+            db.set_delivery_folder("notes", path),
+            Err("the folder already exists; name a new one")
+        );
+    }
+    for path in [temp.0.join("."), temp.0.join(".."), PathBuf::from("/")] {
+        assert_eq!(
+            db.set_delivery_folder("notes", &path),
+            Err("not a folder name")
+        );
+    }
+}
+#[test]
+fn delivery_make_reregistration_refuses_a_replaced_folder() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let path = temp.0.join("folder");
+    db.set_delivery_folder("notes", &path).unwrap();
+    fs::rename(&path, temp.0.join("moved")).unwrap();
+    fs::create_dir(&path).unwrap();
+    assert_eq!(
+        db.set_delivery_folder("notes", &path),
+        Err("the folder already exists; name a new one")
+    );
+}
+
+#[test]
+fn delivery_make_trailing_slashes_share_the_same_path() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let path = temp.0.join("folder");
+    let slashed = PathBuf::from(format!("{}///", path.display()));
+    db.set_delivery_folder("notes", &slashed).unwrap();
+    let first = db.delivery_folder("notes").unwrap().unwrap();
+    assert_eq!(first.path, path);
+    assert_eq!(db.set_delivery_folder("notes", &path), Ok(()));
+    assert_eq!(db.delivery_folder("notes").unwrap(), Some(first));
+    assert_eq!(
+        db.set_delivery_folder("garden", &slashed),
+        Err("that folder is another app's")
+    );
 }
