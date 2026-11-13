@@ -200,29 +200,7 @@ impl FleetDb {
     }
 
     pub fn link_addresses(&self) -> Result<Vec<IpAddr>, &'static str> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT ip, family FROM link_addresses ORDER BY family")
-            .map_err(|_| READ)?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })
-            .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
-            .map_err(|_| READ)?;
-        rows.into_iter()
-            .map(|(text, family)| {
-                let ip = text.parse::<IpAddr>().map_err(|_| READ)?;
-                if ip.to_canonical() != ip
-                    || ip.to_string() != text
-                    || !endpoint::link_ip(&ip)
-                    || family != if ip.is_ipv4() { 4 } else { 6 }
-                {
-                    return Err(READ);
-                }
-                Ok(ip)
-            })
-            .collect()
+        read_link_addresses(&self.conn)
     }
 
     pub fn add_link_address(&mut self, ip: IpAddr) -> Result<Vec<IpAddr>, &'static str> {
@@ -255,23 +233,39 @@ impl FleetDb {
                 .map_err(|_| WRITE)?;
             }
         }
+        let addresses = read_link_addresses(&tx)?;
         tx.commit().map_err(|_| WRITE)?;
-        self.link_addresses()
+        Ok(addresses)
     }
 
     pub fn remove_link_address(&mut self, ip: IpAddr) -> Result<bool, &'static str> {
-        let canonical = ip.to_canonical();
-        let mapped = match canonical {
-            IpAddr::V4(ip) => ip.to_ipv6_mapped().to_string(),
-            IpAddr::V6(_) => canonical.to_string(),
+        let ip = ip.to_canonical();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        let rows = {
+            let mut stmt = tx
+                .prepare("SELECT ip FROM link_addresses")
+                .map_err(|_| READ)?;
+            stmt.query_map([], |row| row.get::<_, String>(0))
+                .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+                .map_err(|_| READ)?
         };
-        self.conn
-            .execute(
-                "DELETE FROM link_addresses WHERE ip IN (?1, ?2, ?3)",
-                params![ip.to_string(), canonical.to_string(), mapped],
-            )
-            .map(|rows| rows != 0)
-            .map_err(|_| WRITE)
+        let mut removed = false;
+        for text in rows {
+            if text
+                .parse::<IpAddr>()
+                .is_ok_and(|stored| stored.to_canonical() == ip)
+            {
+                removed |= tx
+                    .execute("DELETE FROM link_addresses WHERE ip = ?1", [text])
+                    .map_err(|_| WRITE)?
+                    != 0;
+            }
+        }
+        tx.commit().map_err(|_| WRITE)?;
+        Ok(removed)
     }
 
     pub fn direct_addrs(&self) -> Result<Vec<SocketAddr>, &'static str> {
@@ -1098,6 +1092,31 @@ fn select_records<T>(records: impl IntoIterator<Item = (T, usize)>) -> Vec<T> {
             true
         })
         .map(|(record, _)| record)
+        .collect()
+}
+
+fn read_link_addresses(conn: &Connection) -> Result<Vec<IpAddr>, &'static str> {
+    let mut stmt = conn
+        .prepare("SELECT ip, family FROM link_addresses ORDER BY family")
+        .map_err(|_| READ)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+        .map_err(|_| READ)?;
+    rows.into_iter()
+        .map(|(text, family)| {
+            let ip = text.parse::<IpAddr>().map_err(|_| READ)?;
+            if ip.to_canonical() != ip
+                || ip.to_string() != text
+                || !endpoint::link_ip(&ip)
+                || family != if ip.is_ipv4() { 4 } else { 6 }
+            {
+                return Err(READ);
+            }
+            Ok(ip)
+        })
         .collect()
 }
 

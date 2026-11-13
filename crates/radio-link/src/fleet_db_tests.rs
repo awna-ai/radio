@@ -2967,6 +2967,35 @@ fn own_link_addresses_remove_damaged_mapped() {
 }
 
 #[test]
+fn own_link_addresses_remove_damaged_text() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let ip = "fd00::2".parse().unwrap();
+    for text in ["FD00::2", "fd00:0:0:0:0:0:0:2"] {
+        db.conn
+            .execute("INSERT INTO link_addresses VALUES (?1, 6)", [text])
+            .unwrap();
+        assert!(db.remove_link_address(ip).unwrap(), "{text}");
+        assert!(db.link_addresses().unwrap().is_empty());
+    }
+    assert_eq!(db.add_link_address(ip).unwrap(), vec![ip]);
+}
+
+#[test]
+fn own_link_addresses_add_rolls_back_on_a_damaged_row() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    db.conn
+        .execute("INSERT INTO link_addresses VALUES ('fe80::1', 6)", [])
+        .unwrap();
+    assert_eq!(db.add_link_address("10.0.0.2".parse().unwrap()), Err(READ));
+    db.conn
+        .execute("DELETE FROM link_addresses WHERE ip = 'fe80::1'", [])
+        .unwrap();
+    assert!(db.link_addresses().unwrap().is_empty());
+}
+
+#[test]
 fn migrates_schema_three_preserving_fleet_and_computers() {
     let temp = Temp::new();
     key::private_folder(&temp.0).unwrap();
