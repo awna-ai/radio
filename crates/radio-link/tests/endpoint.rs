@@ -1,8 +1,28 @@
 use radio_link::{
     SecretKey,
+    admit::{Admission, Gate, Limits, Standing},
     endpoint::{self, ALPN},
 };
-use std::net::{SocketAddr, UdpSocket};
+use std::{
+    net::{SocketAddr, UdpSocket},
+    sync::Arc,
+};
+
+struct Empty;
+impl Admission for Empty {
+    fn standing(&self, _: &iroh::EndpointId) -> Standing {
+        Standing::Unknown
+    }
+    fn join_open(&self) -> bool {
+        false
+    }
+    fn fleet(&self) -> Option<String> {
+        None
+    }
+}
+fn gate() -> Arc<Gate> {
+    Arc::new(Gate::new(Arc::new(Empty), Limits::default()))
+}
 
 #[tokio::test(flavor = "current_thread")]
 async fn refuses_unconfigured_and_nonlocal_addresses() {
@@ -25,7 +45,7 @@ async fn refuses_unconfigured_and_nonlocal_addresses() {
         ],
         vec!["127.0.0.1:0".parse().unwrap(), "0.0.0.0:0".parse().unwrap()],
     ] {
-        let result = endpoint::bind(SecretKey::generate(), &addrs).await;
+        let result = endpoint::bind(SecretKey::generate(), &addrs, gate()).await;
         let error = match result {
             Ok(endpoint) => {
                 endpoint.close().await;
@@ -49,7 +69,7 @@ async fn binds_only_configured_ipv4_without_relays_or_lookup() {
     assert_eq!(ALPN, b"radio/1");
     let key = SecretKey::generate();
     let id = key.public();
-    let endpoint = endpoint::bind(key, &["127.0.0.1:0".parse().unwrap()])
+    let endpoint = endpoint::bind(key, &["127.0.0.1:0".parse().unwrap()], gate())
         .await
         .unwrap();
     assert_eq!(endpoint.id(), id);
@@ -68,9 +88,13 @@ async fn binds_only_configured_ipv4_without_relays_or_lookup() {
 async fn refuses_an_occupied_port() {
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     assert_eq!(
-        endpoint::bind(SecretKey::generate(), &[socket.local_addr().unwrap()])
-            .await
-            .err(),
+        endpoint::bind(
+            SecretKey::generate(),
+            &[socket.local_addr().unwrap()],
+            gate()
+        )
+        .await
+        .err(),
         Some("the link port could not be bound")
     );
 }
@@ -79,7 +103,7 @@ async fn keeps_the_configured_fixed_port() {
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     let addr: SocketAddr = socket.local_addr().unwrap();
     drop(socket);
-    let endpoint = endpoint::bind(SecretKey::generate(), &[addr])
+    let endpoint = endpoint::bind(SecretKey::generate(), &[addr], gate())
         .await
         .unwrap();
     assert!(endpoint.bound_sockets().contains(&addr));
@@ -99,7 +123,9 @@ async fn binds_both_families_on_one_fixed_port() {
         SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)),
         SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port)),
     ];
-    let endpoint = endpoint::bind(SecretKey::generate(), &addrs).await.unwrap();
+    let endpoint = endpoint::bind(SecretKey::generate(), &addrs, gate())
+        .await
+        .unwrap();
     let mut sockets = endpoint.bound_sockets();
     addrs.sort();
     sockets.sort();

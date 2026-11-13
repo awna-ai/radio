@@ -398,7 +398,8 @@ Radio guards against and what it doesn't.
 
 ### Across computers (coming)
 
-None of this is built yet. When it is, an app can count on this:
+So far only the `id` op is built (this computer's link id); the rest is being built. When it is, an
+app can count on this:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.

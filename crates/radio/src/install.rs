@@ -1,5 +1,6 @@
 //! The per-user install handshake, with launchd and socket probes supplied by the caller.
 use crate::log::{Field, append};
+use radio_link::wire::app_name;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -397,15 +398,6 @@ struct ClientRecord {
     majors: Vec<u32>,
     handler: String,
     at: u64,
-}
-
-fn app_name(app: &str) -> bool {
-    !app.is_empty()
-        && app.len() <= 64
-        && (app.as_bytes()[0].is_ascii_lowercase() || app.as_bytes()[0].is_ascii_digit())
-        && app.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
-        })
 }
 
 fn app_version(version: &str) -> bool {

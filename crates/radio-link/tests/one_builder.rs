@@ -10,14 +10,14 @@ fn contains_forbidden(source: &str, forbidden: &str) -> bool {
     })
 }
 
-fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path) {
+fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path, hostile: &Path) {
     for entry in fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.file_name().unwrap() == "target" {
             continue;
         }
         if path.is_dir() {
-            scan(&path, builder, own, manifest);
+            scan(&path, builder, own, manifest, hostile);
         } else if path.file_name().unwrap() == "Cargo.toml" && path != manifest {
             let source = fs::read_to_string(&path).unwrap();
             assert!(
@@ -25,7 +25,8 @@ fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path) {
                 "{}: transport dependency outside its crate",
                 path.display()
             );
-        } else if path.extension().is_some_and(|ext| ext == "rs") && path != own {
+        } else if path.extension().is_some_and(|ext| ext == "rs") && path != own && path != hostile
+        {
             let source = fs::read_to_string(&path).unwrap();
             assert!(
                 !source.contains(concat!("into_", "0rtt")),
@@ -44,6 +45,9 @@ fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path) {
                     concat!("RelayMode::", "Disabled"),
                     concat!("PortmapperConfig::", "Disabled"),
                     concat!(".clear_ip_", "transports()"),
+                    ".hooks(",
+                    "max_concurrent_uni_streams(0",
+                    "JOIN_ALPN",
                 ] {
                     assert!(
                         source.contains(required),
@@ -97,10 +101,17 @@ fn only_one_endpoint_builder_and_no_early_data() {
         "{}: transport dependency outside its crate",
         manifest.display()
     );
+    let hostile = crates.join("radio-link/tests/hostile.rs");
+    assert!(hostile.is_file());
+    assert_eq!(
+        hostile.parent(),
+        Some(crates.join("radio-link/tests").as_path())
+    );
     scan(
         crates,
         &crates.join("radio-link/src/endpoint.rs"),
         &crates.join("radio-link/tests/one_builder.rs"),
         &crates.join("radio-link/Cargo.toml"),
+        &hostile,
     );
 }

@@ -21,8 +21,9 @@ saying why. The lines are for people: they are not part of the contract and may 
 
 ## 2026-11-12: D16. Every op is also a command, and the socket stays the contract
 
-Each op of protocol minor 0 is a `radio` subcommand (`hello`, `register`, `room create`, `rooms`,
-`post`, `read`, and `line list|set|clear` for status lines, since `status` is the install status), so
+Each op is a `radio` subcommand (minor 0's `hello`, `register`, `room create`, `rooms`, `post`, `read`,
+and `line list|set|clear` for status lines, since `status` is the install status; then `id`, and each
+later op with the minor that adds it), so
 a shell script or an app in any language can use Radio by running the binary it bundles. A command
 sends exactly its op's request through `radio-client` and prints the answer line as it arrived. It
 adds no op, field or answer phrase, so it can't drift from `CONTRACT.md`: what it checks itself is
