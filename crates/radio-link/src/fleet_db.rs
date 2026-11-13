@@ -202,17 +202,25 @@ impl FleetDb {
     pub fn link_addresses(&self) -> Result<Vec<IpAddr>, &'static str> {
         let mut stmt = self
             .conn
-            .prepare("SELECT ip FROM link_addresses ORDER BY family")
+            .prepare("SELECT ip, family FROM link_addresses ORDER BY family")
             .map_err(|_| READ)?;
         let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
             .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
             .map_err(|_| READ)?;
         rows.into_iter()
-            .map(|ip| {
-                ip.parse::<IpAddr>()
-                    .map(|ip| ip.to_canonical())
-                    .map_err(|_| READ)
+            .map(|(text, family)| {
+                let ip = text.parse::<IpAddr>().map_err(|_| READ)?;
+                if ip.to_canonical() != ip
+                    || ip.to_string() != text
+                    || !endpoint::link_ip(&ip)
+                    || family != if ip.is_ipv4() { 4 } else { 6 }
+                {
+                    return Err(READ);
+                }
+                Ok(ip)
             })
             .collect()
     }
@@ -252,12 +260,16 @@ impl FleetDb {
     }
 
     pub fn remove_link_address(&mut self, ip: IpAddr) -> Result<bool, &'static str> {
-        let ip = ip.to_canonical();
-        if !endpoint::link_ip(&ip) {
-            return Ok(false);
-        }
+        let canonical = ip.to_canonical();
+        let mapped = match canonical {
+            IpAddr::V4(ip) => ip.to_ipv6_mapped().to_string(),
+            IpAddr::V6(_) => canonical.to_string(),
+        };
         self.conn
-            .execute("DELETE FROM link_addresses WHERE ip = ?1", [ip.to_string()])
+            .execute(
+                "DELETE FROM link_addresses WHERE ip IN (?1, ?2, ?3)",
+                params![ip.to_string(), canonical.to_string(), mapped],
+            )
             .map(|rows| rows != 0)
             .map_err(|_| WRITE)
     }

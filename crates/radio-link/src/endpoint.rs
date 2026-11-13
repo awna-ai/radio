@@ -88,6 +88,8 @@ mod tests {
             "100.64.0.7",
             "::1",
             "fd00::2",
+            "fec0::1",
+            "fe7f::1",
             "::ffff:10.0.0.2",
         ] {
             assert!(link_ip(&address.parse().unwrap()), "{address}");

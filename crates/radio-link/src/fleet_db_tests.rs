@@ -501,6 +501,16 @@ fn migrates_version_one_with_and_without_fleet() {
                 .unwrap(),
             i64::from(populated)
         );
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                    ["link_addresses"],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1
+        );
         if populated {
             assert_eq!(db.fleet().unwrap(), Some(record));
             assert!(db.join_open(10.0).unwrap());
@@ -2575,6 +2585,16 @@ fn migrates_schema_two_preserving_rows() {
             .unwrap(),
         7
     );
+    assert_eq!(
+        db.conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                ["link_addresses"],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
     assert!(db.computer_records().unwrap().is_empty());
 }
 
@@ -2886,6 +2906,64 @@ fn own_link_addresses_report_damaged_rows() {
         .unwrap();
     assert_eq!(db.link_addresses(), Err(READ));
     assert_eq!(db.direct_addrs(), Err(READ));
+}
+
+fn damaged_link_address(address: &str, family: i64) {
+    let temp = Temp::new();
+    let db = temp.open();
+    db.conn
+        .execute(
+            "INSERT INTO link_addresses VALUES (?1, ?2)",
+            params![address, family],
+        )
+        .unwrap();
+    assert_eq!(db.link_addresses(), Err(READ));
+    assert_eq!(db.direct_addrs(), Err(READ));
+}
+
+#[test]
+fn own_link_addresses_report_damaged_scope() {
+    damaged_link_address("fe80::1", 6);
+}
+
+#[test]
+fn own_link_addresses_report_damaged_family() {
+    damaged_link_address("10.0.0.2", 6);
+}
+
+#[test]
+fn own_link_addresses_report_damaged_mapped() {
+    damaged_link_address("::ffff:10.0.0.2", 6);
+}
+
+#[test]
+fn own_link_addresses_report_damaged_text() {
+    damaged_link_address("FD00::2", 6);
+}
+
+#[test]
+fn own_link_addresses_remove_damaged_scope() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    db.conn
+        .execute("INSERT INTO link_addresses VALUES ('fe80::1', 6)", [])
+        .unwrap();
+    assert!(db.remove_link_address("fe80::1".parse().unwrap()).unwrap());
+    assert!(db.link_addresses().unwrap().is_empty());
+}
+
+#[test]
+fn own_link_addresses_remove_damaged_mapped() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    db.conn
+        .execute(
+            "INSERT INTO link_addresses VALUES ('::ffff:10.0.0.2', 6)",
+            [],
+        )
+        .unwrap();
+    assert!(db.remove_link_address("10.0.0.2".parse().unwrap()).unwrap());
+    assert!(db.link_addresses().unwrap().is_empty());
 }
 
 #[test]

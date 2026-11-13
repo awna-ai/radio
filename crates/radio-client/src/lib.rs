@@ -192,7 +192,7 @@ pub struct Response {
     /// The message sequence number within its room, including logged status changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seq: Option<u64>,
-    /// Whether a status line was removed.
+    /// Whether a status line, join code or link address was there and is now gone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed: Option<bool>,
     /// The rooms in identifier order.

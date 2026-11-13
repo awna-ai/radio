@@ -1956,7 +1956,7 @@ fn link_addresses_work_without_a_fleet_and_codes_carry_them() {
         .bind()
         .with_link_dir(fixture.0.join("link"))
         .with_fleet_db(fixture.0.join("fleet.db"));
-    let worker = start(server, 13);
+    let worker = start(server, 16);
     let send = |op| request(&fixture.socket(), &op).unwrap();
     let list = send(Request::LinkAddressList {});
     assert!(list.ok);
@@ -2035,6 +2035,25 @@ fn link_addresses_work_without_a_fleet_and_codes_carry_them() {
             Some("not a link address")
         );
     }
+    assert!(
+        send(Request::LinkAddressAdd {
+            address: "fd00::2".into(),
+        })
+        .ok
+    );
+    assert_eq!(
+        send(Request::LinkAddressAdd {
+            address: "fd00::3".into(),
+        })
+        .error
+        .as_deref(),
+        Some(radio_link::fleet_db::FAMILY_TAKEN)
+    );
+    let response = send(Request::LinkAddressRemove {
+        address: "0.0.0.0".into(),
+    });
+    assert!(response.ok);
+    assert_eq!(response.removed, Some(false));
     worker.join().unwrap();
 }
 

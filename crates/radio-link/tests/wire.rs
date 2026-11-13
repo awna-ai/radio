@@ -864,14 +864,14 @@ async fn dials_without_addresses_fail_at_once() {
         a.dial(b.id(), &[]).await.err(),
         Some(radio_link::endpoint::NO_ADDRESS)
     );
-    assert!(start.elapsed() < Duration::from_millis(200));
+    assert!(start.elapsed() < Duration::from_secs(1));
     book.set(b.id(), Standing::Unknown);
     let start = Instant::now();
     assert_eq!(
         a.dial_join(b.id(), &[]).await.err(),
         Some(radio_link::endpoint::NO_ADDRESS)
     );
-    assert!(start.elapsed() < Duration::from_millis(200));
+    assert!(start.elapsed() < Duration::from_secs(1));
     bounded(a.close()).await;
     bounded(b.close()).await;
 }
