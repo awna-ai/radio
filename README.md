@@ -42,8 +42,8 @@ block or trust one. Each computer also signs a short card about itself, which yo
 their own details to, and only that computer can change it. You can also tell a computer the
 address your other computers reach it at (on a VPN, its VPN address), and the codes it makes carry
 that address. Once it has one, Radio listens there for your other computers, and a computer can join,
-remove another or leave over that network. Sending your apps' files between them comes next. The rest
-is how it's meant to work.
+remove another or leave over that network. Your apps can also send files to each other across it,
+up to 64 MiB each, while the other computer is on. The rest is how it's meant to work.
 
 - **You pair a computer once.** One of your computers makes a one-time code, and the new computer
   uses it to join. Your other computers then accept it, on their own or after asking you.
@@ -292,6 +292,20 @@ reached this computer. Sections are not secret: every computer in the
 fleet holds them. While Radio listens, a re-signed record also goes to each accepted computer, after
 `resign` has answered; one that can't be reached gets it the next time this computer signs.
 
+Your app can send a file to itself on another computer of the fleet. On the receiving computer, your
+app first names the folder its files land in with **`delivery_folder_set`** (an absolute path to a
+folder of this user's that no one else can write; **`delivery_folder_clear`** stops taking files).
+On the sending computer, **`send`** takes the other computer's name or id, the absolute path of a
+regular file up to 64 MiB, and the name it should land as (no slash, not starting with a dot), and
+answers with `size` once the file is written there. The other computer must be on and reachable now:
+Radio keeps nothing to resend, so on `the computer could not be reached` your app tries again later.
+The file lands under its name with mode 0600, never over a file already there (`a file with that
+name is already there`) and never through a link; a computer whose app set no folder answers `that
+app takes no files on that computer`. **`deliveries`** lists what arrived for your app (which
+computer sent it, the name, the size and when), oldest first, in pages after an `id`. Like `join`, a
+`send` holds Radio until it finishes (up to about 2 minutes for a large file on a slow network), so
+`radio-client` waits up to 135 seconds for it.
+
 ### Using Radio from the command line
 
 Every op is also a `radio` command, so a shell script, a quick test or an app in any language can
@@ -327,6 +341,10 @@ the socket stays the contract.
 | `radio link address add <address>` (an IP address, no port) | `link_address_add` |
 | `radio link address list` | `link_address_list` |
 | `radio link address remove <address>` | `link_address_remove` |
+| `radio send <computer> <file> --app <app> [--name <name>]` (the name defaults to the file's own) | `send` |
+| `radio delivery folder set <folder> --app <app>` | `delivery_folder_set` |
+| `radio delivery folder clear --app <app>` | `delivery_folder_clear` |
+| `radio deliveries --app <app> [--after <id>] [--limit <n>]` | `deliveries` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
 the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
@@ -466,8 +484,8 @@ Radio guards against and what it doesn't.
 So far the `id` op (this computer's link id), the fleet and the join codes (`fleet_init`, `code_*`),
 this computer's list of the others (`computer_*`), each computer's signed record (`resign`,
 `computer_records`), this computer's own link addresses (`link_address_*`, carried in every join
-code it makes) and joining, removing and leaving over them (`join`, `computer_remove`, `leave`) are
-built; the rest is being built. When it is, an app can count on this:
+code it makes), joining, removing and leaving over them (`join`, `computer_remove`, `leave`) and
+sending files (`send`, `delivery_folder_*`, `deliveries`) are built; the rest is being built. When it is, an app can count on this:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.
@@ -475,8 +493,8 @@ built; the rest is being built. When it is, an app can count on this:
   computer that was let in, be fresh, not replay one already seen, and fit within the size caps.
   Anything else is refused there.
 - **Files first.** The first link carries files: your app asks its Radio to send a file to your app
-  on another of the person's computers. The receiving Radio writes it only into a folder it made for
-  your app when your app asked for one, and says which computer sent it. If the other computer can't
+  on another of the person's computers. The receiving Radio writes it only into the folder your app
+  set there, and says which computer sent it. If the other computer can't
   be reached, the send fails within a few seconds and Radio keeps nothing, so your app tries again later.
 - **Then your app's own messages go through Radio.** Your app asks its Radio to send a message to your
   app on another computer. Radio carries it without reading it, and on the other side hands it,

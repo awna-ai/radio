@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 6
+      "minor": 7
     },
     "majors": [
       1
@@ -39,7 +39,11 @@
       "link_address_remove",
       "join",
       "computer_remove",
-      "leave"
+      "leave",
+      "send",
+      "delivery_folder_set",
+      "delivery_folder_clear",
+      "deliveries"
     ]
   },
   "exact": false

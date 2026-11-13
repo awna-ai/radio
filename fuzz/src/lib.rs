@@ -46,6 +46,9 @@ pub fn frame(data: &[u8]) -> u32 {
         let mut checked = 0;
         if let Some(request) = decode!(Request, framing::CONTROL_CAP) {
             checked += u32::from(match request {
+                Request::File { name, size, .. } => {
+                    radio_link::wire::file_name(&name) && size <= radio_link::wire::FILE_CAP
+                }
                 Request::Computer { record } => record.verify().is_ok(),
                 Request::Record { record } => record.verify().is_ok(),
                 Request::Hello { .. } | Request::App { .. } => true,
