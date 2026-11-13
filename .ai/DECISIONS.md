@@ -2,6 +2,23 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-13: D21. The link's decoders are tried with generated inputs on every land, and fuzzed outside it
+
+The frame decoder, the three record checks and the join-code parser take bytes from other
+computers or from what a person pastes, so the gate also tries them with inputs no one chose:
+random and mutated frames in random chunkings, records with one field changed or one rule broken,
+mutated record JSON and mutated codes (`crates/radio-link/tests/properties.rs`). Each property runs
+256 cases from a fixed seed, so the gate stays repeatable and a failure names the seed and case
+that replay it; `RADIO_PROPERTY_SEED` and `RADIO_PROPERTY_CASES` run other or more cases. The
+generator is a few lines of the test itself, not a property-testing library, so the crates take no
+new dependency for it.
+
+The same code is fuzzed by `cargo-fuzz` targets in `fuzz/`, a workspace of its own with its own
+lockfile, never built into a release. Fuzzing needs a nightly toolchain and time, so it runs
+outside the gate; the gate checks that the targets build, lint and pass their own tests on stable,
+and that their lockfile holds every package the workspace's also holds at the same version and
+checksum, so the fuzzers try the code that ships.
+
 ## 2026-11-13: D20. Each computer signs its own record, and apps' sections ride in it unread
 
 Each computer in a fleet keeps one record about itself: its name, its link id, its roles (at most 8

@@ -134,6 +134,20 @@ publishes the draft. A draft that fails any of these stays a draft, and the scri
 ## Running the checks
 
 `bash scripts/ci-local.sh` runs everything: shellcheck, the term check's own test, the term check,
-gitleaks, `cargo fmt`, `cargo clippy` and `cargo test`. It needs stable Rust (edition 2024); shellcheck
-and gitleaks are skipped when missing. `RADIO_STRICT=1` makes every tool and the term list required,
-and is how the maintainers run it before a land.
+gitleaks, `cargo fmt`, `cargo clippy` and `cargo test`, for the workspace and for `fuzz/`. It needs
+stable Rust (edition 2024); shellcheck and gitleaks are skipped when missing. `RADIO_STRICT=1` makes
+every tool and the term list required, and is how the maintainers run it before a land.
+
+The link's property tests (`crates/radio-link/tests/properties.rs`, D21) run 256 cases each from a
+fixed seed. `RADIO_PROPERTY_CASES=100000 cargo test --locked -p radio-link --test properties` runs
+more, and `RADIO_PROPERTY_SEED=<n>` replays the seed a failure names.
+
+The fuzz targets in `fuzz/` (`frame`, `records`, `join_code`) are never fuzzed by the gate. Fuzzing
+needs a nightly toolchain and `cargo-fuzz`; from the repo root:
+
+```sh
+cargo +nightly fuzz run frame -- -dict=fuzz/link.dict -max_total_time=600
+```
+
+A crash is saved under `fuzz/artifacts/<target>/`; `cargo +nightly fuzz run <target> <that file>`
+replays it.
