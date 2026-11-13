@@ -271,6 +271,17 @@ impl Server {
         }
     }
 
+    fn retry_link(&mut self) -> Result<(), String> {
+        let has_addrs = self
+            .fleet_db()?
+            .direct_addrs()
+            .is_ok_and(|addrs| !addrs.is_empty());
+        if has_addrs {
+            let _ = self.start_link();
+        }
+        Ok(())
+    }
+
     fn restart_link(&mut self) {
         self.link.take();
         let _ = self.start_link();
@@ -410,13 +421,7 @@ impl Server {
                 response.recovery_file = Some(file.to_string_lossy().into_owned());
             }
             Request::CodeCreate { name, ttl } => {
-                let has_addrs = self
-                    .fleet_db()?
-                    .direct_addrs()
-                    .is_ok_and(|addrs| !addrs.is_empty());
-                if has_addrs {
-                    let _ = self.start_link();
-                }
+                self.retry_link()?;
                 let dir = self.link_dir.as_deref().unwrap();
                 let node = radio_link::key::load_or_create(dir)?;
                 let hints = radio_link::code::Hints {
@@ -470,13 +475,7 @@ impl Server {
                 section,
                 roles,
             } => {
-                let has_addrs = self
-                    .fleet_db()?
-                    .direct_addrs()
-                    .is_ok_and(|addrs| !addrs.is_empty());
-                if has_addrs {
-                    let _ = self.start_link();
-                }
+                self.retry_link()?;
                 if !self.store.registered(&app)? {
                     return Err("the app is not registered".into());
                 }
@@ -512,13 +511,7 @@ impl Server {
                 )?);
             }
             Request::LinkAddressAdd { address } => {
-                let has_addrs = self
-                    .fleet_db()?
-                    .direct_addrs()
-                    .is_ok_and(|addrs| !addrs.is_empty());
-                if has_addrs {
-                    let _ = self.start_link();
-                }
+                self.retry_link()?;
                 let changed;
                 {
                     let mut db = self.fleet_db()?;
@@ -536,13 +529,7 @@ impl Server {
                 }
             }
             Request::LinkAddressList {} => {
-                let has_addrs = self
-                    .fleet_db()?
-                    .direct_addrs()
-                    .is_ok_and(|addrs| !addrs.is_empty());
-                if has_addrs {
-                    let _ = self.start_link();
-                }
+                self.retry_link()?;
                 response.addresses = Some(
                     self.fleet_db()?
                         .link_addresses()?
@@ -553,13 +540,7 @@ impl Server {
                 response.port = Some(radio_link::endpoint::PORT);
             }
             Request::LinkAddressRemove { address } => {
-                let has_addrs = self
-                    .fleet_db()?
-                    .direct_addrs()
-                    .is_ok_and(|addrs| !addrs.is_empty());
-                if has_addrs {
-                    let _ = self.start_link();
-                }
+                self.retry_link()?;
                 {
                     let mut db = self.fleet_db()?;
                     let ip = address

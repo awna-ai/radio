@@ -254,6 +254,7 @@ fn operations_finish_after_the_endpoint_closes() {
             .build()
             .unwrap();
         runtime.block_on(bounded(b.node.link().close()));
+        wait(|| !b.node.running());
         for _ in 0..10 {
             let results = (
                 b.node.join(code.clone(), now()),
@@ -266,11 +267,29 @@ fn operations_finish_after_the_endpoint_closes() {
     });
     for _ in 0..10 {
         let (join, remove, leave) = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-        assert_eq!(join, Err("the join code has no address to dial"));
+        assert_eq!(join, Err("the link stopped"));
         assert!(remove.is_err());
         assert!(leave.is_err());
     }
     worker.join().unwrap();
+}
+
+#[test]
+fn a_closed_endpoint_reads_as_stopped() {
+    let a = Computer::new("garden");
+    a.found();
+    let code = a.code();
+    let b = Computer::new("birch");
+    assert!(b.node.running());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(bounded(b.node.link().close()));
+    wait(|| !b.node.running());
+    let start = Instant::now();
+    assert_eq!(b.node.join(code, now()), Err("the link stopped"));
+    assert!(start.elapsed() < Duration::from_secs(1));
 }
 
 #[test]
@@ -321,4 +340,42 @@ fn two_quick_publishes_leave_the_newest_record() {
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+#[test]
+fn quick_publishes_share_one_publisher() {
+    let (a, b) = joined();
+    let records: Vec<_> = (0..20)
+        .map(|index| {
+            b.db.lock()
+                .unwrap()
+                .resign(
+                    &b.key,
+                    "birch",
+                    &b.node.addrs(),
+                    "lantern",
+                    Some(["ready", "finished"][index % 2]),
+                    None,
+                    now(),
+                )
+                .unwrap()
+        })
+        .collect();
+    assert!(
+        records
+            .windows(2)
+            .all(|pair| pair[0].body.version < pair[1].body.version)
+    );
+    let latest = records.last().unwrap().clone();
+    for record in records {
+        b.node.publish(record);
+    }
+    wait(|| {
+        a.db.lock()
+            .unwrap()
+            .computer_records()
+            .unwrap()
+            .contains(&latest)
+    });
+    assert!((1..=3).contains(&b.node.published()));
 }

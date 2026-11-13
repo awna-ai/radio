@@ -11,6 +11,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{Receiver, RecvTimeoutError, sync_channel},
     },
     thread::JoinHandle,
@@ -31,6 +32,8 @@ pub struct Node {
     key: SecretKey,
     db: Arc<Mutex<FleetDb>>,
     publish: watch::Sender<Option<ComputerRecord>>,
+    published: Arc<AtomicU64>,
+    ended: Arc<AtomicBool>,
     stop: Option<oneshot::Sender<()>>,
     driver: Option<JoinHandle<()>>,
 }
@@ -58,10 +61,22 @@ impl Node {
         ))?);
         let (stop, stopped) = oneshot::channel();
         let (publish, records) = watch::channel::<Option<ComputerRecord>>(None);
+        let ended = Arc::new(AtomicBool::new(false));
+        let published = Arc::new(AtomicU64::new(0));
+        let (driver_ended, driver_published) = (ended.clone(), published.clone());
         let (driver_runtime, driver_link, driver_key, driver_db) =
             (runtime.clone(), link.clone(), key.clone(), db.clone());
         let driver = std::thread::spawn(move || {
-            driver_runtime.block_on(drive(driver_link, driver_key, driver_db, stopped, records));
+            driver_runtime.block_on(drive(
+                driver_link,
+                driver_key,
+                driver_db,
+                stopped,
+                records,
+                driver_ended.clone(),
+                driver_published,
+            ));
+            driver_ended.store(true, Ordering::Release);
         });
         Ok(Self {
             runtime,
@@ -69,15 +84,19 @@ impl Node {
             key,
             db,
             publish,
+            published,
+            ended,
             stop: Some(stop),
             driver: Some(driver),
         })
     }
 
     pub fn running(&self) -> bool {
-        self.driver
-            .as_ref()
-            .is_some_and(|driver| !driver.is_finished())
+        !self.ended.load(Ordering::Acquire)
+            && self
+                .driver
+                .as_ref()
+                .is_some_and(|driver| !driver.is_finished())
     }
 
     pub fn id(&self) -> EndpointId {
@@ -94,11 +113,7 @@ impl Node {
     }
 
     pub fn join(&self, code: JoinCode, now: f64) -> Result<(), &'static str> {
-        if self
-            .driver
-            .as_ref()
-            .is_some_and(|driver| driver.is_finished())
-        {
+        if !self.running() {
             return Err("the link stopped");
         }
         let (link, key, db) = (self.link.clone(), self.key.clone(), self.db.clone());
@@ -111,11 +126,7 @@ impl Node {
     }
 
     pub fn remove(&self, target: &str, now: f64) -> Result<usize, &'static str> {
-        if self
-            .driver
-            .as_ref()
-            .is_some_and(|driver| driver.is_finished())
-        {
+        if !self.running() {
             return Err("the link stopped");
         }
         let (link, key, db) = (self.link.clone(), self.key.clone(), self.db.clone());
@@ -129,11 +140,7 @@ impl Node {
     }
 
     pub fn leave(&self, now: f64) -> Result<usize, &'static str> {
-        if self
-            .driver
-            .as_ref()
-            .is_some_and(|driver| driver.is_finished())
-        {
+        if !self.running() {
             return Err("the link stopped");
         }
         let (link, key, db) = (self.link.clone(), self.key.clone(), self.db.clone());
@@ -147,6 +154,11 @@ impl Node {
 
     pub fn block(&self, target: &str) -> Result<Computer, &'static str> {
         join::block(&self.link, &self.db, target)
+    }
+
+    #[doc(hidden)]
+    pub fn published(&self) -> u64 {
+        self.published.load(Ordering::Relaxed)
     }
 
     pub fn publish(&self, record: ComputerRecord) {
@@ -171,6 +183,8 @@ async fn drive(
     db: Arc<Mutex<FleetDb>>,
     mut stop: oneshot::Receiver<()>,
     mut records: watch::Receiver<Option<ComputerRecord>>,
+    ended: Arc<AtomicBool>,
+    published: Arc<AtomicU64>,
 ) {
     let (sender, mut events) = mpsc::channel(64);
     let server = link.serve(sender);
@@ -180,6 +194,7 @@ async fn drive(
         while records.changed().await.is_ok() {
             let record = records.borrow_and_update().clone();
             if let Some(record) = record {
+                published.fetch_add(1, Ordering::Relaxed);
                 join::publish(&publisher_link, &publisher_db, &record).await;
             }
         }
@@ -208,6 +223,7 @@ async fn drive(
             _ = joins.join_next(), if !joins.is_empty() => {},
         }
     };
+    ended.store(true, Ordering::Release);
     if !stopped {
         let _ = (&mut stop).await;
     }
