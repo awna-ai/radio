@@ -16,8 +16,9 @@ joins, applies the records other computers send, and closes a blocked or removed
 library's functions do, and the socket answers no other client meanwhile: up to 10 seconds for a
 join, and up to 10 seconds per computer that can't be reached for a removal or a leave, capped at
 110 seconds, after which the op says the others are still being told and finishes in the
-background, unless the daemon stops or a link address changes first. They are a person's rare steps, so `radio-client` waits up to 2 minutes for them rather
-than the library growing a second, queued path. A re-signed record is different: an app re-signs
+background, unless the daemon stops or a link address changes first. They are a person's rare
+steps, so `radio-client` waits up to 2 minutes for them rather than the library growing a second,
+queued path. A re-signed record is different: an app re-signs
 often, so `resign` answers once the record is stored, and one sender passes on only the newest
 record afterwards. A link that fails to start (an address not on any interface yet) is tried again
 by the next op that uses the link or its addresses. The join code reaches
