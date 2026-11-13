@@ -141,8 +141,8 @@ move to a newer tag when you choose.
 
 A tag that has a release on GitHub also carries the binary ready-built, so you don't need Rust:
 `radio-<tag>-macos-arm64.tar.gz` (Apple silicon), `radio-<tag>-macos-x86_64.tar.gz` (Intel) and
-`SHA256SUMS`. None is published yet; until one is, build it as above. Fetch with `curl` (or `gh
-release download`), check, and unpack:
+`SHA256SUMS`; `v0.1.0` is the first. Fetch with `curl` (or `gh release download`), check, and
+unpack:
 
 ```sh
 shasum -a 256 -c SHA256SUMS --ignore-missing
