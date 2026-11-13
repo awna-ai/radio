@@ -34,7 +34,7 @@ fn counts_messages_and_bytes() {
 #[path = "sim/push.rs"]
 mod push;
 use push::Push;
-use std::{cell::RefCell, rc::Rc, time::Instant};
+use std::{cell::RefCell, collections::HashSet, rc::Rc, time::Instant};
 
 fn changes() -> Vec<(Millis, Kind)> {
     vec![
@@ -524,6 +524,39 @@ fn change_window_can_end_just_before_duration() {
     assert_eq!(
         (spread.targets, spread.reached, spread.after_99),
         (2, 2, Some(10))
+    );
+}
+
+#[test]
+fn removal_subject_is_either_of_two_awake_members() {
+    let mut subjects = HashSet::new();
+    for seed in 0..64 {
+        let mut scenario = Scenario::new(seed, 2);
+        scenario.asleep = 0.0;
+        scenario.sleep_mean = u64::MAX / 4;
+        scenario.duration = 10_000;
+        scenario.measure_from = 0;
+        scenario.window = 1_000;
+        scenario.changes = vec![(1_000, Kind::Remove)];
+        let (report, _) = run(&scenario, |_, _, _| One).unwrap();
+        assert_eq!(report.spreads.len(), 1);
+        let spread = &report.spreads[0];
+        assert_eq!(spread.at, 1_000);
+        assert_eq!(spread.change.kind, Kind::Remove);
+        assert_ne!(spread.change.origin, spread.change.subject);
+        assert_eq!(
+            report.traffic[spread.change.subject as usize].online,
+            spread.at
+        );
+        assert_eq!(
+            report.traffic[spread.change.origin as usize].online,
+            scenario.duration
+        );
+        subjects.insert(spread.change.subject);
+    }
+    assert!(
+        subjects.contains(&0) && subjects.contains(&1),
+        "a removal with two awake members must be able to remove either, subjects {subjects:?}"
     );
 }
 
