@@ -7,11 +7,19 @@ use std::{
     time::Duration,
 };
 
-const NO_ANSWER: &str = "the Radio did not answer";
+/// The phrase for an unanswered or unreadable response.
+pub const NO_ANSWER: &str = "the Radio did not answer";
+/// The phrase for a missing or stopped daemon.
+pub const NOT_RUNNING: &str = "the Radio is not running";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Sends one versioned request and reads its answer; transport failures return fixed error phrases.
 pub fn request(socket: &Path, request: &Request) -> Result<Response, String> {
+    request_line(socket, request).map(|(response, _)| response)
+}
+
+/// Sends one request and returns its parsed answer and original line without the newline.
+pub fn request_line(socket: &Path, request: &Request) -> Result<(Response, String), String> {
     let mut value = serde_json::to_value(request).map_err(|_| NO_ANSWER)?;
     value
         .as_object_mut()
@@ -19,14 +27,17 @@ pub fn request(socket: &Path, request: &Request) -> Result<Response, String> {
         .insert("v".into(), PROTOCOL_MAJOR.into());
     let stream = UnixStream::connect(socket).map_err(|error| match error.kind() {
         std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
-            "the Radio is not running".to_owned()
+            NOT_RUNNING.to_owned()
         }
         _ => NO_ANSWER.to_owned(),
     })?;
     exchange(stream, &value)
 }
 
-fn exchange(mut stream: UnixStream, value: &serde_json::Value) -> Result<Response, String> {
+fn exchange(
+    mut stream: UnixStream,
+    value: &serde_json::Value,
+) -> Result<(Response, String), String> {
     timeout_set(stream.set_read_timeout(Some(TIMEOUT)))?;
     timeout_set(stream.set_write_timeout(Some(TIMEOUT)))?;
     // A refused caller may receive an answer before the peer reads anything.
@@ -46,7 +57,10 @@ fn exchange(mut stream: UnixStream, value: &serde_json::Value) -> Result<Respons
     if line.len() > RESPONSE_MAX_BYTES || !line.ends_with(b"\n") {
         return Err(NO_ANSWER.into());
     }
-    serde_json::from_slice(&line).map_err(|_| NO_ANSWER.into())
+    line.pop();
+    let line = String::from_utf8(line).map_err(|_| NO_ANSWER)?;
+    let response = serde_json::from_str(&line).map_err(|_| NO_ANSWER)?;
+    Ok((response, line))
 }
 
 // macOS refuses socket options once both directions are shut (EINVAL): the Radio has answered and closed, so

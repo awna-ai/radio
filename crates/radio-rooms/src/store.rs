@@ -6,6 +6,8 @@ use std::{
     time::Duration,
 };
 
+/// The phrase for an empty or over-long body.
+pub const MESSAGE_INVALID: &str = "the message is empty or too long";
 /// The maximum message body size, in bytes.
 pub const BODY_MAX_BYTES: usize = 4096;
 /// The maximum status line length, in characters.
@@ -625,7 +627,7 @@ fn clean_message(
     let now = finite(now)?;
     let body = crate::text::clean(body, usize::MAX);
     if body.is_empty() || body.len() > BODY_MAX_BYTES {
-        return Err("the message is empty or too long".into());
+        return Err(MESSAGE_INVALID.into());
     }
     Ok((author_host, author, body, now))
 }

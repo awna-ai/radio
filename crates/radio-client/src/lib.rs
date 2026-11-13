@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 mod transport;
-/// Sends one request over the local socket and reads its answer.
-pub use transport::request;
+pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;

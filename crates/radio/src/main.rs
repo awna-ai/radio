@@ -4,11 +4,12 @@ use radio::install::{
 };
 use std::{
     env,
+    io::{self, Write},
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status";
+const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>";
 
 fn host_name(explicit: Option<&str>, detected: &str) -> Result<String, ()> {
     if let Some(name) = explicit {
@@ -57,6 +58,7 @@ enum Cli {
     Install(InstallArgs),
     Uninstall(String),
     Status,
+    Operation(radio::cli::Command),
 }
 
 fn parse(args: &[String]) -> Result<Cli, ()> {
@@ -97,7 +99,7 @@ fn parse(args: &[String]) -> Result<Cli, ()> {
                 rooms: rooms.map(PathBuf::from),
             }))
         }
-        _ => Err(()),
+        _ => radio::cli::parse(args).map(Cli::Operation),
     }
 }
 
@@ -138,17 +140,42 @@ fn print_install(outcome: install::InstallOutcome, app: &str) -> Result<(), (i32
     Ok(())
 }
 
+fn home() -> Result<PathBuf, (i32, String)> {
+    env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| (1, "radio: HOME is not set".into()))
+}
+
 fn run(args: &[String]) -> Result<(), (i32, String)> {
     let command = parse(args).map_err(|()| (2, USAGE.into()))?;
+    if let Cli::Operation(operation) = command {
+        let request = operation.resolve(io::stdin().lock())?;
+        let home = home()?;
+        let (response, line) =
+            radio_client::request_line(&radio_client::socket_path(&home), &request)
+                .map_err(|phrase| (1, format!("radio: {phrase}")))?;
+        let mut stdout = io::stdout().lock();
+        if writeln!(stdout, "{line}")
+            .and_then(|()| stdout.flush())
+            .is_err()
+        {
+            std::process::exit(1);
+        }
+        std::process::exit(if response.ok {
+            0
+        } else if response.refused == Some(true) {
+            3
+        } else {
+            1
+        });
+    }
     let host = if let Cli::Serve(explicit) = &command {
         Some(host_name(explicit.as_deref(), &detected_name()).map_err(|()| (2, USAGE.into()))?)
     } else {
         None
     };
-    let home = env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .ok_or_else(|| (1, "radio: HOME is not set".into()))?;
-    let home = PathBuf::from(home);
+    let home = home()?;
     if let Some(host) = host {
         let socket = radio_client::socket_path(&home);
         let db = home.join(".local/state/radio/rooms.db");
@@ -199,7 +226,7 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
             }
             Ok(())
         }
-        Cli::Serve(_) | Cli::Status => unreachable!(),
+        Cli::Serve(_) | Cli::Status | Cli::Operation(_) => unreachable!(),
     }
 }
 
