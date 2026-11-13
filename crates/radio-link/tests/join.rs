@@ -879,7 +879,7 @@ async fn an_older_computer_record_changes_nothing() {
     })
     .await;
     assert_eq!(
-        b.db.lock().unwrap().own_record(&a.link.id()).unwrap(),
+        b.db.lock().unwrap().computer_record(&a.link.id()).unwrap(),
         Some(second)
     );
     stop(&[&a, &b, &c]).await;
@@ -907,7 +907,7 @@ async fn a_forged_computer_record_is_never_served() {
     assert!(bounded(peer.send_computer(&forged)).await.is_err());
     assert_eq!(b.applied.load(Ordering::SeqCst), before);
     assert_eq!(
-        b.db.lock().unwrap().own_record(&a.link.id()).unwrap(),
+        b.db.lock().unwrap().computer_record(&a.link.id()).unwrap(),
         Some(first)
     );
     stop(&[&a, &b, &c]).await;
@@ -920,7 +920,7 @@ async fn a_newcomer_takes_the_records_its_inviter_holds() {
     let record = resign(&a, "opaque");
     enter(&a, &b).await;
     assert_eq!(
-        b.db.lock().unwrap().own_record(&a.link.id()).unwrap(),
+        b.db.lock().unwrap().computer_record(&a.link.id()).unwrap(),
         Some(record)
     );
     stop(&[&a, &b]).await;

@@ -382,11 +382,11 @@ impl FleetDb {
         Ok(record)
     }
 
-    pub fn own_record(
+    pub fn computer_record(
         &self,
-        node: &iroh::EndpointId,
+        key: &iroh::EndpointId,
     ) -> Result<Option<ComputerRecord>, &'static str> {
-        load_computer_record(&self.conn, &node.to_string())
+        load_computer_record(&self.conn, &key.to_string())
     }
 
     pub fn computer_records(&self) -> Result<Vec<ComputerRecord>, &'static str> {
@@ -565,6 +565,9 @@ impl FleetDb {
         let mut records = Vec::new();
         for computer in computers.first().into_iter().chain(others) {
             if let Some(record) = load_computer_record(&tx, &computer.key)? {
+                if record.body.name != computer.name {
+                    continue;
+                }
                 let size = serde_json::to_vec(&record).map_err(|_| READ)?.len();
                 records.push((record, size));
             }

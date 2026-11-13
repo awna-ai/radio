@@ -2292,7 +2292,10 @@ fn computer_records_require_the_computers_signature_and_a_newer_version() {
             db.apply_computer(&node.public(), &older),
             Err("the computer record is not newer")
         );
-        assert_eq!(db.own_record(&peer.public()).unwrap(), Some(first.clone()));
+        assert_eq!(
+            db.computer_record(&peer.public()).unwrap(),
+            Some(first.clone())
+        );
     }
     let newer = computer_record(&db, &peer, "birch", 6);
     db.apply_computer(&node.public(), &newer).unwrap();
@@ -2357,7 +2360,7 @@ fn pending_and_blocked_computers_keep_records_and_addresses() {
         let second = computer_record::sign(body, &peer);
         db.apply_computer(&node.public(), &second).unwrap();
         assert_eq!(db.computers().unwrap()[0].addrs, first.body.addrs);
-        assert_eq!(db.own_record(&peer.public()).unwrap(), Some(second));
+        assert_eq!(db.computer_record(&peer.public()).unwrap(), Some(second));
     }
 }
 
@@ -2380,7 +2383,10 @@ fn resign_versions_only_changes_and_keeps_omitted_roles_and_addresses() {
     assert_eq!(first.body.version, 10125);
     assert_eq!(first.body.roles, ["hub", "lander"]);
     assert_eq!(first.verify(), Ok(()));
-    assert_eq!(db.own_record(&node.public()).unwrap(), Some(first.clone()));
+    assert_eq!(
+        db.computer_record(&node.public()).unwrap(),
+        Some(first.clone())
+    );
     let second = db
         .resign(&node, "garden", &[], "lantern", Some("two"), None, 10.125)
         .unwrap();
@@ -2618,9 +2624,9 @@ fn admitting_carries_records_and_joining_stores_them() {
     joined
         .joined(&newcomer.public(), &code, &answer, 11.0)
         .unwrap();
-    assert_eq!(joined.own_record(&node.public()).unwrap(), Some(own));
+    assert_eq!(joined.computer_record(&node.public()).unwrap(), Some(own));
     assert_eq!(
-        joined.own_record(&peer.public()).unwrap(),
+        joined.computer_record(&peer.public()).unwrap(),
         Some(peer_record)
     );
 }
@@ -2700,7 +2706,7 @@ fn damaged_computer_records_are_read_errors() {
             .execute("UPDATE computer_records SET record = ?1", [text])
             .unwrap();
         assert_eq!(
-            db.own_record(&node.public()),
+            db.computer_record(&node.public()),
             Err("fleet.db could not be read")
         );
         assert_eq!(db.computer_records(), Err("fleet.db could not be read"));
@@ -2736,5 +2742,43 @@ fn rejoining_never_returns_the_newcomers_own_stored_record() {
     db.apply_computer(&node.public(), &record).unwrap();
     let (answer, _) = admit_new(&mut db, &node, &newcomer, "birch", 11.0);
     assert_eq!(answer.records, vec![own]);
-    assert_eq!(db.own_record(&newcomer.public()).unwrap(), Some(record));
+    assert_eq!(
+        db.computer_record(&newcomer.public()).unwrap(),
+        Some(record)
+    );
+}
+
+#[test]
+fn admitting_skips_records_signed_before_a_computer_was_renamed() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    db.resign(&node, "garden", &addr(), "lantern", Some("one"), None, 10.0)
+        .unwrap();
+    let newcomer = iroh::SecretKey::generate();
+    let (code, _) = mint(&mut db, &node, 11.0);
+    let (answer, _) = db
+        .admit(
+            &node,
+            "grove",
+            &addr(),
+            &code,
+            &newcomer.public(),
+            "meadow",
+            &addr(),
+            &membership::consent(
+                &newcomer,
+                &code.fleet,
+                &node.public().to_string(),
+                "meadow",
+                &addr(),
+            ),
+            11.0,
+        )
+        .unwrap();
+    assert!(answer.records.is_empty());
+    let joined_temp = Temp::new();
+    joined_temp
+        .open()
+        .joined(&newcomer.public(), &code, &answer, 11.0)
+        .unwrap();
 }
