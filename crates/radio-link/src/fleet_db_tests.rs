@@ -1714,6 +1714,10 @@ fn local_changes_need_a_fleet() {
     assert_eq!(db.accept("orchard"), Err("not in a fleet"));
     assert_eq!(db.block("orchard"), Err("not in a fleet"));
     assert_eq!(db.trust("orchard"), Err("not in a fleet"));
+    assert_eq!(
+        db.removable(&node.public(), "orchard"),
+        Err("not in a fleet")
+    );
     assert_eq!(db.remove(&node, "orchard", 10.0), Err("not in a fleet"));
     assert_eq!(db.leave(&node, 11.0), Err("not in a fleet"));
     assert_eq!(db.forget(), Err("not in a fleet"));
@@ -1787,6 +1791,57 @@ fn local_remove_requires_inviter_or_founder() {
         &addr(),
     );
     assert!(db.remove(&founder, "meadow", 10.0).is_ok());
+}
+#[test]
+fn removable_checks_authority_without_writing() {
+    let inviter = iroh::SecretKey::generate();
+    let node = iroh::SecretKey::generate();
+    let other = iroh::SecretKey::generate().public();
+    let (code, answer) = answer(&inviter);
+    let temp = Temp::new();
+    let mut db = temp.open();
+    db.joined(&node.public(), &code, &answer, 10.0).unwrap();
+    computer(
+        &db,
+        &other,
+        "meadow",
+        State::Pending,
+        Some(&inviter.public()),
+        &addr(),
+    );
+    let row = db.computer("meadow").unwrap();
+    let changes = db.conn.total_changes();
+    assert_eq!(
+        db.removable(&node.public(), "meadow"),
+        Err("only its inviter or the founding member removes a computer")
+    );
+    assert_eq!(db.conn.total_changes(), changes);
+    assert_eq!(db.computer("meadow").unwrap(), row);
+    db.conn
+        .execute(
+            "UPDATE computers SET invited_by = ?1 WHERE key = ?2",
+            params![node.public().to_string(), other.to_string()],
+        )
+        .unwrap();
+    let row = db.computer("meadow").unwrap();
+    let changes = db.conn.total_changes();
+    assert_eq!(db.removable(&node.public(), "meadow"), Ok(row));
+    assert_eq!(db.conn.total_changes(), changes);
+
+    let temp = Temp::new();
+    let (db, founder) = temp.found();
+    computer(
+        &db,
+        &other,
+        "meadow",
+        State::Blocked,
+        Some(&node.public()),
+        &addr(),
+    );
+    let row = db.computer("meadow").unwrap();
+    let changes = db.conn.total_changes();
+    assert_eq!(db.removable(&founder.public(), &other.to_string()), Ok(row));
+    assert_eq!(db.conn.total_changes(), changes);
 }
 #[test]
 fn local_leave_keeps_state_until_forgotten() {

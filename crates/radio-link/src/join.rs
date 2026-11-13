@@ -182,7 +182,7 @@ pub async fn remove(
     target: &str,
     now: f64,
 ) -> Result<usize, &'static str> {
-    let computer = db.lock().map_err(|_| READ)?.computer(target)?;
+    let computer = db.lock().map_err(|_| READ)?.removable(&link.id(), target)?;
     let subject = crate::fleet::public_key(&computer.key).ok_or(READ)?;
     let peer = if computer.addrs.is_empty() {
         None
@@ -191,7 +191,7 @@ pub async fn remove(
     };
     let (record, to) = {
         let mut db = db.lock().map_err(|_| READ)?;
-        let (record, _) = db.remove(key, target, now)?;
+        let (record, _) = db.remove(key, &computer.key, now)?;
         let to = db.recipients(&subject)?;
         (record, to)
     };

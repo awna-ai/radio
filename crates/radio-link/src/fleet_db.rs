@@ -572,6 +572,16 @@ impl FleetDb {
         tx.commit().map_err(|_| WRITE)?;
         Ok(computer)
     }
+    pub fn removable(
+        &self,
+        node: &iroh::EndpointId,
+        target: &str,
+    ) -> Result<Computer, &'static str> {
+        let fleet = load_fleet(&self.conn)?.ok_or("not in a fleet")?;
+        let computer = resolve(&self.conn, target)?;
+        may_remove(&fleet, &node.to_string(), &computer)?;
+        Ok(computer)
+    }
     pub fn remove(
         &mut self,
         node: &iroh::SecretKey,
@@ -585,9 +595,7 @@ impl FleetDb {
         let fleet = load_fleet(&tx)?.ok_or("not in a fleet")?;
         let computer = resolve(&tx, target)?;
         let own = node.public().to_string();
-        if fleet.body.founder != own && computer.invited_by.as_deref() != Some(&own) {
-            return Err(REMOVE_AUTH);
-        }
+        may_remove(&fleet, &own, &computer)?;
         let key = fleet::public_key(&computer.key).ok_or(READ)?;
         delete_computer(&tx, &computer.key)?;
         store_tombstone(&tx, &computer.key, computer.name.as_deref(), &own, now)?;
@@ -909,6 +917,12 @@ fn apply_introduction(
     Ok(Applied::Added { pending })
 }
 const REMOVE_AUTH: &str = "only its inviter or the founding member removes a computer";
+fn may_remove(fleet: &FleetRecord, own: &str, computer: &Computer) -> Result<(), &'static str> {
+    if fleet.body.founder != own && computer.invited_by.as_deref() != Some(own) {
+        return Err(REMOVE_AUTH);
+    }
+    Ok(())
+}
 fn apply_removal(
     tx: &Transaction<'_>,
     node: &iroh::EndpointId,
