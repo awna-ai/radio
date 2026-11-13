@@ -12,6 +12,8 @@ use iroh::{
     },
 };
 
+use tokio::time::Instant;
+
 use crate::{
     endpoint::{ALPN, JOIN_ALPN},
     link::REFUSED,
@@ -61,6 +63,7 @@ struct Live {
     key: EndpointId,
     join: bool,
     connection: WeakConnectionHandle,
+    admitted_at: Instant,
 }
 
 pub struct Gate {
@@ -82,6 +85,15 @@ impl Gate {
             limits,
             live: Mutex::new(Vec::new()),
         }
+    }
+
+    pub(crate) fn join_deadline(&self, connection: &Connection) -> Option<Instant> {
+        self.live.lock().unwrap().iter().find_map(|entry| {
+            entry.connection.upgrade().and_then(|live| {
+                (entry.join && live.stable_id() == connection.stable_id())
+                    .then_some(entry.admitted_at + self.limits.frame)
+            })
+        })
     }
 
     pub fn close_key(&self, key: &EndpointId) {
@@ -117,13 +129,13 @@ impl EndpointHooks for Gate {
             reason: vec![],
         };
         let key = conn.remote_id();
+        let mut live = self.live.lock().unwrap();
         let standing = self.admission.standing(&key);
         let join = match conn.alpn() {
             ALPN if standing == Standing::Accepted => false,
             JOIN_ALPN if standing != Standing::Refused && self.admission.join_open() => true,
             _ => return refuse(),
         };
-        let mut live = self.live.lock().unwrap();
         live.retain(|entry| {
             entry
                 .connection
@@ -140,6 +152,7 @@ impl EndpointHooks for Gate {
             key,
             join,
             connection: conn.weak_handle(),
+            admitted_at: Instant::now(),
         });
         AfterHandshakeOutcome::Accept
     }

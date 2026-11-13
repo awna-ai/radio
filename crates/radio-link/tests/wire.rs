@@ -3,13 +3,19 @@ mod common;
 use common::*;
 use radio_link::{
     SecretKey,
-    admit::{Limits, Standing},
+    admit::{Admission, Limits, Standing},
     endpoint::{ALPN, JOIN_ALPN},
     frame::{self, CONTROL_CAP},
     link::{BAD_FRAME, Event, IDLE, REFUSED},
     wire::{Answer, Request},
 };
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 use tokio::time::{Instant, timeout};
 
 async fn pair(
@@ -221,8 +227,25 @@ async fn join_is_admitted_only_while_open() {
 
 #[tokio::test]
 async fn dials_pin_the_requested_key_and_refuse_unaccepted_keys_locally() {
-    let (a, b, book, _) = pair(Limits::default()).await;
-    let (c, mut events) = bind(Book::new(), Limits::default()).await;
+    let a_book = Book::new();
+    let b_book = Book::new();
+    let c_book = Book::new();
+    let (a, _) = bind(a_book.clone(), Limits::default()).await;
+    let (b, _) = bind(b_book.clone(), Limits::default()).await;
+    let (c, mut events) = bind(c_book.clone(), Limits::default()).await;
+    a_book.set(b.id(), Standing::Accepted);
+    b_book.set(a.id(), Standing::Accepted);
+    b_book.set(c.id(), Standing::Accepted);
+    c_book.set(b.id(), Standing::Accepted);
+    let control = bounded(b.dial(c.id(), &c.addrs())).await.unwrap();
+    assert_eq!(
+        bounded(control.hello(&hello())).await.unwrap().name,
+        "garden"
+    );
+    match bounded(events.recv()).await.unwrap() {
+        Event::Hello { from, .. } => assert_eq!(from, b.id()),
+        _ => panic!("expected hello"),
+    }
     let started = Instant::now();
     let result = timeout(Duration::from_secs(6), b.dial(a.id(), &c.addrs()))
         .await
@@ -231,7 +254,7 @@ async fn dials_pin_the_requested_key_and_refuse_unaccepted_keys_locally() {
     assert!(started.elapsed() < Duration::from_secs(6));
     empty(&mut events).await;
     for standing in [Standing::Unknown, Standing::Refused] {
-        book.set(b.id(), standing);
+        a_book.set(b.id(), standing);
         assert_eq!(
             bounded(a.dial(b.id(), &b.addrs())).await.err(),
             Some("the computer is not let in")
@@ -486,6 +509,152 @@ async fn every_stream_rechecks_admission_and_close_key_closes_all_connections() 
     a.close_key(&b.id());
     closed(&first, REFUSED).await;
     closed(&second, REFUSED).await;
+    empty(&mut events).await;
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}
+
+#[tokio::test]
+async fn blocked_hello_events_bound_stream_tasks_and_recover_after_draining() {
+    let book = Book::new();
+    let a = bounded(radio_link::link::Link::bind(
+        SecretKey::generate(),
+        &["127.0.0.1:0".parse().unwrap()],
+        book.clone(),
+        Limits {
+            frame: Duration::from_secs(10),
+            ..Limits::default()
+        },
+        radio_link::link::Local {
+            name: "garden".into(),
+            sha: SHA.into(),
+        },
+    ))
+    .await
+    .unwrap();
+    let (sender, mut events) = tokio::sync::mpsc::channel(1);
+    sender
+        .try_send(Event::Hello {
+            from: a.id(),
+            hello: hello(),
+        })
+        .unwrap();
+    a.serve(sender);
+    let b_book = Book::new();
+    let (b, _) = bind(b_book.clone(), Limits::default()).await;
+    book.set(b.id(), Standing::Accepted);
+    b_book.set(a.id(), Standing::Accepted);
+    let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+    let mut streams = Vec::new();
+    for _ in 0..16 {
+        let (mut send, mut recv) = bounded(peer.connection().open_bi()).await.unwrap();
+        bounded(frame::write(
+            &mut send,
+            &Request::Hello { hello: hello() },
+            CONTROL_CAP,
+        ))
+        .await
+        .unwrap();
+        send.finish().unwrap();
+        let _ = timeout(Duration::from_millis(30), recv.read_to_end(CONTROL_CAP)).await;
+        streams.push((send, recv));
+    }
+    let extra = timeout(Duration::from_secs(1), async {
+        let (mut send, mut recv) = peer.connection().open_bi().await.unwrap();
+        let _ = frame::write(&mut send, &Request::Hello { hello: hello() }, CONTROL_CAP).await;
+        let _ = send.finish();
+        recv.read_to_end(CONTROL_CAP).await
+    })
+    .await;
+    match extra {
+        Err(_) => {}
+        Ok(Err(iroh::endpoint::ReadToEndError::Read(iroh::endpoint::ReadError::Reset(code)))) => {
+            assert_eq!(code, BAD_FRAME.into());
+        }
+        other => panic!("expected a blocked stream or bad-frame reset, got {other:?}"),
+    }
+    drop(streams);
+    for _ in 0..17 {
+        assert!(matches!(
+            bounded(events.recv()).await.unwrap(),
+            Event::Hello { .. }
+        ));
+    }
+    bounded(peer.hello(&hello())).await.unwrap();
+    assert!(matches!(
+        bounded(events.recv()).await.unwrap(),
+        Event::Hello { .. }
+    ));
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}
+
+#[tokio::test]
+async fn join_deadline_closes_even_a_connection_held_by_the_receiver() {
+    let book = Book::new();
+    book.set_join(true);
+    let (a, mut events) = bind(
+        book,
+        Limits {
+            frame: Duration::from_millis(300),
+            ..Limits::default()
+        },
+    )
+    .await;
+    let client_book = Book::new();
+    client_book.set_join(true);
+    client_book.set(a.id(), Standing::Accepted);
+    let b = raw_bind(client_book, Limits::default()).await;
+    let started = Instant::now();
+    let connection = b.connect(&a, JOIN_ALPN).await;
+    let accepted = match bounded(events.recv()).await.unwrap() {
+        Event::Join { connection, .. } => connection,
+        _ => panic!("expected join"),
+    };
+    timeout(Duration::from_secs(3), closed(&connection, IDLE))
+        .await
+        .unwrap();
+    assert!((Duration::from_millis(200)..Duration::from_secs(3)).contains(&started.elapsed()));
+    assert!(accepted.close_reason().is_some());
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}
+
+struct ClosingJoinBook(AtomicBool);
+
+impl Admission for ClosingJoinBook {
+    fn standing(&self, _: &radio_link::EndpointId) -> Standing {
+        Standing::Unknown
+    }
+    fn join_open(&self) -> bool {
+        self.0.swap(false, Ordering::SeqCst)
+    }
+    fn fleet(&self) -> Option<String> {
+        Some(FLEET.into())
+    }
+}
+
+#[tokio::test]
+async fn join_rechecks_the_code_before_handing_out_the_connection() {
+    let a = bounded(radio_link::link::Link::bind(
+        SecretKey::generate(),
+        &["127.0.0.1:0".parse().unwrap()],
+        Arc::new(ClosingJoinBook(AtomicBool::new(true))),
+        Limits::default(),
+        radio_link::link::Local {
+            name: "garden".into(),
+            sha: SHA.into(),
+        },
+    ))
+    .await
+    .unwrap();
+    let (sender, mut events) = tokio::sync::mpsc::channel(1);
+    a.serve(sender);
+    let book = Book::new();
+    book.set_join(true);
+    book.set(a.id(), Standing::Accepted);
+    let b = raw_bind(book, Limits::default()).await;
+    closed(&b.connect(&a, JOIN_ALPN).await, REFUSED).await;
     empty(&mut events).await;
     bounded(a.close()).await;
     bounded(b.close()).await;

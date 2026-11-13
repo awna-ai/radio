@@ -106,11 +106,38 @@ impl Link {
                             drop(permit);
                             let Ok(Ok(connection)) = result else { return };
                             if connection.alpn() == JOIN_ALPN {
+                                let Some(deadline) = gate.join_deadline(&connection) else { return };
+                                let weak = connection.weak_handle();
+                                let permit = tokio::select! {
+                                    _ = connection.closed() => return,
+                                    _ = tokio::time::sleep_until(deadline) => {
+                                        connection.close(IDLE.into(), &[]);
+                                        return;
+                                    },
+                                    permit = events.reserve() => {
+                                        let Ok(permit) = permit else { return };
+                                        permit
+                                    },
+                                };
+                                if Instant::now() >= deadline {
+                                    connection.close(IDLE.into(), &[]);
+                                    return;
+                                }
+                                if gate.admission.standing(&connection.remote_id()) == Standing::Refused
+                                    || !gate.admission.join_open()
+                                {
+                                    connection.close(REFUSED.into(), &[]);
+                                    return;
+                                }
+                                permit.send(Event::Join {
+                                    from: connection.remote_id(), connection,
+                                });
                                 tokio::select! {
-                                    _ = connection.closed() => {},
-                                    _ = events.send(Event::Join {
-                                        from: connection.remote_id(), connection: connection.clone(),
-                                    }) => {},
+                                    _ = weak.closed() => return,
+                                    _ = tokio::time::sleep_until(deadline) => {},
+                                }
+                                if let Some(connection) = weak.upgrade() {
+                                    connection.close(IDLE.into(), &[]);
                                 }
                             } else {
                                 serve_connection(connection, gate, local, id, events).await;
@@ -155,22 +182,29 @@ async fn serve_connection(
     id: EndpointId,
     events: mpsc::Sender<Event>,
 ) {
+    let permits = Arc::new(Semaphore::new(endpoint::STREAMS as usize));
     let mut streams = JoinSet::new();
     let mut idle_at = Instant::now() + gate.limits.idle;
     loop {
         tokio::select! {
             stream = connection.accept_bi() => {
-                let Ok((send, recv)) = stream else { break };
+                let Ok((mut send, mut recv)) = stream else { break };
                 let started = Instant::now();
                 if gate.admission.standing(&connection.remote_id()) != Standing::Accepted {
                     connection.close(REFUSED.into(), &[]);
                     break;
                 }
+                let Ok(permit) = permits.clone().try_acquire_owned() else {
+                    let _ = recv.stop(BAD_FRAME.into());
+                    let _ = send.reset(BAD_FRAME.into());
+                    continue;
+                };
                 let connection = connection.clone();
                 let gate = gate.clone();
                 let local = local.clone();
                 let events = events.clone();
                 streams.spawn(async move {
+                    let _permit = permit;
                     serve_stream(connection, gate, local, id, events, (send, recv), started).await;
                 });
             }
@@ -223,12 +257,12 @@ async fn serve_stream(
                         name: local.name,
                     },
                 };
-                frame::write(&mut send, &answer, CONTROL_CAP).await?;
-                send.finish().map_err(|_| UNANSWERED)?;
                 events
                     .send(Event::Hello { from, hello })
                     .await
                     .map_err(|_| UNANSWERED)?;
+                frame::write(&mut send, &answer, CONTROL_CAP).await?;
+                send.finish().map_err(|_| UNANSWERED)?;
             }
             Request::App { to, app, body } => {
                 if !wire::valid_app(&to, &app, &id) {
