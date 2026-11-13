@@ -2,6 +2,7 @@ use radio::install::{
     self, InstallArgs, Installed, Installer, Launchctl, Paths, RoomsOutcome, SocketProbe, Timing,
     Uninstalled,
 };
+use radio::log::{Field, Log};
 use std::{
     env,
     io::{self, Write},
@@ -147,6 +148,25 @@ fn home() -> Result<PathBuf, (i32, String)> {
         .ok_or_else(|| (1, "radio: HOME is not set".into()))
 }
 
+fn stop_signals() -> Result<libc::sigset_t, &'static str> {
+    let mut signals = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+    // SAFETY: sigemptyset initializes the writable signal set before any use.
+    if unsafe { libc::sigemptyset(signals.as_mut_ptr()) } != 0 {
+        return Err("stop signals could not be set up");
+    }
+    // SAFETY: sigemptyset succeeded, so the signal set is initialized.
+    let mut signals = unsafe { signals.assume_init() };
+    // SAFETY: signals is initialized and writable; both signal numbers are valid.
+    if unsafe {
+        libc::sigaddset(&mut signals, libc::SIGTERM) != 0
+            || libc::sigaddset(&mut signals, libc::SIGINT) != 0
+            || libc::pthread_sigmask(libc::SIG_BLOCK, &signals, std::ptr::null_mut()) != 0
+    } {
+        return Err("stop signals could not be set up");
+    }
+    Ok(signals)
+}
+
 fn run(args: &[String]) -> Result<(), (i32, String)> {
     let command = parse(args).map_err(|()| (2, USAGE.into()))?;
     if let Cli::Operation(operation) = command {
@@ -177,11 +197,59 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
     };
     let home = home()?;
     if let Some(host) = host {
+        let log = Log::stderr();
+        let protocol = format!(
+            "{}.{}",
+            radio_client::PROTOCOL_MAJOR,
+            radio_client::PROTOCOL_MINOR
+        );
+        log.event(
+            "serve",
+            "start",
+            &[
+                ("version", Field::Text(env!("CARGO_PKG_VERSION"))),
+                ("protocol", Field::Text(&protocol)),
+                ("name", Field::Text(&host)),
+            ],
+        );
+        let signals = stop_signals().unwrap_or_else(|error| {
+            log.event("serve", "stopped", &[("error", Field::Text(error))]);
+            std::process::exit(1);
+        });
         let socket = radio_client::socket_path(&home);
         let db = home.join(".local/state/radio/rooms.db");
-        radio::server::Server::bind(&socket, &db, host)
-            .map_err(|error| (1, format!("radio: {error}")))?
+        let server = radio::server::Server::bind(&socket, &db, host).unwrap_or_else(|error| {
+            log.event("serve", "stopped", &[("error", Field::Text(&error))]);
+            std::process::exit(1);
+        });
+        log.event("serve", "bound", &[("socket", Field::Text("radio.sock"))]);
+        let busy = server.busy();
+        let stop_log = log.clone();
+        std::thread::spawn(move || {
+            loop {
+                let mut signal = 0;
+                // SAFETY: signals is initialized; signal points to writable storage.
+                if unsafe { libc::sigwait(&signals, &mut signal) } == 0 {
+                    let _guard = busy.lock().unwrap_or_else(|poison| poison.into_inner());
+                    stop_log.event(
+                        "serve",
+                        "stop",
+                        &[(
+                            "signal",
+                            Field::Text(if signal == libc::SIGTERM {
+                                "TERM"
+                            } else {
+                                "INT"
+                            }),
+                        )],
+                    );
+                    std::process::exit(0);
+                }
+            }
+        });
+        server
             .with_link_dir(home.join(".config/radio"))
+            .with_log(log)
             .serve();
         return Ok(());
     }

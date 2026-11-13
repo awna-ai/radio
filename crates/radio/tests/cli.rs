@@ -216,7 +216,7 @@ impl Daemon {
         let child = home
             .command(&["serve", "--name", "test-host"])
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::null())
             .spawn()
             .unwrap();
         let mut daemon = Self { home, child };

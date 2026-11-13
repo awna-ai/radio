@@ -1179,3 +1179,103 @@ fn id_without_a_link_folder_reports_not_set_up() {
         serde_json::json!({"ok":false,"error":"the link is not set up"})
     );
 }
+
+fn logged_request(line: &[u8], wrong_uid: bool) -> String {
+    let fixture = Fixture::new();
+    let mut server = fixture.bind();
+    let path = fixture.0.join("events");
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .unwrap();
+    server = server.with_log(crate::log::Log::to_file(file, crate::log::LOG_MAX_BYTES));
+    if wrong_uid {
+        let uid = server.own_uid.wrapping_add(1);
+        server = server.with_uid(uid);
+    }
+    let worker = start(server, 1);
+    let response = raw(&fixture.socket(), line);
+    assert!(!response.ok);
+    worker.join().unwrap();
+    let text = fs::read_to_string(path).unwrap();
+    text.lines()
+        .map(|line| line.split_once(' ').unwrap().1)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn log_refused_post_omits_client_text() {
+    let text = logged_request(br#"{"v":1,"op":"post","room":"test-host","author":{"kind":"kiteapp-agent","name":"wren"},"body":"quiet garden words"}
+"#, false);
+    assert_eq!(text, "serve refused op=\"post\" error=\"not a member\"");
+    assert!(!text.contains("quiet garden words"));
+    assert!(!text.contains("wren"));
+}
+#[test]
+fn log_missing_room() {
+    assert_eq!(
+        logged_request(b"{\"v\":1,\"op\":\"read\",\"room\":\"missing\"}\n", false),
+        "serve failed op=\"read\" error=\"no such room\""
+    );
+}
+#[test]
+fn log_invalid_json() {
+    assert_eq!(
+        logged_request(b"not json\n", false),
+        "serve failed op=\"unknown\" error=\"not a request\""
+    );
+}
+#[test]
+fn log_unknown_op() {
+    assert_eq!(
+        logged_request(b"{\"v\":1,\"op\":\"quiet garden words\\nwren\"}\n", false),
+        "serve failed op=\"unknown\" error=\"not a request\""
+    );
+}
+#[test]
+fn log_missing_op() {
+    assert_eq!(
+        logged_request(b"{\"v\":1}\n", false),
+        "serve failed op=\"unknown\" error=\"not a request\""
+    );
+}
+#[test]
+fn log_wrong_uid() {
+    // SAFETY: geteuid has no arguments or memory preconditions.
+    let uid = unsafe { libc::geteuid() };
+    assert_eq!(
+        logged_request(b"", true),
+        format!("serve refused op=\"unknown\" error=\"refused: another user\" uid={uid}")
+    );
+}
+#[test]
+fn log_unsupported_version() {
+    assert_eq!(
+        logged_request(b"{\"v\":2,\"op\":\"hello\"}\n", false),
+        "serve failed op=\"hello\" error=\"unsupported_version\""
+    );
+}
+#[test]
+fn log_successful_hello_and_post_are_quiet() {
+    let fixture = Fixture::new();
+    let server = fixture.bind();
+    let path = fixture.0.join("events");
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .unwrap();
+    let worker = start(server.with_log(crate::log::Log::to_file(file, 1024)), 2);
+    assert!(request(&fixture.socket(), &Request::Hello {}).unwrap().ok);
+    let mut message = post("quiet garden words");
+    if let Request::Post { room, .. } = &mut message {
+        *room = "test-host".into();
+    }
+    assert!(request(&fixture.socket(), &message).unwrap().ok);
+    worker.join().unwrap();
+    assert_eq!(fs::read_to_string(path).unwrap(), "");
+}

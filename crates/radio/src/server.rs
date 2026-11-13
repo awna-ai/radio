@@ -1,3 +1,4 @@
+use crate::log::{Field, Log};
 use radio_client::{
     Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR, Protocol, REQUEST_MAX_BYTES, Request,
     Response, Room, StatusLine,
@@ -14,6 +15,7 @@ use std::{
         },
     },
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -55,9 +57,20 @@ pub struct Server {
     own_uid: u32,
     request_deadline: Duration,
     answer_deadline: Duration,
+    log: Log,
+    busy: Arc<Mutex<()>>,
 }
 
 impl Server {
+    pub fn with_log(mut self, log: Log) -> Self {
+        self.log = log;
+        self
+    }
+
+    pub fn busy(&self) -> Arc<Mutex<()>> {
+        Arc::clone(&self.busy)
+    }
+
     /// Binds `socket` and opens the store, making the home room `<host>` when it is missing.
     pub fn bind(socket: &Path, rooms_db: &Path, host: String) -> Result<Self, String> {
         let parent = socket.parent().ok_or(UNBOUND)?;
@@ -109,6 +122,8 @@ impl Server {
             own_uid,
             request_deadline: TIMEOUT,
             answer_deadline: TIMEOUT,
+            log: Log::none(),
+            busy: Arc::new(Mutex::new(())),
         })
     }
 
@@ -123,15 +138,54 @@ impl Server {
         if timeouts(&stream).is_err() {
             return;
         }
-        let response = if peer_uid(&stream) != Some(self.own_uid) {
+        let uid = peer_uid(&stream);
+        let wrong_uid = uid != Some(self.own_uid);
+        let mut op = "unknown".to_owned();
+        let response = if wrong_uid {
             failure(REFUSED.into())
         } else {
             let result = read_request(&stream, accepted, self.request_deadline)
-                .and_then(|line| serde_json::from_slice(&line).map_err(|_| NOT_REQUEST.to_owned()))
-                .and_then(|value| self.dispatch(value));
+                .and_then(|line| {
+                    serde_json::from_slice::<serde_json::Value>(&line)
+                        .map_err(|_| NOT_REQUEST.to_owned())
+                })
+                .and_then(|value| {
+                    if let Some(known) = value
+                        .get("op")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|op| OPS.contains(op))
+                    {
+                        op = known.to_owned();
+                    }
+                    self.dispatch(value)
+                });
             result.unwrap_or_else(failure)
         };
-        let _ = write_line(&mut stream, &response, self.answer_deadline);
+        if !response.ok {
+            let mut fields = vec![
+                ("op", Field::Text(&op)),
+                (
+                    "error",
+                    Field::Text(response.error.as_deref().unwrap_or(NOT_REQUEST)),
+                ),
+            ];
+            if wrong_uid && let Some(uid) = uid {
+                fields.push(("uid", Field::Number(u64::from(uid))));
+            }
+            self.log.event(
+                "serve",
+                if response.refused == Some(true) {
+                    "refused"
+                } else {
+                    "failed"
+                },
+                &fields,
+            );
+        }
+        if write_line(&mut stream, &response, self.answer_deadline).is_err() {
+            self.log
+                .event("serve", "unanswered", &[("op", Field::Text(&op))]);
+        }
     }
 
     fn dispatch(&mut self, mut value: serde_json::Value) -> Result<Response, String> {
@@ -293,7 +347,11 @@ impl Server {
         loop {
             let incoming = self.listener.incoming().next();
             match incoming {
-                Some(Ok(stream)) => self.serve_one(stream),
+                Some(Ok(stream)) => {
+                    let busy = self.busy();
+                    let _guard = busy.lock().unwrap_or_else(|poison| poison.into_inner());
+                    self.serve_one(stream);
+                }
                 Some(Err(_)) => std::thread::sleep(ACCEPT_BACKOFF),
                 None => {}
             }
