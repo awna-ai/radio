@@ -12,7 +12,7 @@ on a network by themselves come later, unchanged in design, as their own steps.
 
 Its first use is files: an app hands its Radio a file for an app on another of the person's
 computers, and the receiving Radio writes it into a folder that Radio itself made for that app,
-never anywhere else. A send that can't reach its peer fails at once; Radio holds nothing to send
+never anywhere else. A send that can't reach its peer fails within the dial's 5 seconds; Radio holds nothing to send
 again, so the sending app keeps what it needs. Handing an app's message to its handler comes after.
 
 The fleet record, members, codes and deliveries live in `fleet.db`, the daemon its one writer, so

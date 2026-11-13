@@ -281,7 +281,7 @@ None of this is built yet. When it is, an app can count on this:
 - **Files first.** The first link carries files: your app asks its Radio to send a file to your app
   on another of the person's computers. The receiving Radio writes it only into a folder it made for
   your app when your app asked for one, and says which computer sent it. If the other computer can't
-  be reached, the send fails at once and Radio keeps nothing, so your app tries again later.
+  be reached, the send fails within a few seconds and Radio keeps nothing, so your app tries again later.
 - **Then your app's own messages go through Radio.** Your app asks its Radio to send a message to your
   app on another computer. Radio carries it without reading it, and on the other side hands it,
   with the identity of the computer that sent it, to the handler your app recorded at install
