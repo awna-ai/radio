@@ -67,32 +67,45 @@ fn lock_disagreements(root: &str, fuzz: &str) -> Vec<String> {
     if shared.is_empty() {
         disagreements.push("the lockfiles hold no package names in common".into());
     }
-    let mut names = std::collections::BTreeSet::new();
-    for package @ (name, version, source, checksum) in fuzz {
+    const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
+    let mut reviewed: std::collections::BTreeSet<_> = [
+        (
+            "arbitrary",
+            "1.5.0",
+            Some(REGISTRY),
+            Some("3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"),
+        ),
+        (
+            "jobserver",
+            "0.1.35",
+            Some(REGISTRY),
+            Some("1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"),
+        ),
+        (
+            "libfuzzer-sys",
+            "0.4.13",
+            Some(REGISTRY),
+            Some("a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2"),
+        ),
+        ("radio-fuzz", "0.0.0", None, None),
+    ]
+    .into();
+    for package @ (name, version, _, _) in fuzz {
         if shared.contains(name) {
             if !root.contains(&package) {
                 disagreements.push(format!(
                     "{name} {version} has a different version, source or checksum in the fuzz lockfile"
                 ));
             }
-        } else {
-            names.insert(name);
-            let provenance_matches = if name == "radio-fuzz" {
-                source.is_none() && checksum.is_none()
-            } else {
-                source == Some("registry+https://github.com/rust-lang/crates.io-index")
-                    && checksum.is_some()
-            };
-            if !provenance_matches {
-                disagreements.push(format!(
-                    "{name} has unexpected source or checksum in the fuzz lockfile"
-                ));
-            }
+        } else if !reviewed.remove(&package) {
+            disagreements.push(format!(
+                "a package only the fuzz lockfile holds is not the one its intake reviewed: {package:?}"
+            ));
         }
     }
-    if names != ["arbitrary", "jobserver", "libfuzzer-sys", "radio-fuzz"].into() {
+    for package in reviewed {
         disagreements.push(format!(
-            "a package only the fuzz lockfile holds needs its own intake: {names:?}"
+            "a package only the fuzz lockfile holds is not the one its intake reviewed: {package:?}"
         ));
     }
     disagreements
@@ -139,6 +152,9 @@ fn the_fuzz_lockfile_check_catches_drift() {
     let drifted = [
         alter(shared.0, "version", "0.0.0"),
         alter(shared.0, "checksum", &"0".repeat(64)),
+        alter("libfuzzer-sys", "version", "0.4.14"),
+        alter("libfuzzer-sys", "checksum", &"0".repeat(64)),
+        alter("libfuzzer-sys", "source", "git+https://example.invalid/x#0"),
         fuzz.replacen(
             "name = \"radio-link\"",
             "name = \"radio-link\"\nsource = \"git+https://example.invalid/radio#0\"",

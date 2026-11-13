@@ -181,7 +181,7 @@ mod tests {
         let request: JoinRequest = serde_json::from_str(&json).unwrap();
         assert!(json.len() <= framing::CONTROL_CAP);
         assert!(serde_json::to_vec(&request).unwrap().len() > framing::CONTROL_CAP);
-        frame(&framed(json.into_bytes()));
+        assert_eq!(frame(&framed(json.into_bytes())), 0);
     }
     #[test]
     fn records_checks_each_valid_kind() {

@@ -856,8 +856,9 @@ fn any_change_to_a_signed_record_breaks_it() {
                 };
                 *consent =
                     membership::consent(&newcomer_key, fleet, inviter, &agreed_name, &agreed_addrs);
-                assert!(
-                    membership::sign(body, &node).verify().is_err(),
+                assert_eq!(
+                    membership::sign(body, &node).verify(),
+                    Err("not a membership record"),
                     "introduction with another consent"
                 );
             }
@@ -1218,8 +1219,41 @@ fn fleet_accept_keeps_its_promises() {
             let signing = if g.chance(75) { right } else { *g.pick(&keys) };
             fleet::sign(body, signer, signing)
         };
-        let current = make(g);
-        let new = make(g);
+        let mut current = make(g);
+        let new = if g.chance(25) {
+            let signer = *g.pick(&[Signer::Founder, Signer::Recovery]);
+            let Some(valid) = (0..64).map(|_| make(g)).find(|record| {
+                record.verify().is_ok()
+                    && (signer == Signer::Founder
+                        || record.body.recovery != other.public().to_string())
+            }) else {
+                return;
+            };
+            current = valid;
+            let mut body = current.body.clone();
+            let signing = match signer {
+                Signer::Founder => {
+                    body.version += 1;
+                    keys.iter()
+                        .find(|key| key.public().to_string() == current.body.founder)
+                        .unwrap()
+                }
+                Signer::Recovery => {
+                    body.epoch += 1;
+                    body.founder = if body.founder == founder.public().to_string() {
+                        other.public().to_string()
+                    } else {
+                        founder.public().to_string()
+                    };
+                    keys.iter()
+                        .find(|key| key.public().to_string() == current.body.recovery)
+                        .unwrap()
+                }
+            };
+            fleet::sign(body, signer, signing)
+        } else {
+            make(g)
+        };
         assert_eq!(fleet::accept(None, &new), new.verify());
         for r in [&current, &new] {
             if r.verify().is_ok() {
