@@ -594,15 +594,13 @@ fn removals_pick_live_subjects_and_other_awake_origins() {
                                 change.origin, change.subject,
                                 "removal origin equals subject, seed {seed}"
                             );
-                            lone_awake_removals += usize::from(
-                                awake
-                                    .iter()
-                                    .zip(&gone)
-                                    .filter(|(awake, gone)| **awake && !**gone)
-                                    .count()
-                                    == 1,
-                            );
-                            sleeping_subjects += usize::from(!awake[subject]);
+                            let awake_count = awake
+                                .iter()
+                                .zip(&gone)
+                                .filter(|(awake, gone)| **awake && !**gone)
+                                .count();
+                            lone_awake_removals += usize::from(awake_count == 1);
+                            sleeping_subjects += usize::from(awake_count >= 2 && !awake[subject]);
                             removals += 1;
                             gone[subject] = true;
                         }
@@ -617,7 +615,7 @@ fn removals_pick_live_subjects_and_other_awake_origins() {
     assert!(removals > 100);
     assert!(
         sleeping_subjects > 0,
-        "removals must include sleeping subjects"
+        "removals with two or more awake members must include sleeping subjects"
     );
     assert!(
         lone_awake_removals > 0,
