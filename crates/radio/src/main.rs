@@ -201,7 +201,17 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
     };
     let home = home()?;
     if let Some(host) = host {
-        let log = Log::stderr(&home.join(".local/state/radio/radio.log"));
+        let paths = Paths::new(&home).unwrap_or_else(|error| {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |time| time.as_secs());
+            let _ = io::stderr().write_all(
+                radio::log::line(now, "serve", "stopped", &[("error", Field::Text(&error))])
+                    .as_bytes(),
+            );
+            std::process::exit(1);
+        });
+        let log = Log::stderr(&paths.log);
         let protocol = format!(
             "{}.{}",
             radio_client::PROTOCOL_MAJOR,

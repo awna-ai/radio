@@ -225,6 +225,35 @@ fn term_allows_the_request_in_hand_to_finish() {
 }
 
 #[test]
+fn term_drops_queued_requests_without_answering() {
+    let home = Home::new();
+    let mut daemon = home.start();
+    let mut active = home.connect();
+    active
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    active.write_all(br#"{"v":1,"op":"hello"}"#).unwrap();
+    thread::sleep(Duration::from_millis(200));
+    let mut queued = home.connect();
+    queued
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    queued.write_all(b"{\"v\":1,\"op\":\"hello\"}\n").unwrap();
+    let started = Instant::now();
+    daemon.signal(libc::SIGTERM);
+    thread::sleep(Duration::from_millis(200));
+    active.write_all(b"\n").unwrap();
+    let mut answer = String::new();
+    BufReader::new(active).read_line(&mut answer).unwrap();
+    let answer: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!(answer["ok"], true);
+    let mut unanswered = Vec::new();
+    queued.read_to_end(&mut unanswered).unwrap();
+    assert!(unanswered.is_empty(), "queued request was answered");
+    daemon.wait_for_stop(started);
+}
+
+#[test]
 fn int_logs_a_clean_stop() {
     let home = Home::new();
     let mut daemon = home.start();
