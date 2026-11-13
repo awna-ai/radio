@@ -133,8 +133,31 @@ cargo build --release -p radio
 ```
 
 and ship `target/release/radio` inside your app. Pin a tagged release (`v0.1.0` is the first), and
-move to a newer tag when you choose. There is no published download yet; until there is, you build
-it yourself.
+move to a newer tag when you choose.
+
+A tag that has a release on GitHub also carries the binary ready-built, so you don't need Rust:
+`radio-<tag>-macos-arm64.tar.gz` (Apple silicon), `radio-<tag>-macos-x86_64.tar.gz` (Intel) and
+`SHA256SUMS`. None is published yet; until one is, build it as above. Fetch with `curl` (or `gh
+release download`), check, and unpack:
+
+```sh
+shasum -a 256 -c SHA256SUMS --ignore-missing
+tar -xzf radio-<tag>-macos-arm64.tar.gz
+```
+
+For a universal app, join the two with `lipo -create -output radio <arm64>/radio <x86_64>/radio`.
+
+**Signing.** The released binaries are signed ad hoc and not notarised: they are made to ship inside
+your app. If you notarise your app, sign `radio` with your own Developer ID, the hardened runtime and
+a secure timestamp, as notarisation requires of every executable in it:
+
+```sh
+codesign --force --sign "Developer ID Application: <you>" --options runtime --timestamp radio
+```
+
+Your app's ticket then covers it, and Radio's install keeps its copy byte for byte. A `radio`
+downloaded in a browser is quarantined, and macOS should refuse to run it on its own, since it
+isn't notarised; a copy fetched with `curl` is not quarantined.
 
 ### 2. Install it from your installer
 

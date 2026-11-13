@@ -2,6 +2,22 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-12: D14. Releases are built on a maintainer's Mac, signed ad hoc, and ship inside apps
+
+A tag's release carries one `radio` binary per Mac architecture (arm64 and x86_64), each in a
+`.tar.gz` with the licence, plus a `SHA256SUMS` file. `scripts/release.sh <tag>` builds them from a
+clean copy of the tag, never the working tree, with the build's folder names remapped, and refuses a
+binary that still holds a folder or account name of the Mac that built it, or a private term (D3);
+`--publish` uploads them with `gh` and downloads them again to compare. The repo runs no Actions, so a
+maintainer runs it.
+
+The binaries are signed ad hoc and not notarised. Radio is meant to ship inside an app, and
+notarisation needs every executable in it signed with a Developer ID, the hardened runtime and a
+secure timestamp, so an app re-signs its copy with its own identity anyway, and the app's ticket then
+covers it. A copy downloaded on its own in a browser is quarantined, and macOS should then refuse
+it, since an ad hoc binary can't be notarised; notarising the bare binary would need a Developer ID
+this repo doesn't have. `.ai/PROJECT.md` § Signing has the details and how each was checked.
+
 ## 2026-11-12: D13. One README, plain first (replaces D11's second document)
 
 The app makers' guide moved into `README.md`, and `docs/` is gone. The README reads in this order:

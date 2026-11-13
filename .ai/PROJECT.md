@@ -26,6 +26,7 @@ one's data (`.ai/DECISIONS.md` D3).
 | `crates/radio/` | The daemon: `radio serve` binds the socket and serves the ops; `radio install`, `uninstall` and `status` (`src/install.rs`) | `crates/radio/src/` tests, `crates/radio/tests/install.rs` (a stand-in `launchctl` that runs the real daemon) |
 | `scripts/ci-local.sh` | Every check, run before anything lands on `main` | itself |
 | `scripts/term-check.sh` | Refuses a file, path or commit message that names a private term | `tests/term_check_test.sh` |
+| `scripts/release.sh` | Builds a tag's release (a binary per Mac architecture, a checksum file) and, with `--publish`, uploads it (D14) | `tests/release_test.sh` (stand-ins for the toolchain and `gh`) |
 | `.ai/SECURITY.md` | The threat model | read before touching a trust boundary |
 
 ## Layout to come
@@ -71,13 +72,66 @@ Exit codes and what each case prints are in the README, *For app developers* →
 Tests never touch the real launch agent: `launchctl` is `/bin/launchctl` only when HOME is the
 account's own home directory; any other HOME needs `RADIO_LAUNCHCTL` naming a stand-in.
 
-**Signing.** The binary is copied byte for byte into a new file that is then renamed into place,
+## Signing
+
+The installer copies the binary byte for byte into a new file that is then renamed into place,
 never written over (macOS caches a binary's signature per file, so code changed in place can be
-killed), and no extended attribute is carried over. Today's builds are signed ad hoc by the linker,
-which is enough for a copy that is not quarantined. A Developer ID build has to include this binary
-in the app's notarised content: a bare executable cannot carry a stapled ticket, so its byte-identical
-copy depends on the app's ticket, looked up by its code hash. That path is untested until a Developer
-ID build exists.
+killed), and carries no extended attribute over. Each point below says how it was checked
+(2026-11-12, macOS 27.2).
+
+- **Ad hoc is enough for a copy that is not quarantined.** The linker signs arm64 builds ad hoc;
+  `scripts/release.sh` signs both architectures ad hoc as `ai.awna.radio`. `spctl --assess --type
+  execute` rejects an ad hoc build, yet the same build with no quarantine attribute runs from a
+  shell (both run here).
+- **What gets quarantined.** A browser download does, and `tar` carries the archive's quarantine
+  onto what it unpacks; `curl` sets none (both run here). A release archive fetched with `curl`, or a
+  build from source, runs. A quarantined ad hoc binary should be refused: Gatekeeper looks for a
+  notarisation ticket when quarantined code first runs, and notarisation refuses ad hoc signatures
+  (Apple, "Notarizing macOS software before distribution"). That is a reading of the docs, not run
+  here, since it opens a dialog.
+- **Inside a notarised app.** Notarisation needs every executable signed with a Developer ID, the
+  hardened runtime and a secure timestamp (the same page), so an app re-signs its bundled `radio`
+  with its own identity before submitting. The app's ticket then covers it: Apple's advice is to
+  notarise and staple only the outermost container, whose ticket covers everything in it (Apple
+  developer forums, thread 689337). The installer's copy is byte-identical, so its code hash is the
+  one the ticket names. Not run: no Developer ID build exists yet, and the daemon's needs under the
+  hardened runtime (it links only system libraries and uses no JIT) are unchecked.
+- **A bare binary can't carry a ticket.** "Although tickets are created for standalone binaries,
+  it's not currently possible to staple tickets to them", and Gatekeeper finds the ticket online
+  (Apple, "Customizing the notarization workflow"). A quarantined command-line tool double-clicked
+  in the Finder is refused however well it is signed or notarised, because the Finder hands it to
+  Terminal as a document (thread 689337, and thread 706379, "Tool Blocked by Gatekeeper").
+  Notarising the release binaries would need a Developer ID; until then they are for bundling, not
+  for running on their own.
+
+## Releasing
+
+`bash scripts/release.sh <vX.Y.Z>` builds a tag's release on this Mac, with no Actions (D14):
+
+1. It checks the tag (it must exist and name the workspace version), the term list, the tools, and
+   both Rust targets (`aarch64-apple-darwin` and `x86_64-apple-darwin`; it prints the
+   `rustup target add` line for a missing one and installs nothing).
+2. It builds `radio` for each target from a clean copy of the tag in a temporary folder, so neither
+   the working tree nor HEAD matter, with `--remap-path-prefix` over the home folder, the Cargo and
+   rustup folders and the build folder, then strips the debug map with Apple's `strip -S`. The remap
+   can't reach the debug map, which the linker writes with the full paths of the precompiled std
+   libraries, and rustc's own strip goes through `rust-objcopy`, which can fail with only a warning
+   (it did on the maintainers' Mac, leaving four such paths).
+3. It refuses a binary of the wrong architecture, or one that still holds a build path, this
+   account's name or a private term, then signs each ad hoc. Terms of five or more letters are
+   matched anywhere, since Rust packs string literals with nothing between them; shorter ones only
+   as whole words, because they turn up inside the library's symbol names.
+4. It packs `radio-<tag>-macos-<arch>.tar.gz` (the binary and `LICENSE`, owned by `root:wheel`, no
+   macOS metadata) and `SHA256SUMS` into `target/release-dist/<tag>/`, replacing an earlier build of
+   that tag only once the build has passed.
+
+With `--publish` it first checks, before building, that `origin` is a GitHub repository, that
+GitHub's copy of the tag names the same commit, and that the tag has no release yet (a draft
+counts); every `gh` call names that repository. After the build it uploads the three files from its
+private temporary folder as a draft, downloads them again and compares them byte for byte, checks
+the draft lists exactly those three, asks GitHub for the tag's commit once more, and only then
+publishes the draft. A draft that fails any of these stays a draft, and the script prints the
+`gh release delete` line that removes it.
 
 ## Running the checks
 
