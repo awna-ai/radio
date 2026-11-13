@@ -1,4 +1,5 @@
 use super::*;
+use crate::admit::Admission;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -8,6 +9,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 struct Temp(PathBuf);
@@ -644,7 +646,7 @@ fn readings_admission_tracks_db_and_fails_closed() {
 fn admit_new(
     db: &mut FleetDb,
     node: &iroh::SecretKey,
-    newcomer: &iroh::EndpointId,
+    newcomer: &iroh::SecretKey,
     name: &str,
     now: f64,
 ) -> (JoinAnswer, Option<SignedRecord>) {
@@ -654,9 +656,16 @@ fn admit_new(
         "lantern",
         &addr(),
         &code,
-        newcomer,
+        &newcomer.public(),
         name,
         &addr(),
+        &membership::consent(
+            newcomer,
+            &code.fleet,
+            &node.public().to_string(),
+            name,
+            &addr(),
+        ),
         now,
     )
     .unwrap()
@@ -670,9 +679,8 @@ fn count(db: &FleetDb, table: &str) -> i64 {
 fn admitting_new_keys_signs_counters_and_answers_with_accepted_view() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
-    let peers: Vec<_> = (0..5)
-        .map(|_| iroh::SecretKey::generate().public())
-        .collect();
+    let peer_keys: Vec<_> = (0..5).map(|_| iroh::SecretKey::generate()).collect();
+    let peers: Vec<_> = peer_keys.iter().map(|k| k.public()).collect();
     computer(&db, &peers[0], "orchard", State::Accepted, None, &addr());
     computer(&db, &peers[1], "meadow", State::Pending, None, &addr());
     computer(&db, &peers[2], "harbor", State::Blocked, None, &addr());
@@ -687,6 +695,13 @@ fn admitting_new_keys_signs_counters_and_answers_with_accepted_view() {
             &peers[4],
             "juniper",
             &addr(),
+            &membership::consent(
+                &peer_keys[4],
+                &code.fleet,
+                &node.public().to_string(),
+                "juniper",
+                &addr(),
+            ),
             10.0,
         )
         .unwrap();
@@ -720,22 +735,23 @@ fn admitting_new_keys_signs_counters_and_answers_with_accepted_view() {
             &peers[4],
             "juniper",
             &addr(),
+            &membership::consent(
+                &peer_keys[4],
+                &code.fleet,
+                &node.public().to_string(),
+                "juniper",
+                &addr()
+            ),
             10.0
         )
         .err(),
         Some(NOT_LIVE)
     );
     assert_eq!(
-        admit_new(
-            &mut db,
-            &node,
-            &iroh::SecretKey::generate().public(),
-            "garden",
-            11.0
-        )
-        .1
-        .unwrap()
-        .counter(),
+        admit_new(&mut db, &node, &iroh::SecretKey::generate(), "garden", 11.0)
+            .1
+            .unwrap()
+            .counter(),
         2
     );
 }
@@ -743,41 +759,81 @@ fn admitting_new_keys_signs_counters_and_answers_with_accepted_view() {
 fn admitting_refusals_leave_code_live() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
-    let blocked = iroh::SecretKey::generate().public();
-    let removed = iroh::SecretKey::generate().public();
+    let blocked_secret = iroh::SecretKey::generate();
+    let blocked = blocked_secret.public();
+    let removed_secret = iroh::SecretKey::generate();
+    let removed = removed_secret.public();
     computer(&db, &blocked, "orchard", State::Blocked, None, &addr());
     tombstone(&db, &removed, &node.public());
-    let newcomer = iroh::SecretKey::generate().public();
+    let newcomer_secret = iroh::SecretKey::generate();
+    let newcomer = newcomer_secret.public();
     let (code, _) = mint(&mut db, &node, 10.0);
-    for (key, name, addrs, phrase) in [
-        (blocked, "garden", addr(), "not let in"),
-        (removed, "garden", addr(), "not let in"),
-        (node.public(), "garden", addr(), "not let in"),
-        (newcomer, "Garden", addr(), "not a computer name"),
-        (newcomer, "lantern", addr(), "the name is taken"),
-        (newcomer, "orchard", addr(), "the name is taken"),
+    for (key, key_secret, name, addrs, phrase) in [
+        (blocked, &blocked_secret, "garden", addr(), "not let in"),
+        (removed, &removed_secret, "garden", addr(), "not let in"),
+        (node.public(), &node, "garden", addr(), "not let in"),
         (
             newcomer,
+            &newcomer_secret,
+            "Garden",
+            addr(),
+            "not a computer name",
+        ),
+        (
+            newcomer,
+            &newcomer_secret,
+            "lantern",
+            addr(),
+            "the name is taken",
+        ),
+        (
+            newcomer,
+            &newcomer_secret,
+            "orchard",
+            addr(),
+            "the name is taken",
+        ),
+        (
+            newcomer,
+            &newcomer_secret,
             "garden",
             vec![],
             "the computer's addresses are not usable",
         ),
         (
             newcomer,
+            &newcomer_secret,
             "garden",
             vec![addr()[0]; 3],
             "the computer's addresses are not usable",
         ),
         (
             newcomer,
+            &newcomer_secret,
             "garden",
             vec!["0.0.0.0:7000".parse().unwrap()],
             "the computer's addresses are not usable",
         ),
     ] {
         assert_eq!(
-            db.admit(&node, "lantern", &addr(), &code, &key, name, &addrs, 10.0)
-                .err(),
+            db.admit(
+                &node,
+                "lantern",
+                &addr(),
+                &code,
+                &key,
+                name,
+                &addrs,
+                &membership::consent(
+                    key_secret,
+                    &code.fleet,
+                    &node.public().to_string(),
+                    name,
+                    &addrs
+                ),
+                10.0
+            )
+            .err(),
             Some(phrase)
         );
         assert!(db.join_open(10.0).unwrap());
@@ -802,6 +858,13 @@ fn admitting_refusals_leave_code_live() {
                 &newcomer,
                 "garden",
                 &addr(),
+                &membership::consent(
+                    &newcomer_secret,
+                    &code.fleet,
+                    &node.public().to_string(),
+                    "garden",
+                    &addr()
+                ),
                 10.0
             )
             .err(),
@@ -817,6 +880,13 @@ fn admitting_refusals_leave_code_live() {
             &newcomer,
             "garden",
             &addr(),
+            &membership::consent(
+                &newcomer_secret,
+                &code.fleet,
+                &node.public().to_string(),
+                "garden",
+                &addr()
+            ),
             10.0
         )
         .is_ok()
@@ -827,7 +897,8 @@ fn admitting_rejoins_update_without_introductions() {
     for state in [State::Accepted, State::Pending] {
         let temp = Temp::new();
         let (mut db, node) = temp.found();
-        let peer = iroh::SecretKey::generate().public();
+        let peer_secret = iroh::SecretKey::generate();
+        let peer = peer_secret.public();
         let inviter = iroh::SecretKey::generate().public();
         computer(
             &db,
@@ -837,7 +908,11 @@ fn admitting_rejoins_update_without_introductions() {
             Some(&inviter),
             &["127.0.0.1:7001".parse().unwrap()],
         );
-        assert!(admit_new(&mut db, &node, &peer, "garden", 10.0).1.is_none());
+        assert!(
+            admit_new(&mut db, &node, &peer_secret, "garden", 10.0)
+                .1
+                .is_none()
+        );
         let c = find_computer(&db.conn, &peer.to_string()).unwrap().unwrap();
         assert_eq!(c.name.as_deref(), Some("garden"));
         assert_eq!(c.addrs, addr());
@@ -854,12 +929,13 @@ fn admitting_daily_limit_rolls_back_consumption() {
         admit_new(
             &mut db,
             &node,
-            &iroh::SecretKey::generate().public(),
+            &iroh::SecretKey::generate(),
             name,
             10.0 + n as f64,
         );
     }
-    let peer = iroh::SecretKey::generate().public();
+    let peer_secret = iroh::SecretKey::generate();
+    let peer = peer_secret.public();
     let (code, _) = db
         .create_code(&node, None, Some(86400), Hints::default(), 13.0)
         .unwrap();
@@ -872,6 +948,13 @@ fn admitting_daily_limit_rolls_back_consumption() {
             &peer,
             "harbor",
             &addr(),
+            &membership::consent(
+                &peer_secret,
+                &code.fleet,
+                &node.public().to_string(),
+                "harbor",
+                &addr()
+            ),
             13.0
         )
         .err(),
@@ -887,6 +970,13 @@ fn admitting_daily_limit_rolls_back_consumption() {
             &peer,
             "harbor",
             &addr(),
+            &membership::consent(
+                &peer_secret,
+                &code.fleet,
+                &node.public().to_string(),
+                "harbor",
+                &addr()
+            ),
             10.0 + DAY + 1.0
         )
         .is_ok()
@@ -1026,7 +1116,7 @@ fn joining_invalid_answers_leave_no_state() {
 fn intro(
     db: &FleetDb,
     inviter: &iroh::SecretKey,
-    key: &iroh::EndpointId,
+    key: &iroh::SecretKey,
     name: &str,
     counter: u64,
 ) -> SignedRecord {
@@ -1035,7 +1125,14 @@ fn intro(
             fleet: db.fleet().unwrap().unwrap().body.id,
             inviter: inviter.public().to_string(),
             counter,
-            newcomer: key.to_string(),
+            newcomer: key.public().to_string(),
+            consent: membership::consent(
+                key,
+                &db.fleet().unwrap().unwrap().body.id,
+                &inviter.public().to_string(),
+                name,
+                &addr(),
+            ),
             name: name.into(),
             addrs: addr(),
         },
@@ -1064,7 +1161,8 @@ fn applying_introductions_respects_trust_replay_and_block() {
         let temp = Temp::new();
         let (mut db, node) = temp.found();
         let inviter = iroh::SecretKey::generate();
-        let peer = iroh::SecretKey::generate().public();
+        let peer_secret = iroh::SecretKey::generate();
+        let peer = peer_secret.public();
         computer(
             &db,
             &inviter.public(),
@@ -1076,9 +1174,9 @@ fn applying_introductions_respects_trust_replay_and_block() {
         db.conn
             .execute("UPDATE computers SET trusted = ?1", [trusted])
             .unwrap();
-        let record = intro(&db, &inviter, &peer, "garden", 1);
+        let record = intro(&db, &inviter, &peer_secret, "garden", 1);
         assert_eq!(
-            db.apply(&node.public(), &record, 10.0),
+            db.apply(&node.public(), "lantern", &record, 10.0),
             Ok(Applied::Added { pending: !trusted })
         );
         assert_eq!(
@@ -1099,7 +1197,7 @@ fn applying_introductions_respects_trust_replay_and_block() {
             )
             .unwrap();
         assert_eq!(
-            db.apply(&node.public(), &record, 11.0),
+            db.apply(&node.public(), "lantern", &record, 11.0),
             Err("the record was already seen")
         );
         assert_eq!(db.standing(&peer), Ok(Standing::Refused));
@@ -1111,10 +1209,10 @@ fn applying_invalid_or_unauthorized_records_drops_every_write() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
     let inviter = iroh::SecretKey::generate();
-    let peer = iroh::SecretKey::generate().public();
-    let record = intro(&db, &inviter, &peer, "garden", 1);
+    let peer_secret = iroh::SecretKey::generate();
+    let record = intro(&db, &inviter, &peer_secret, "garden", 1);
     assert_eq!(
-        db.apply(&node.public(), &record, 10.0),
+        db.apply(&node.public(), "lantern", &record, 10.0),
         Err("the inviter is not accepted here")
     );
     computer(
@@ -1126,7 +1224,7 @@ fn applying_invalid_or_unauthorized_records_drops_every_write() {
         &addr(),
     );
     assert_eq!(
-        db.apply(&node.public(), &record, 10.0),
+        db.apply(&node.public(), "lantern", &record, 10.0),
         Err("the inviter is not accepted here")
     );
     db.conn
@@ -1134,32 +1232,44 @@ fn applying_invalid_or_unauthorized_records_drops_every_write() {
         .unwrap();
     let wrong_signature = membership::sign(record.body.clone(), &node);
     assert_eq!(
-        db.apply(&node.public(), &wrong_signature, 10.0),
+        db.apply(&node.public(), "lantern", &wrong_signature, 10.0),
         Err("the membership record's signature does not verify")
     );
-    let own = intro(&db, &node, &peer, "garden", 1);
+    let own = intro(&db, &node, &peer_secret, "garden", 1);
     assert_eq!(
-        db.apply(&node.public(), &own, 10.0),
+        db.apply(&node.public(), "lantern", &own, 10.0),
         Err("the record is this computer's own")
     );
     let mut body = record.body.clone();
-    if let RecordBody::Introduction { fleet, .. } = &mut body {
+    if let RecordBody::Introduction { fleet, consent, .. } = &mut body {
         *fleet = "ab".repeat(32);
+        *consent = membership::consent(
+            &peer_secret,
+            fleet,
+            &inviter.public().to_string(),
+            "garden",
+            &addr(),
+        );
     }
     assert_eq!(
-        db.apply(&node.public(), &membership::sign(body, &inviter), 10.0),
+        db.apply(
+            &node.public(),
+            "lantern",
+            &membership::sign(body, &inviter),
+            10.0
+        ),
         Err("the record is for another fleet")
     );
-    let taken = intro(&db, &inviter, &peer, "orchard", 1);
+    let taken = intro(&db, &inviter, &peer_secret, "orchard", 1);
     assert_eq!(
-        db.apply(&node.public(), &taken, 10.0),
+        db.apply(&node.public(), "lantern", &taken, 10.0),
         Err("the name is taken here")
     );
     assert_eq!(count(&db, "records"), 0);
     assert_eq!(count(&db, "computers"), 1);
 }
 #[test]
-fn applying_introductions_daily_limit_and_unchanged_subjects() {
+fn applying_known_introductions_never_stores_records() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
     let inviter = iroh::SecretKey::generate();
@@ -1171,36 +1281,97 @@ fn applying_introductions_daily_limit_and_unchanged_subjects() {
         None,
         &addr(),
     );
-    let removed = iroh::SecretKey::generate().public();
+    let removed_secret = iroh::SecretKey::generate();
+    let removed = removed_secret.public();
     tombstone(&db, &removed, &node.public());
-    let known = iroh::SecretKey::generate().public();
+    let known_secret = iroh::SecretKey::generate();
+    let known = known_secret.public();
     computer(&db, &known, "harbor", State::Blocked, None, &addr());
-    for (counter, key) in [node.public(), removed, known].iter().enumerate() {
+    for key_secret in [&node, &removed_secret, &known_secret] {
+        for counter in 1..=100 {
+            assert_eq!(
+                db.apply(
+                    &node.public(),
+                    "lantern",
+                    &intro(&db, &inviter, key_secret, "garden", counter),
+                    10.0
+                ),
+                Err("the computer is already known")
+            );
+            assert_eq!(count(&db, "records"), 0);
+        }
+    }
+}
+#[test]
+fn applying_introductions_daily_limit() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let inviter = iroh::SecretKey::generate();
+    computer(
+        &db,
+        &inviter.public(),
+        "orchard",
+        State::Accepted,
+        None,
+        &addr(),
+    );
+    for (n, name) in ["garden", "meadow", "harbor"].iter().enumerate() {
+        let record = intro(
+            &db,
+            &inviter,
+            &iroh::SecretKey::generate(),
+            name,
+            n as u64 + 1,
+        );
         assert_eq!(
-            db.apply(
-                &node.public(),
-                &intro(&db, &inviter, key, "garden", counter as u64 + 1),
-                10.0
-            ),
-            Ok(Applied::Unchanged)
+            db.apply(&node.public(), "lantern", &record, 10.0),
+            Ok(Applied::Added { pending: true })
         );
     }
-    let record = intro(
-        &db,
-        &inviter,
-        &iroh::SecretKey::generate().public(),
-        "garden",
-        4,
-    );
+    let record = intro(&db, &inviter, &iroh::SecretKey::generate(), "juniper", 4);
     assert_eq!(
-        db.apply(&node.public(), &record, 11.0),
+        db.apply(&node.public(), "lantern", &record, 11.0),
         Err("too many introductions from that computer today")
     );
     assert_eq!(count(&db, "records"), 3);
     assert_eq!(
-        db.apply(&node.public(), &record, 10.0 + DAY + 1.0),
+        db.apply(&node.public(), "lantern", &record, 10.0 + DAY + 1.0),
         Ok(Applied::Added { pending: true })
     );
+}
+#[test]
+fn applying_tombstoned_removals_never_stores_records() {
+    for leaving in [false, true] {
+        let temp = Temp::new();
+        let (mut db, node) = temp.found();
+        let signer = iroh::SecretKey::generate();
+        let subject = if leaving {
+            signer.public()
+        } else {
+            iroh::SecretKey::generate().public()
+        };
+        computer(
+            &db,
+            &signer.public(),
+            "orchard",
+            State::Accepted,
+            None,
+            &addr(),
+        );
+        tombstone(&db, &subject, &node.public());
+        for counter in 1..=100 {
+            assert_eq!(
+                db.apply(
+                    &node.public(),
+                    "lantern",
+                    &removal(&db, &signer, &subject, counter),
+                    10.0
+                ),
+                Err("the computer was already removed")
+            );
+            assert_eq!(count(&db, "records"), 0);
+        }
+    }
 }
 #[test]
 fn applying_only_inviter_or_founder_removes_a_known_computer() {
@@ -1234,20 +1405,30 @@ fn applying_only_inviter_or_founder_removes_a_known_computer() {
         &addr(),
     );
     assert_eq!(
-        db.apply(&node.public(), &removal(&db, &stranger, &peer, 1), 10.0),
+        db.apply(
+            &node.public(),
+            "lantern",
+            &removal(&db, &stranger, &peer, 1),
+            10.0
+        ),
         Err("only its inviter or the founding member removes a computer")
     );
     assert_eq!(db.standing(&peer), Ok(Standing::Accepted));
     assert_eq!(count(&db, "records"), 0);
     assert_eq!(
-        db.apply(&node.public(), &removal(&db, &inviter, &peer, 1), 10.0),
+        db.apply(
+            &node.public(),
+            "lantern",
+            &removal(&db, &inviter, &peer, 1),
+            10.0
+        ),
         Ok(Applied::Removed(peer))
     );
     assert_eq!(db.standing(&peer), Ok(Standing::Refused));
     let record = removal(&db, &stranger, &peer, 1);
     assert_eq!(
-        db.apply(&node.public(), &record, 10.0),
-        Ok(Applied::Unchanged)
+        db.apply(&node.public(), "lantern", &record, 10.0),
+        Err("the computer was already removed")
     );
     let other = iroh::SecretKey::generate().public();
     computer(
@@ -1260,7 +1441,12 @@ fn applying_only_inviter_or_founder_removes_a_known_computer() {
     );
     let founder_record = removal(&db, &node, &other, 1);
     assert_eq!(
-        db.apply(&iroh::SecretKey::generate().public(), &founder_record, 10.0),
+        db.apply(
+            &iroh::SecretKey::generate().public(),
+            "lantern",
+            &founder_record,
+            10.0
+        ),
         Ok(Applied::Removed(other))
     );
 }
@@ -1296,22 +1482,23 @@ fn applying_held_removals_and_leaves_win_only_for_their_invitee() {
         assert_eq!(
             db.apply(
                 &node.public(),
+                "lantern",
                 &removal(&db, signer, &newcomer.public(), 1),
                 10.0
             ),
             Ok(Applied::Held)
         );
-        let record = intro(&db, &inviter, &newcomer.public(), "garden", 2);
+        let record = intro(&db, &inviter, &newcomer, "garden", 2);
         assert_eq!(
-            db.apply(&node.public(), &record, 11.0),
+            db.apply(&node.public(), "lantern", &record, 11.0),
             Ok(if signer_kind == 2 {
                 Applied::Added { pending: true }
             } else {
                 Applied::Removed(newcomer.public())
             })
         );
+        assert_eq!(count(&db, "held"), 0);
         if signer_kind != 2 {
-            assert_eq!(count(&db, "held"), 0);
             let c = db
                 .computers()
                 .unwrap()
@@ -1338,11 +1525,11 @@ fn applying_founder_tombstones_unknown_and_unknown_signer_is_refused() {
     let peer = iroh::SecretKey::generate().public();
     let stranger = iroh::SecretKey::generate();
     assert_eq!(
-        db.apply(&node, &removal(&db, &stranger, &peer, 1), 10.0),
+        db.apply(&node, "lantern", &removal(&db, &stranger, &peer, 1), 10.0),
         Err("the signer is not accepted here")
     );
     assert_eq!(
-        db.apply(&node, &removal(&db, &founder, &peer, 1), 10.0),
+        db.apply(&node, "lantern", &removal(&db, &founder, &peer, 1), 10.0),
         Ok(Applied::Removed(peer))
     );
     assert_eq!(db.standing(&peer), Ok(Standing::Refused));
@@ -1364,6 +1551,7 @@ fn applying_held_removals_are_bounded_and_errors_not_seen() {
         assert_eq!(
             db.apply(
                 &node.public(),
+                "lantern",
                 &removal(&db, &signer, &iroh::SecretKey::generate().public(), counter),
                 10.0
             ),
@@ -1373,6 +1561,7 @@ fn applying_held_removals_are_bounded_and_errors_not_seen() {
     assert_eq!(
         db.apply(
             &node.public(),
+            "lantern",
             &removal(&db, &signer, &iroh::SecretKey::generate().public(), 65),
             10.0
         ),
@@ -1391,6 +1580,7 @@ fn applying_held_removals_are_bounded_and_errors_not_seen() {
     assert_eq!(
         db.apply(
             &node.public(),
+            "lantern",
             &removal(&db, &signer, &iroh::SecretKey::generate().public(), 65),
             10.0
         ),
@@ -1413,17 +1603,18 @@ fn applying_leave_of_known_computer_and_tombstone_is_final() {
     );
     let record = removal(&db, &peer, &peer.public(), 1);
     assert_eq!(
-        db.apply(&node.public(), &record, 10.0),
+        db.apply(&node.public(), "lantern", &record, 10.0),
         Ok(Applied::Removed(peer.public()))
     );
     assert_eq!(db.computers().unwrap()[0].state, State::Left);
     assert_eq!(
         db.apply(
             &node.public(),
+            "lantern",
             &removal(&db, &peer, &peer.public(), 2),
             11.0
         ),
-        Ok(Applied::Unchanged)
+        Err("the computer was already removed")
     );
 }
 #[test]
@@ -1447,6 +1638,7 @@ fn applying_own_removal_clears_every_table_and_cannot_be_repeated() {
     assert_eq!(
         db.apply(
             &node.public(),
+            "lantern",
             &removal(&db, &stranger, &node.public(), 1),
             10.0
         ),
@@ -1454,7 +1646,7 @@ fn applying_own_removal_clears_every_table_and_cannot_be_repeated() {
     );
     let record = removal(&db, &inviter, &node.public(), 1);
     assert_eq!(
-        db.apply(&node.public(), &record, 10.0),
+        db.apply(&node.public(), "lantern", &record, 10.0),
         Ok(Applied::LeftFleet)
     );
     for table in [
@@ -1469,7 +1661,7 @@ fn applying_own_removal_clears_every_table_and_cannot_be_repeated() {
         assert_eq!(count(&db, table), 0);
     }
     assert_eq!(
-        db.apply(&node.public(), &record, 11.0),
+        db.apply(&node.public(), "lantern", &record, 11.0),
         Err("not in a fleet")
     );
 }
@@ -1523,15 +1715,16 @@ fn local_changes_need_a_fleet() {
     assert_eq!(db.block("orchard"), Err("not in a fleet"));
     assert_eq!(db.trust("orchard"), Err("not in a fleet"));
     assert_eq!(db.remove(&node, "orchard", 10.0), Err("not in a fleet"));
-    assert_eq!(db.leave(&node), Err("not in a fleet"));
+    assert_eq!(db.leave(&node, 11.0), Err("not in a fleet"));
     assert_eq!(db.forget(), Err("not in a fleet"));
 }
 #[test]
 fn local_remove_signs_next_counter_and_tombstones_invitee() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
-    let peer = iroh::SecretKey::generate().public();
-    admit_new(&mut db, &node, &peer, "orchard", 10.0);
+    let peer_secret = iroh::SecretKey::generate();
+    let peer = peer_secret.public();
+    admit_new(&mut db, &node, &peer_secret, "orchard", 10.0);
     db.conn
         .execute(
             "INSERT INTO held VALUES (?1, ?2, 10.0)",
@@ -1599,8 +1792,9 @@ fn local_remove_requires_inviter_or_founder() {
 fn local_leave_keeps_state_until_forgotten() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
-    let peer = iroh::SecretKey::generate().public();
-    admit_new(&mut db, &node, &peer, "orchard", 10.0);
+    let peer_secret = iroh::SecretKey::generate();
+    let peer = peer_secret.public();
+    admit_new(&mut db, &node, &peer_secret, "orchard", 10.0);
     let pending = iroh::SecretKey::generate().public();
     computer(&db, &pending, "meadow", State::Pending, None, &addr());
     let blocked = iroh::SecretKey::generate().public();
@@ -1611,7 +1805,7 @@ fn local_leave_keeps_state_until_forgotten() {
     let fleet = db.fleet().unwrap();
     let computers = db.computers().unwrap();
     let codes = db.codes(10.0).unwrap();
-    let (record, recipients) = db.leave(&node).unwrap();
+    let (record, recipients) = db.leave(&node, 11.0).unwrap();
     assert_eq!(record.verify(), Ok(()));
     assert_eq!(record.counter(), 2);
     assert!(
@@ -1631,6 +1825,11 @@ fn local_leave_keeps_state_until_forgotten() {
         )
         .unwrap();
     assert_eq!(kind, "removal");
+    let at: f64 = db
+        .conn
+        .query_row("SELECT at FROM records WHERE counter = 2", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(at, 11.0);
     db.forget().unwrap();
     assert_eq!(db.fleet().unwrap(), None);
     assert!(db.computers().unwrap().is_empty());
@@ -1652,7 +1851,8 @@ fn local_leave_keeps_state_until_forgotten() {
 fn admitting_oversize_answer_rolls_back_code_computer_counter_and_record() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
-    let newcomer = iroh::SecretKey::generate().public();
+    let newcomer_secret = iroh::SecretKey::generate();
+    let newcomer = newcomer_secret.public();
     for n in 0..=REMOVED_MAX {
         db.conn
             .execute(
@@ -1671,6 +1871,13 @@ fn admitting_oversize_answer_rolls_back_code_computer_counter_and_record() {
             &newcomer,
             "orchard",
             &addr(),
+            &membership::consent(
+                &newcomer_secret,
+                &code.fleet,
+                &node.public().to_string(),
+                "orchard",
+                &addr()
+            ),
             10.0
         )
         .err(),
@@ -1695,6 +1902,13 @@ fn admitting_oversize_answer_rolls_back_code_computer_counter_and_record() {
             &newcomer,
             "orchard",
             &addr(),
+            &membership::consent(
+                &newcomer_secret,
+                &code.fleet,
+                &node.public().to_string(),
+                "orchard",
+                &addr()
+            ),
             10.0
         )
         .unwrap()
@@ -1710,7 +1924,8 @@ fn applying_and_local_removal_roll_back_when_record_cannot_be_written() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
     let inviter = iroh::SecretKey::generate();
-    let newcomer = iroh::SecretKey::generate().public();
+    let newcomer_secret = iroh::SecretKey::generate();
+    let newcomer = newcomer_secret.public();
     computer(
         &db,
         &inviter.public(),
@@ -1720,8 +1935,11 @@ fn applying_and_local_removal_roll_back_when_record_cannot_be_written() {
         &addr(),
     );
     db.conn.execute_batch("CREATE TRIGGER refuse_record BEFORE INSERT ON records BEGIN SELECT RAISE(ABORT, 'refuse'); END;").unwrap();
-    let introduction = intro(&db, &inviter, &newcomer, "garden", 1);
-    assert_eq!(db.apply(&node.public(), &introduction, 10.0), Err(WRITE));
+    let introduction = intro(&db, &inviter, &newcomer_secret, "garden", 1);
+    assert_eq!(
+        db.apply(&node.public(), "lantern", &introduction, 10.0),
+        Err(WRITE)
+    );
     assert_eq!(count(&db, "computers"), 1);
     assert_eq!(count(&db, "records"), 0);
     computer(
@@ -1733,7 +1951,10 @@ fn applying_and_local_removal_roll_back_when_record_cannot_be_written() {
         &addr(),
     );
     let record = removal(&db, &inviter, &newcomer, 1);
-    assert_eq!(db.apply(&node.public(), &record, 10.0), Err(WRITE));
+    assert_eq!(
+        db.apply(&node.public(), "lantern", &record, 10.0),
+        Err(WRITE)
+    );
     assert_eq!(db.standing(&newcomer), Ok(Standing::Accepted));
     assert_eq!(count(&db, "tombstones"), 0);
     assert_eq!(db.remove(&node, "garden", 10.0).err(), Some(WRITE));
@@ -1745,4 +1966,221 @@ fn applying_and_local_removal_roll_back_when_record_cannot_be_written() {
             .unwrap(),
         1
     );
+}
+
+#[test]
+fn a_founder_that_left_cannot_remove_any_computer() {
+    for subject_kind in 0..3 {
+        let inviter = iroh::SecretKey::generate();
+        let node = iroh::SecretKey::generate();
+        let (code, answer) = answer(&inviter);
+        let temp = Temp::new();
+        let mut db = temp.open();
+        db.joined(&node.public(), &code, &answer, 10.0).unwrap();
+        let peer = iroh::SecretKey::generate().public();
+        computer(
+            &db,
+            &peer,
+            "meadow",
+            State::Accepted,
+            Some(&inviter.public()),
+            &addr(),
+        );
+        let leave = removal(&db, &inviter, &inviter.public(), 1);
+        assert_eq!(
+            db.apply(&node.public(), "lantern", &leave, 10.0),
+            Ok(Applied::Removed(inviter.public()))
+        );
+        let before = db.computers().unwrap();
+        let records = count(&db, "records");
+        let subject = match subject_kind {
+            0 => peer,
+            1 => node.public(),
+            _ => iroh::SecretKey::generate().public(),
+        };
+        let record = removal(&db, &inviter, &subject, 2);
+        assert_eq!(
+            db.apply(&node.public(), "lantern", &record, 11.0),
+            Err("the signer is not accepted here")
+        );
+        assert_eq!(db.computers().unwrap(), before);
+        assert_eq!(count(&db, "records"), records);
+        assert!(db.fleet().unwrap().is_some());
+    }
+}
+
+#[test]
+fn a_founder_tombstone_clears_held_removals() {
+    let temp = Temp::new();
+    let (mut db, founder) = temp.found();
+    let node = iroh::SecretKey::generate().public();
+    let signer = iroh::SecretKey::generate();
+    let subject = iroh::SecretKey::generate().public();
+    computer(
+        &db,
+        &signer.public(),
+        "orchard",
+        State::Accepted,
+        None,
+        &addr(),
+    );
+    assert_eq!(
+        db.apply(&node, "lantern", &removal(&db, &signer, &subject, 1), 10.0),
+        Ok(Applied::Held)
+    );
+    assert_eq!(count(&db, "held"), 1);
+    assert_eq!(
+        db.apply(&node, "lantern", &removal(&db, &founder, &subject, 1), 11.0),
+        Ok(Applied::Removed(subject))
+    );
+    assert_eq!(count(&db, "held"), 0);
+}
+
+#[test]
+fn an_introduction_cannot_take_this_computers_name() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let inviter = iroh::SecretKey::generate();
+    let peer_secret = iroh::SecretKey::generate();
+    computer(
+        &db,
+        &inviter.public(),
+        "orchard",
+        State::Accepted,
+        None,
+        &addr(),
+    );
+    db.trust("orchard").unwrap();
+    let before = db.computers().unwrap();
+    let record = intro(&db, &inviter, &peer_secret, "lantern", 1);
+    assert_eq!(
+        db.apply(&node.public(), "lantern", &record, 10.0),
+        Err("the name is taken here")
+    );
+    assert_eq!(db.computers().unwrap(), before);
+    assert_eq!(count(&db, "records"), 0);
+    let (answer, _) = admit_new(&mut db, &node, &peer_secret, "meadow", 11.0);
+    let names: HashSet<_> = answer.computers.iter().map(|c| &c.name).collect();
+    assert_eq!(names.len(), answer.computers.len());
+}
+
+#[test]
+fn admitting_requires_the_newcomers_signed_request_and_keeps_the_code_open() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let newcomer = iroh::SecretKey::generate();
+    let other = iroh::SecretKey::generate();
+    let (code, _) = mint(&mut db, &node, 10.0);
+    for bad in [
+        membership::consent(
+            &other,
+            &code.fleet,
+            &node.public().to_string(),
+            "orchard",
+            &addr(),
+        ),
+        membership::consent(
+            &newcomer,
+            &code.fleet,
+            &node.public().to_string(),
+            "meadow",
+            &addr(),
+        ),
+    ] {
+        assert_eq!(
+            db.admit(
+                &node,
+                "lantern",
+                &addr(),
+                &code,
+                &newcomer.public(),
+                "orchard",
+                &addr(),
+                &bad,
+                10.0
+            ),
+            Err("the join request is not signed")
+        );
+        assert!(db.join_open(10.0).unwrap());
+        assert_eq!(count(&db, "computers"), 0);
+        assert_eq!(count(&db, "records"), 0);
+    }
+}
+#[test]
+fn a_hostile_computer_cannot_claim_another_inviters_newcomer() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let inviter = iroh::SecretKey::generate();
+    let hostile = iroh::SecretKey::generate();
+    let newcomer = iroh::SecretKey::generate();
+    computer(
+        &db,
+        &inviter.public(),
+        "orchard",
+        State::Accepted,
+        None,
+        &addr(),
+    );
+    computer(
+        &db,
+        &hostile.public(),
+        "meadow",
+        State::Accepted,
+        None,
+        &addr(),
+    );
+    let real = intro(&db, &inviter, &newcomer, "harbor", 1);
+    let mut body = real.body.clone();
+    if let RecordBody::Introduction { inviter, .. } = &mut body {
+        *inviter = hostile.public().to_string();
+    }
+    let forged = membership::sign(body, &hostile);
+    assert_eq!(
+        db.apply(&node.public(), "lantern", &forged, 10.0),
+        Err("not a membership record")
+    );
+    assert_eq!(count(&db, "records"), 0);
+    assert_eq!(
+        db.apply(&node.public(), "lantern", &real, 10.0),
+        Ok(Applied::Added { pending: true })
+    );
+    assert_eq!(
+        db.computer("harbor").unwrap().invited_by,
+        Some(inviter.public().to_string())
+    );
+    assert_eq!(
+        db.apply(
+            &node.public(),
+            "lantern",
+            &removal(&db, &hostile, &newcomer.public(), 2),
+            11.0
+        ),
+        Err(REMOVE_AUTH)
+    );
+}
+
+#[test]
+fn joining_refuses_more_than_the_computer_limit() {
+    let inviter = iroh::SecretKey::generate();
+    let node = iroh::SecretKey::generate();
+    let (code, mut answer) = answer(&inviter);
+    answer.computers.truncate(1);
+    for n in 0..COMPUTERS_MAX {
+        answer.computers.push(Known {
+            key: iroh::SecretKey::generate().public().to_string(),
+            name: format!("computer-{n}"),
+            invited_by: Some(inviter.public().to_string()),
+            addrs: addr(),
+        });
+    }
+    assert_eq!(answer.computers.len(), COMPUTERS_MAX + 1);
+    let temp = Temp::new();
+    let mut db = temp.open();
+    assert_eq!(
+        db.joined(&node.public(), &code, &answer, 10.0),
+        Err("the join answer is not valid")
+    );
+    for table in ["fleet", "computers", "local", "tombstones"] {
+        assert_eq!(count(&db, table), 0);
+    }
 }

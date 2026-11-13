@@ -133,6 +133,7 @@ pub async fn closed(connection: &iroh::endpoint::Connection, code: u32) {
 }
 
 pub struct Raw {
+    pub key: SecretKey,
     endpoint: iroh::Endpoint,
 }
 
@@ -153,9 +154,11 @@ impl Raw {
 }
 
 pub async fn raw_bind(book: Arc<Book>, limits: Limits) -> Raw {
+    let key = SecretKey::generate();
     Raw {
+        key: key.clone(),
         endpoint: bounded(radio_link::endpoint::bind(
-            SecretKey::generate(),
+            key,
             &["127.0.0.1:0".parse().unwrap()],
             Arc::new(radio_link::admit::Gate::new(book, limits)),
         ))

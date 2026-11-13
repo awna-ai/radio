@@ -169,6 +169,7 @@ async fn state(computer: &Computer, key: EndpointId, expected: State) {
 async fn enter(inviter: &Computer, newcomer: &Computer) {
     bounded(join::join(
         &newcomer.link,
+        &newcomer.key,
         &newcomer.db,
         &code(inviter),
         now(),
@@ -216,9 +217,16 @@ async fn stop(computers: &[&Computer]) {
         bounded(computer.link.close()).await;
     }
 }
-fn join_request(code: &JoinCode, name: &str) -> JoinRequest {
+fn join_request(key: &SecretKey, code: &JoinCode, name: &str) -> JoinRequest {
     JoinRequest {
         code: code.encode(),
+        consent: membership::consent(
+            key,
+            &code.fleet,
+            &code.inviter.to_string(),
+            name,
+            &["127.0.0.1:7000".parse().unwrap()],
+        ),
         name: name.into(),
         addrs: vec!["127.0.0.1:7000".parse().unwrap()],
     }
@@ -265,7 +273,7 @@ async fn a_join_whose_newcomer_closes_at_once_is_still_introduced() {
     let invitation = code(&a);
     let raw = raw_bind(raw_book(&a), Limits::default()).await;
     let connection = raw.connect(&a.link, JOIN_ALPN).await;
-    raw_request(&connection, &join_request(&invitation, "cedar"))
+    raw_request(&connection, &join_request(&raw.key, &invitation, "cedar"))
         .await
         .unwrap();
     connection.close(0u32.into(), &[]);
@@ -331,24 +339,21 @@ async fn a_removal_reaches_the_others_and_shuts_the_key_out() {
         .await
         .unwrap();
     bounded(peer.hello(&hello(&c))).await.unwrap();
-    assert_eq!(
-        bounded(join::remove(
-            &a.link,
-            &a.key,
-            &a.db,
-            &c.link.id().to_string(),
-            now()
-        ))
-        .await
-        .unwrap(),
-        1
-    );
+    bounded(join::remove(
+        &a.link,
+        &a.key,
+        &a.db,
+        &c.link.id().to_string(),
+        now(),
+    ))
+    .await
+    .unwrap();
     state(&b, c.link.id(), State::Removed).await;
-    closed(peer.connection(), REFUSED).await;
-    let next = bounded(c.link.dial(b.link.id(), &b.link.addrs()))
-        .await
-        .unwrap();
-    closed(next.connection(), REFUSED).await;
+    bounded(peer.connection().closed()).await;
+    assert_eq!(
+        c.link.dial(b.link.id(), &b.link.addrs()).await.err(),
+        Some("the computer is not let in")
+    );
     let d = computer("dune", Limits::default()).await;
     enter(&a, &d).await;
     state(&b, d.link.id(), State::Pending).await;
@@ -370,7 +375,9 @@ async fn a_leave_reaches_the_others() {
         .unwrap();
     bounded(first.hello(&hello(&c))).await.unwrap();
     bounded(second.hello(&hello(&c))).await.unwrap();
-    bounded(join::leave(&c.link, &c.key, &c.db)).await.unwrap();
+    bounded(join::leave(&c.link, &c.key, &c.db, now()))
+        .await
+        .unwrap();
     state(&a, c.link.id(), State::Left).await;
     state(&b, c.link.id(), State::Left).await;
     assert!(c.db.lock().unwrap().fleet().unwrap().is_none());
@@ -393,11 +400,18 @@ async fn a_tombstoned_key_with_a_valid_code_is_refused_and_the_code_still_works(
     let invitation = code(&a);
     let fresh = computer_key("cedar", Limits::default(), c.key.clone()).await;
     assert_eq!(
-        bounded(join::join(&fresh.link, &fresh.db, &invitation, now())).await,
+        bounded(join::join(
+            &fresh.link,
+            &fresh.key,
+            &fresh.db,
+            &invitation,
+            now()
+        ))
+        .await,
         Err("the join was refused")
     );
     let e = computer("elm", Limits::default()).await;
-    bounded(join::join(&e.link, &e.db, &invitation, now()))
+    bounded(join::join(&e.link, &e.key, &e.db, &invitation, now()))
         .await
         .unwrap();
     stop(&[&a, &b, &c, &fresh, &e]).await;
@@ -411,7 +425,14 @@ async fn a_known_name_with_a_new_key_is_refused() {
     let fresh = computer("birch", Limits::default()).await;
     let invitation = code(&a);
     assert_eq!(
-        bounded(join::join(&fresh.link, &fresh.db, &invitation, now())).await,
+        bounded(join::join(
+            &fresh.link,
+            &fresh.key,
+            &fresh.db,
+            &invitation,
+            now()
+        ))
+        .await,
         Err("the join was refused")
     );
     assert_eq!(a.db.lock().unwrap().codes(now()).unwrap().len(), 1);
@@ -435,7 +456,7 @@ async fn a_code_whose_addresses_answer_with_another_key_fails() {
     let _ = code(&b);
     invitation.hints.direct = b.link.addrs();
     assert!(
-        bounded(join::join(&c.link, &c.db, &invitation, now()))
+        bounded(join::join(&c.link, &c.key, &c.db, &invitation, now()))
             .await
             .is_err()
     );
@@ -461,10 +482,10 @@ async fn a_second_stream_on_a_join_connection_is_never_served() {
     let invitation = code(&a);
     let raw = raw_bind(raw_book(&a), Limits::default()).await;
     let connection = raw.connect(&a.link, JOIN_ALPN).await;
-    let request = join_request(&invitation, "birch");
+    let request = join_request(&raw.key, &invitation, "birch");
     assert!(raw_request(&connection, &request).await.is_ok());
     // Keep another live code open so that this checks the single-stream rule.
-    let request = join_request(&code(&a), "birch");
+    let request = join_request(&raw.key, &code(&a), "birch");
     assert!(raw_request(&connection, &request).await.is_err());
     bounded(connection.closed()).await;
     assert_eq!(a.db.lock().unwrap().codes(now()).unwrap().len(), 1);
@@ -499,9 +520,9 @@ async fn a_bad_name_or_address_in_a_join_request_is_refused() {
     found(&a);
     let invitation = code(&a);
     let raw = raw_bind(raw_book(&a), Limits::default()).await;
-    let mut bad_address = join_request(&invitation, "birch");
+    let mut bad_address = join_request(&raw.key, &invitation, "birch");
     bad_address.addrs = vec!["0.0.0.0:7000".parse().unwrap()];
-    for request in [join_request(&invitation, "Bad"), bad_address] {
+    for request in [join_request(&raw.key, &invitation, "Bad"), bad_address] {
         let connection = raw.connect(&a.link, JOIN_ALPN).await;
         assert!(raw_request(&connection, &request).await.is_err());
         closed(&connection, REFUSED).await;
@@ -526,6 +547,13 @@ async fn a_forged_record_is_reset_without_an_event() {
             &raw.id(),
             "birch",
             &["127.0.0.1:7000".parse().unwrap()],
+            &membership::consent(
+                &raw.key,
+                &invitation.fleet,
+                &a.link.id().to_string(),
+                "birch",
+                &["127.0.0.1:7000".parse().unwrap()],
+            ),
             now(),
         )
         .unwrap();
@@ -581,19 +609,31 @@ async fn a_forged_record_is_reset_without_an_event() {
 #[tokio::test]
 async fn a_replayed_introduction_changes_nothing() {
     let (a, b, c) = trio().await;
+    let fleet = a.db.lock().unwrap().fleet().unwrap().unwrap().body.id;
     let replay: SignedRecord = membership::sign(
         RecordBody::Introduction {
-            fleet: a.db.lock().unwrap().fleet().unwrap().unwrap().body.id,
+            fleet: fleet.clone(),
             inviter: a.link.id().to_string(),
             counter: 2,
             newcomer: c.link.id().to_string(),
             name: "cedar".into(),
             addrs: c.link.addrs(),
+            consent: membership::consent(
+                &c.key,
+                &fleet,
+                &a.link.id().to_string(),
+                "cedar",
+                &c.link.addrs(),
+            ),
         },
         &a.key,
     );
     join::block(&b.link, &b.db, &c.link.id().to_string()).unwrap();
     let before = b.db.lock().unwrap().computers().unwrap();
+    assert_eq!(
+        join::apply(&b.link, &b.db, &replay, now()),
+        Err("the record was already seen")
+    );
     let processed = b.applied.load(Ordering::SeqCst);
     assert_eq!(
         bounded(join::deliver(
@@ -659,4 +699,93 @@ async fn close_all_closes_every_live_key_and_frees_the_connection_slots() {
     bounded(server.close()).await;
     bounded(first.close()).await;
     bounded(second.close()).await;
+}
+
+#[tokio::test]
+async fn a_removed_computer_learns_it_and_forgets_its_fleet() {
+    let (a, b, c) = trio().await;
+    bounded(join::remove(
+        &a.link,
+        &a.key,
+        &a.db,
+        &c.link.id().to_string(),
+        now(),
+    ))
+    .await
+    .unwrap();
+    bounded(async {
+        while c.db.lock().unwrap().fleet().unwrap().is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    stop(&[&a, &b, &c]).await;
+}
+
+async fn connection_to_aborted_driver(b: &Computer, c: &Computer) -> radio_link::link::Peer {
+    accept(b, c);
+    let peer = bounded(c.link.dial(b.link.id(), &b.link.addrs()))
+        .await
+        .unwrap();
+    bounded(peer.hello(&hello(c))).await.unwrap();
+    b.driver.abort();
+    bounded(async {
+        while !b.driver.is_finished() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(peer.connection().close_reason().is_none());
+    peer
+}
+
+#[tokio::test]
+async fn leaving_closes_every_connection_even_where_the_leave_was_not_applied() {
+    let (a, b, c) = trio().await;
+    let peer = connection_to_aborted_driver(&b, &c).await;
+    bounded(join::leave(&c.link, &c.key, &c.db, now()))
+        .await
+        .unwrap();
+    assert_eq!(
+        bounded(peer.connection().closed()).await,
+        iroh::endpoint::ConnectionError::LocallyClosed
+    );
+    assert_eq!(row(&b, c.link.id()).unwrap().state, State::Accepted);
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn being_removed_closes_every_connection() {
+    let (a, b, c) = trio().await;
+    let peer = connection_to_aborted_driver(&b, &c).await;
+    bounded(join::remove(
+        &a.link,
+        &a.key,
+        &a.db,
+        &c.link.id().to_string(),
+        now(),
+    ))
+    .await
+    .unwrap();
+    assert_eq!(
+        bounded(peer.connection().closed()).await,
+        iroh::endpoint::ConnectionError::LocallyClosed
+    );
+    assert_eq!(row(&b, c.link.id()).unwrap().state, State::Accepted);
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn joining_with_another_links_key_is_refused() {
+    let a = computer("garden", Limits::default()).await;
+    let b = computer("birch", Limits::default()).await;
+    found(&a);
+    let invitation = code(&a);
+    assert_eq!(
+        bounded(join::join(&b.link, &a.key, &b.db, &invitation, now())).await,
+        Err("the key is not this link's")
+    );
+    assert!(b.db.lock().unwrap().fleet().unwrap().is_none());
+    assert_eq!(a.db.lock().unwrap().codes(now()).unwrap().len(), 1);
+    stop(&[&a, &b]).await;
 }

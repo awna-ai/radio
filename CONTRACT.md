@@ -76,7 +76,7 @@ them against these lines. They are independent of the repo's semver tags.
 | `code_revoke` | `id` | `removed` | Closes an open join code |
 | `computer_list` | none | `computers: [{id, name?, state, invited_by?, trusted}]` | This computer's view of its fleet: every other computer, by name, then those removed or gone, by id. `id` is a computer's link id; `state` is `accepted` (it may connect), `pending` (introduced by a computer this one doesn't trust, and waiting for the person to accept it), `blocked` (refused here only), `removed` or `left`; `invited_by` is its inviter's id; `trusted` means a computer it invites is accepted here at once |
 | `computer_accept` | `computer` | `computer` | Lets a pending or blocked computer connect. `computer` is its name or its id |
-| `computer_block` | `computer` | `computer` | Refuses a computer on this computer only, and closes its connections; never sent to the others. `computer_accept` lifts it |
+| `computer_block` | `computer` | `computer` | Refuses a computer on this computer only; never sent to the others. `computer_accept` lifts it |
 | `computer_trust` | `computer` | `computer` | Marks an accepted computer trusted: the computers it invites from now on are accepted here without asking |
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a

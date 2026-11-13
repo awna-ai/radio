@@ -18,10 +18,14 @@ const UNANSWERED: &str = "the computer did not answer";
 
 pub async fn join(
     link: &Link,
+    key: &SecretKey,
     db: &Mutex<FleetDb>,
     code: &JoinCode,
     now: f64,
 ) -> Result<(), &'static str> {
+    if key.public() != link.id() {
+        return Err("the key is not this link's");
+    }
     if db.lock().map_err(|_| READ)?.fleet()?.is_some() {
         return Err("already in a fleet");
     }
@@ -35,6 +39,13 @@ pub async fn join(
             &mut send,
             &JoinRequest {
                 code: code.encode(),
+                consent: crate::membership::consent(
+                    key,
+                    &code.fleet,
+                    &code.inviter.to_string(),
+                    link.name(),
+                    &link.addrs(),
+                ),
                 name: link.name().into(),
                 addrs: link.addrs(),
             },
@@ -86,6 +97,7 @@ pub async fn answer(
             &connection.remote_id(),
             &request.name,
             &request.addrs,
+            &request.consent,
             now,
         )?;
         Ok((send, answer, introduction))
@@ -147,7 +159,7 @@ pub fn apply(
     let applied = db
         .lock()
         .map_err(|_| READ)?
-        .apply(&link.id(), record, now)?;
+        .apply(&link.id(), link.name(), record, now)?;
     match &applied {
         Applied::Removed(key) => link.close_key(key),
         Applied::LeftFleet => link.close_all(),
@@ -170,22 +182,34 @@ pub async fn remove(
     target: &str,
     now: f64,
 ) -> Result<usize, &'static str> {
-    let (record, subject, to) = {
+    let computer = db.lock().map_err(|_| READ)?.computer(target)?;
+    let subject = crate::fleet::public_key(&computer.key).ok_or(READ)?;
+    let peer = if computer.addrs.is_empty() {
+        None
+    } else {
+        link.dial(subject, &computer.addrs).await.ok()
+    };
+    let (record, to) = {
         let mut db = db.lock().map_err(|_| READ)?;
-        let (record, subject) = db.remove(key, target, now)?;
+        let (record, _) = db.remove(key, target, now)?;
         let to = db.recipients(&subject)?;
-        (record, subject, to)
+        (record, to)
+    };
+    let delivered = match peer {
+        Some(peer) => usize::from(peer.send_record(&record).await.is_ok()),
+        None => 0,
     };
     link.close_key(&subject);
-    Ok(deliver(link, &record, &to).await)
+    Ok(delivered + deliver(link, &record, &to).await)
 }
 
 pub async fn leave(
     link: &Link,
     key: &SecretKey,
     db: &Mutex<FleetDb>,
+    now: f64,
 ) -> Result<usize, &'static str> {
-    let (record, to) = db.lock().map_err(|_| READ)?.leave(key)?;
+    let (record, to) = db.lock().map_err(|_| READ)?.leave(key, now)?;
     let delivered = deliver(link, &record, &to).await;
     db.lock().map_err(|_| READ)?.forget()?;
     link.close_all();

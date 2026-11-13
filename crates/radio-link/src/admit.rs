@@ -1,7 +1,7 @@
 use std::{
     fmt,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use iroh::{
@@ -16,6 +16,7 @@ use tokio::time::Instant;
 
 use crate::{
     endpoint::{ALPN, JOIN_ALPN},
+    fleet_db::FleetDb,
     link::REFUSED,
 };
 
@@ -31,6 +32,32 @@ pub trait Admission: Send + Sync + 'static {
     fn standing(&self, key: &EndpointId) -> Standing;
     fn join_open(&self) -> bool;
     fn fleet(&self) -> Option<String>;
+}
+
+impl Admission for Mutex<FleetDb> {
+    fn standing(&self, key: &iroh::EndpointId) -> Standing {
+        self.lock()
+            .ok()
+            .and_then(|db| db.standing(key).ok())
+            .unwrap_or(Standing::Refused)
+    }
+    fn join_open(&self) -> bool {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|now| {
+                self.lock()
+                    .ok()
+                    .and_then(|db| db.join_open(now.as_secs_f64()).ok())
+            })
+            .unwrap_or(false)
+    }
+    fn fleet(&self) -> Option<String> {
+        self.lock()
+            .ok()
+            .and_then(|db| db.fleet().ok().flatten())
+            .map(|record| record.body.id)
+    }
 }
 
 #[derive(Clone)]

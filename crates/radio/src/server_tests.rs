@@ -1524,6 +1524,13 @@ fn computers_cross_the_socket() {
         &meadow.public(),
         "meadow",
         &["127.0.0.1:7000".parse().unwrap()],
+        &membership::consent(
+            &meadow,
+            &code.fleet,
+            &node.public().to_string(),
+            "meadow",
+            &["127.0.0.1:7000".parse().unwrap()],
+        ),
         now().unwrap(),
     )
     .unwrap();
@@ -1535,10 +1542,17 @@ fn computers_cross_the_socket() {
             newcomer: lantern.public().to_string(),
             name: "lantern".into(),
             addrs: vec!["127.0.0.1:7001".parse().unwrap()],
+            consent: membership::consent(
+                &lantern,
+                &code.fleet,
+                &meadow.public().to_string(),
+                "lantern",
+                &["127.0.0.1:7001".parse().unwrap()],
+            ),
         },
         &meadow,
     );
-    db.apply(&node.public(), &introduction, now().unwrap())
+    db.apply(&node.public(), "test-host", &introduction, now().unwrap())
         .unwrap();
     let mut lantern_row = serde_json::json!({
         "id":lantern.public().to_string(), "name":"lantern", "state":"pending",

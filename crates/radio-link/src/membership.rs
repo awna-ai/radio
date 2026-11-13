@@ -2,6 +2,7 @@ use crate::fleet::FleetRecord;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
+pub const CONSENT_DOMAIN: &[u8] = b"radio join consent 1\n";
 pub const MEMBERSHIP_DOMAIN: &[u8] = b"radio membership 1\n";
 pub const ADDRS_MAX: usize = 2;
 pub const COMPUTERS_MAX: usize = 1024;
@@ -17,6 +18,7 @@ pub enum RecordBody {
         newcomer: String,
         name: String,
         addrs: Vec<SocketAddr>,
+        consent: String,
     },
     Removal {
         fleet: String,
@@ -47,6 +49,75 @@ pub struct JoinAnswer {
     pub removed: Vec<String>,
 }
 
+#[derive(Serialize)]
+struct ConsentBody<'a> {
+    fleet: &'a str,
+    inviter: &'a str,
+    newcomer: &'a str,
+    name: &'a str,
+    addrs: Vec<SocketAddr>,
+}
+fn consent_bytes(
+    fleet: &str,
+    inviter: &str,
+    newcomer: &str,
+    name: &str,
+    addrs: &[SocketAddr],
+) -> Vec<u8> {
+    let mut bytes = CONSENT_DOMAIN.to_vec();
+    bytes.extend(
+        serde_json::to_vec(&ConsentBody {
+            fleet,
+            inviter,
+            newcomer,
+            name,
+            addrs: addrs.to_vec(),
+        })
+        .expect("join consent serializes"),
+    );
+    bytes
+}
+pub fn consent(
+    key: &iroh::SecretKey,
+    fleet: &str,
+    inviter: &str,
+    name: &str,
+    addrs: &[SocketAddr],
+) -> String {
+    data_encoding::HEXLOWER.encode(
+        &key.sign(&consent_bytes(
+            fleet,
+            inviter,
+            &key.public().to_string(),
+            name,
+            addrs,
+        ))
+        .to_bytes(),
+    )
+}
+pub(crate) fn consent_holds(
+    consent: &str,
+    fleet: &str,
+    inviter: &str,
+    newcomer: &str,
+    name: &str,
+    addrs: &[SocketAddr],
+) -> bool {
+    let Some(key) = crate::fleet::public_key(newcomer) else {
+        return false;
+    };
+    let Ok(bytes) = data_encoding::HEXLOWER.decode(consent.as_bytes()) else {
+        return false;
+    };
+    let Ok(bytes) = <[u8; 64]>::try_from(bytes) else {
+        return false;
+    };
+    key.verify(
+        &consent_bytes(fleet, inviter, newcomer, name, addrs),
+        &iroh::Signature::from_bytes(&bytes),
+    )
+    .is_ok()
+}
 fn signed_bytes(body: &RecordBody) -> Vec<u8> {
     let mut bytes = MEMBERSHIP_DOMAIN.to_vec();
     bytes.extend(serde_json::to_vec(body).expect("membership body serializes"));
@@ -64,6 +135,8 @@ impl SignedRecord {
         let key = crate::fleet::public_key(self.signer()).ok_or(INVALID)?;
         let valid = match &self.body {
             RecordBody::Introduction {
+                fleet,
+                consent,
                 inviter,
                 newcomer,
                 name,
@@ -74,6 +147,7 @@ impl SignedRecord {
                     && newcomer != inviter
                     && crate::wire::member_name(name)
                     && valid_addrs(addrs, false)
+                    && consent_holds(consent, fleet, inviter, newcomer, name, addrs)
             }
             RecordBody::Removal { subject, .. } => crate::fleet::public_key(subject).is_some(),
         };

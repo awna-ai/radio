@@ -3,12 +3,24 @@ use serde::{Deserialize, Serialize};
 pub const LINK_MAJOR: u32 = 1;
 pub const LINK_MINOR: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JoinRequest {
     pub code: String,
+    pub consent: String,
     pub name: String,
     pub addrs: Vec<std::net::SocketAddr>,
+}
+
+impl std::fmt::Debug for JoinRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JoinRequest")
+            .field("code", &"<hidden>")
+            .field("consent", &"<hidden>")
+            .field("name", &self.name)
+            .field("addrs", &self.addrs)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

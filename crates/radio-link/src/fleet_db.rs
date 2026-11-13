@@ -1,5 +1,5 @@
 use crate::{
-    admit::{Admission, Standing},
+    admit::Standing,
     code::{Hints, JoinCode},
     fleet::{self, FleetRecord},
     key,
@@ -16,8 +16,7 @@ use std::{
     net::SocketAddr,
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::Mutex,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 pub const DB_FILE: &str = "fleet.db";
@@ -122,7 +121,6 @@ pub enum Applied {
     Held,
     Removed(iroh::EndpointId),
     LeftFleet,
-    Unchanged,
 }
 pub type Recipient = (iroh::EndpointId, Vec<std::net::SocketAddr>);
 
@@ -248,6 +246,10 @@ impl FleetDb {
             _ => Standing::Unknown,
         })
     }
+    pub fn computer(&self, target: &str) -> Result<Computer, &'static str> {
+        load_fleet(&self.conn)?.ok_or("not in a fleet")?;
+        resolve(&self.conn, target)
+    }
     pub fn computers(&self) -> Result<Vec<Computer>, &'static str> {
         let mut computers = all_computers(&self.conn)?;
         let mut stmt = self
@@ -290,6 +292,7 @@ impl FleetDb {
         newcomer: &iroh::EndpointId,
         name: &str,
         addrs: &[SocketAddr],
+        consent: &str,
         now: f64,
     ) -> Result<(JoinAnswer, Option<SignedRecord>), &'static str> {
         let tx = self
@@ -307,6 +310,9 @@ impl FleetDb {
         }
         if !membership::valid_addrs(addrs, false) {
             return Err("the computer's addresses are not usable");
+        }
+        if !membership::consent_holds(consent, &fleet.body.id, &own, &key, name, addrs) {
+            return Err("the join request is not signed");
         }
         let current = find_computer(&tx, &key)?;
         if newcomer == &node.public()
@@ -351,6 +357,7 @@ impl FleetDb {
                     newcomer: key.clone(),
                     name: name.into(),
                     addrs: addrs.to_vec(),
+                    consent: consent.into(),
                 },
                 node,
             ))
@@ -461,6 +468,7 @@ impl FleetDb {
     pub fn apply(
         &mut self,
         node: &iroh::EndpointId,
+        own_name: &str,
         record: &SignedRecord,
         now: f64,
     ) -> Result<Applied, &'static str> {
@@ -495,7 +503,7 @@ impl FleetDb {
                 addrs,
                 ..
             } => (
-                apply_introduction(&tx, node, inviter, newcomer, name, addrs, now)?,
+                apply_introduction(&tx, node, own_name, inviter, newcomer, name, addrs, now)?,
                 "introduction",
             ),
             RecordBody::Removal {
@@ -600,6 +608,7 @@ impl FleetDb {
     pub fn leave(
         &mut self,
         node: &iroh::SecretKey,
+        now: f64,
     ) -> Result<(SignedRecord, Vec<Recipient>), &'static str> {
         let tx = self
             .conn
@@ -608,10 +617,6 @@ impl FleetDb {
         let fleet = load_fleet(&tx)?.ok_or("not in a fleet")?;
         let counter = take_counter(&tx)?;
         let own = node.public();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| WRITE)?
-            .as_secs_f64();
         seen(&tx, &own.to_string(), counter, "removal", now)?;
         let record = membership::sign(
             RecordBody::Removal {
@@ -753,32 +758,6 @@ impl FleetDb {
     }
 }
 
-impl Admission for Mutex<FleetDb> {
-    fn standing(&self, key: &iroh::EndpointId) -> Standing {
-        self.lock()
-            .ok()
-            .and_then(|db| db.standing(key).ok())
-            .unwrap_or(Standing::Refused)
-    }
-    fn join_open(&self) -> bool {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .and_then(|now| {
-                self.lock()
-                    .ok()
-                    .and_then(|db| db.join_open(now.as_secs_f64()).ok())
-            })
-            .unwrap_or(false)
-    }
-    fn fleet(&self) -> Option<String> {
-        self.lock()
-            .ok()
-            .and_then(|db| db.fleet().ok().flatten())
-            .map(|record| record.body.id)
-    }
-}
-
 fn load_fleet(conn: &Connection) -> Result<Option<FleetRecord>, &'static str> {
     let text: Option<String> = conn
         .query_row("SELECT record FROM fleet WHERE one = 1", [], |row| {
@@ -883,6 +862,7 @@ fn consume(tx: &Transaction<'_>, code: &JoinCode, now: f64) -> Result<CodeRow, &
 fn apply_introduction(
     tx: &Transaction<'_>,
     node: &iroh::EndpointId,
+    own_name: &str,
     inviter: &str,
     newcomer: &str,
     name: &str,
@@ -899,7 +879,7 @@ fn apply_introduction(
         || tombstoned(tx, newcomer)?
         || find_computer(tx, newcomer)?.is_some()
     {
-        return Ok(Applied::Unchanged);
+        return Err("the computer is already known");
     }
     let held: Option<String> = tx.query_row("SELECT signer FROM held WHERE subject = ?1 AND (signer = ?2 OR signer = ?1) ORDER BY signer LIMIT 1", params![newcomer, inviter], |r| r.get(0)).optional().map_err(|_| READ)?;
     if let Some(signer) = held {
@@ -907,7 +887,7 @@ fn apply_introduction(
         store_tombstone(tx, newcomer, Some(name), &signer, now)?;
         return Ok(Applied::Removed(fleet::public_key(newcomer).ok_or(READ)?));
     }
-    if name_taken(tx, name, newcomer)? {
+    if name == own_name || name_taken(tx, name, newcomer)? {
         return Err("the name is taken here");
     }
     let pending = !inviter_row.trusted;
@@ -937,9 +917,13 @@ fn apply_removal(
     subject: &str,
     now: f64,
 ) -> Result<Applied, &'static str> {
+    if tombstoned(tx, subject)? {
+        return Err("the computer was already removed");
+    }
+    let founder_ok = signer == founder && !tombstoned(tx, founder)?;
     let leaving = signer == subject;
     if !leaving
-        && signer != founder
+        && !founder_ok
         && !find_computer(tx, signer)?.is_some_and(|c| c.state == State::Accepted)
     {
         return Err("the signer is not accepted here");
@@ -950,24 +934,21 @@ fn apply_removal(
                 r.get(0)
             })
             .map_err(|_| READ)?;
-        if signer != founder && inviter.as_deref() != Some(signer) {
+        if !founder_ok && inviter.as_deref() != Some(signer) {
             return Err(REMOVE_AUTH);
         }
         clear_fleet(tx)?;
         return Ok(Applied::LeftFleet);
     }
     if let Some(computer) = find_computer(tx, subject)? {
-        if !leaving && signer != founder && computer.invited_by.as_deref() != Some(signer) {
+        if !leaving && !founder_ok && computer.invited_by.as_deref() != Some(signer) {
             return Err(REMOVE_AUTH);
         }
         delete_computer(tx, subject)?;
         store_tombstone(tx, subject, computer.name.as_deref(), signer, now)?;
         return Ok(Applied::Removed(fleet::public_key(subject).ok_or(READ)?));
     }
-    if tombstoned(tx, subject)? {
-        return Ok(Applied::Unchanged);
-    }
-    if !leaving && signer == founder {
+    if !leaving && founder_ok {
         store_tombstone(tx, subject, None, signer, now)?;
         return Ok(Applied::Removed(fleet::public_key(subject).ok_or(READ)?));
     }
@@ -996,8 +977,6 @@ fn apply_removal(
 }
 fn delete_computer(tx: &Transaction<'_>, key: &str) -> Result<(), &'static str> {
     tx.execute("DELETE FROM computers WHERE key = ?1", [key])
-        .map_err(|_| WRITE)?;
-    tx.execute("DELETE FROM held WHERE subject = ?1", [key])
         .map_err(|_| WRITE)?;
     Ok(())
 }
@@ -1064,6 +1043,8 @@ fn insert_computer(
         ],
     )
     .map_err(|_| WRITE)?;
+    conn.execute("DELETE FROM held WHERE subject = ?1", [&known.key])
+        .map_err(|_| WRITE)?;
     Ok(())
 }
 fn store_tombstone(
@@ -1078,6 +1059,8 @@ fn store_tombstone(
         params![key, name, signer, now],
     )
     .map_err(|_| WRITE)?;
+    tx.execute("DELETE FROM held WHERE subject = ?1", [key])
+        .map_err(|_| WRITE)?;
     Ok(())
 }
 fn take_counter(tx: &Transaction<'_>) -> Result<u64, &'static str> {

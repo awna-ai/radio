@@ -2,22 +2,44 @@ use super::*;
 use serde_json::json;
 
 fn introduction(node: &iroh::SecretKey) -> RecordBody {
+    introduction_with(
+        node,
+        &iroh::SecretKey::generate(),
+        vec!["127.0.0.1:7000".parse().unwrap()],
+    )
+}
+fn introduction_with(
+    node: &iroh::SecretKey,
+    newcomer: &iroh::SecretKey,
+    addrs: Vec<SocketAddr>,
+) -> RecordBody {
     RecordBody::Introduction {
         fleet: "ab".repeat(32),
         inviter: node.public().to_string(),
         counter: 1,
-        newcomer: iroh::SecretKey::generate().public().to_string(),
+        newcomer: newcomer.public().to_string(),
         name: "garden".into(),
-        addrs: vec!["127.0.0.1:7000".parse().unwrap()],
+        consent: consent(
+            newcomer,
+            &"ab".repeat(32),
+            &node.public().to_string(),
+            "garden",
+            &addrs,
+        ),
+        addrs,
     }
 }
 #[test]
 fn records_round_trip_and_verify() {
     let node = iroh::SecretKey::generate();
-    let mut dual = introduction(&node);
-    if let RecordBody::Introduction { addrs, .. } = &mut dual {
-        addrs.push("[::1]:7000".parse().unwrap());
-    }
+    let dual = introduction_with(
+        &node,
+        &iroh::SecretKey::generate(),
+        vec![
+            "127.0.0.1:7000".parse().unwrap(),
+            "[::1]:7000".parse().unwrap(),
+        ],
+    );
     for body in [
         introduction(&node),
         dual,
@@ -44,8 +66,8 @@ fn signatures_bind_body_key_and_domain() {
     let node = iroh::SecretKey::generate();
     let body = introduction(&node);
     let mut changed = sign(body.clone(), &node);
-    if let RecordBody::Introduction { name, .. } = &mut changed.body {
-        *name = "orchard".into();
+    if let RecordBody::Introduction { counter, .. } = &mut changed.body {
+        *counter = 2;
     }
     let mut raw = sign(body.clone(), &node);
     raw.signature =
@@ -136,4 +158,67 @@ fn unknown_fields_and_kind_are_refused() {
     let mut record = base;
     record["body"]["kind"] = json!("unknown");
     assert!(serde_json::from_value::<SignedRecord>(record).is_err());
+}
+
+#[test]
+fn introductions_require_the_newcomers_consent_to_every_field() {
+    let inviter = iroh::SecretKey::generate();
+    let newcomer = iroh::SecretKey::generate();
+    let addrs = vec!["127.0.0.1:7000".parse().unwrap()];
+    let body = introduction_with(&inviter, &newcomer, addrs.clone());
+    let fleet = "ab".repeat(32);
+    let other = iroh::SecretKey::generate();
+    let inviter_id = inviter.public().to_string();
+    for bad in [
+        consent(&other, &fleet, &inviter_id, "garden", &addrs),
+        consent(
+            &newcomer,
+            &fleet,
+            &other.public().to_string(),
+            "garden",
+            &addrs,
+        ),
+        consent(&newcomer, &fleet, &inviter_id, "orchard", &addrs),
+        consent(
+            &newcomer,
+            &fleet,
+            &inviter_id,
+            "garden",
+            &["127.0.0.1:7001".parse().unwrap()],
+        ),
+        consent(&newcomer, &"cd".repeat(32), &inviter_id, "garden", &addrs),
+        "F".repeat(128),
+        "f".repeat(127),
+    ] {
+        let mut changed = body.clone();
+        if let RecordBody::Introduction { consent, .. } = &mut changed {
+            *consent = bad;
+        }
+        assert_eq!(
+            sign(changed, &inviter).verify(),
+            Err("not a membership record")
+        );
+    }
+}
+#[test]
+fn consent_signs_the_domain_then_the_ordered_json() {
+    let key = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let inviter = iroh::SecretKey::generate().public().to_string();
+    let newcomer = key.public().to_string();
+    let addrs = vec!["127.0.0.1:7000".parse().unwrap()];
+    let json = format!(
+        "{{\"fleet\":\"{fleet}\",\"inviter\":\"{inviter}\",\"newcomer\":\"{newcomer}\",\"name\":\"garden\",\"addrs\":[\"127.0.0.1:7000\"]}}"
+    );
+    let bytes = consent_bytes(&fleet, &inviter, &newcomer, "garden", &addrs);
+    assert!(bytes.starts_with(CONSENT_DOMAIN));
+    assert_eq!(&bytes[CONSENT_DOMAIN.len()..], json.as_bytes());
+    let raw = data_encoding::HEXLOWER.encode(&key.sign(json.as_bytes()).to_bytes());
+    assert!(!consent_holds(
+        &raw, &fleet, &inviter, &newcomer, "garden", &addrs
+    ));
+    assert_eq!(
+        consent(&key, &fleet, &inviter, "garden", &addrs),
+        data_encoding::HEXLOWER.encode(&key.sign(&bytes).to_bytes())
+    );
 }

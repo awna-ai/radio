@@ -170,6 +170,7 @@ fn record_request_round_trips_and_refuses_unknown_fields() {
 fn join_request_round_trips_and_refuses_unknown_fields() {
     let request = JoinRequest {
         code: "opaque".into(),
+        consent: "opaque".into(),
         name: "garden".into(),
         addrs: vec!["127.0.0.1:7000".parse().unwrap()],
     };
@@ -180,4 +181,33 @@ fn join_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<JoinRequest>(value).is_err());
+}
+
+#[test]
+fn join_request_debug_hides_code_and_consent() {
+    let key = iroh::SecretKey::generate();
+    let code =
+        crate::code::JoinCode::new("ab".repeat(32), key.public(), crate::code::Hints::default())
+            .unwrap();
+    let encoded = code.encode();
+    let secret = encoded.split('.').nth(3).unwrap();
+    let consent = crate::membership::consent(
+        &key,
+        &code.fleet,
+        &code.inviter.to_string(),
+        "garden",
+        &["127.0.0.1:7000".parse().unwrap()],
+    );
+    let request = JoinRequest {
+        code: encoded.clone(),
+        consent: consent.clone(),
+        name: "garden".into(),
+        addrs: vec!["127.0.0.1:7000".parse().unwrap()],
+    };
+    let debug = format!("{request:?}");
+    assert!(!debug.contains(&encoded));
+    assert!(!debug.contains(secret));
+    assert!(!debug.contains(&consent));
+    assert!(debug.contains("garden"));
+    assert!(debug.contains("<hidden>"));
 }
