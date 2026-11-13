@@ -20,7 +20,11 @@ pub fn check_folder(path: &Path) -> Result<OwnedFd, &'static str> {
     let fd = unsafe {
         libc::open(
             path.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            libc::O_RDONLY
+                | libc::O_DIRECTORY
+                | libc::O_NOFOLLOW
+                | libc::O_CLOEXEC
+                | libc::O_NONBLOCK,
         )
     };
     if fd < 0 {
@@ -155,6 +159,24 @@ mod tests {
             check_folder(&link).unwrap_err(),
             "the folder could not be opened"
         );
+    }
+
+    #[test]
+    fn delivery_rejects_a_fifo_without_waiting_for_a_writer() {
+        let folder = Folder::new();
+        let path = folder.0.join("pipe");
+        let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: the path is NUL-terminated and valid for the call.
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let (sent, received) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            sent.send(check_folder(&path).unwrap_err()).unwrap();
+        });
+        assert_eq!(
+            received.recv_timeout(std::time::Duration::from_secs(2)),
+            Ok("the folder could not be opened")
+        );
+        worker.join().unwrap();
     }
 
     #[test]

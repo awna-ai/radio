@@ -26,6 +26,7 @@ use tokio::{
 };
 
 pub(crate) const WAIT: Duration = Duration::from_secs(110);
+const STILL_TELLING: &str = "still telling the other computers; check computer_list later";
 
 /// Call from outside the runtime, without holding the fleet store's lock.
 pub struct Node {
@@ -126,11 +127,7 @@ impl Node {
             let result = join::join(&link, &key, &db, &code, now).await;
             let _ = sender.send(result);
         });
-        wait(
-            receiver,
-            WAIT,
-            "still telling the other computers; check computer_list later",
-        )?
+        wait(receiver, WAIT, STILL_TELLING)?
     }
 
     pub fn remove(&self, target: &str, now: f64) -> Result<usize, &'static str> {
@@ -144,11 +141,7 @@ impl Node {
             let result = join::remove(&link, &key, &db, &target, now).await;
             let _ = sender.send(result);
         });
-        wait(
-            receiver,
-            WAIT,
-            "still telling the other computers; check computer_list later",
-        )?
+        wait(receiver, WAIT, STILL_TELLING)?
     }
 
     pub fn leave(&self, now: f64) -> Result<usize, &'static str> {
@@ -161,11 +154,7 @@ impl Node {
             let result = join::leave(&link, &key, &db, now).await;
             let _ = sender.send(result);
         });
-        wait(
-            receiver,
-            WAIT,
-            "still telling the other computers; check computer_list later",
-        )?
+        wait(receiver, WAIT, STILL_TELLING)?
     }
 
     pub fn send_file(
@@ -310,7 +299,7 @@ fn open_file(name: &str, path: &Path) -> Result<(std::fs::File, u64), &'static s
     }
     let file = std::fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
         .open(path)
         .map_err(|_| "the file could not be opened")?;
     let metadata = file
@@ -347,6 +336,24 @@ mod tests {
             wait(receiver, Duration::ZERO, "the send did not finish in time"),
             Err("the send did not finish in time")
         );
+    }
+
+    #[test]
+    fn a_source_fifo_open_does_not_wait_for_a_writer() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::env::temp_dir().join(format!("radio-node-pipe-{}", std::process::id()));
+        let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: the path is NUL-terminated and valid for the call.
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let (sent, received) = sync_channel(1);
+        let worker_path = path.clone();
+        let worker = std::thread::spawn(move || {
+            let _ = sent.send(open_file("letter", &worker_path).err());
+        });
+        let result = received.recv_timeout(Duration::from_secs(2));
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(result, Ok(Some("not a regular file")));
+        worker.join().unwrap();
     }
 
     #[test]

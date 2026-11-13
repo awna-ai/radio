@@ -33,13 +33,19 @@ fn digits<T: std::str::FromStr>(value: &str) -> Result<T, ()> {
     value.parse().map_err(|_| ())
 }
 
-/// Parses one operation without reading files, stdin or the environment.
+/// Parses one operation without reading files or stdin; file paths use the current directory.
 #[allow(clippy::result_unit_err)]
 pub fn parse(args: &[String]) -> Result<Command, ()> {
     let words: Vec<_> = args.iter().map(String::as_str).collect();
     let (op, positional_count, rest, allowed): (&str, usize, &[&str], &[&str]) = match words
         .as_slice()
     {
+        ["send", rest @ ..] => ("send", 2, rest, &["--app", "--name"]),
+        ["delivery", "folder", "set", rest @ ..] => ("delivery_folder_set", 1, rest, &["--app"]),
+        ["delivery", "folder", "clear", rest @ ..] => {
+            ("delivery_folder_clear", 0, rest, &["--app"])
+        }
+        ["deliveries", rest @ ..] => ("deliveries", 0, rest, &["--app", "--after", "--limit"]),
         ["hello", rest @ ..] => ("hello", 0, rest, &[]),
         ["join", rest @ ..] => ("join", 0, rest, &[]),
         ["leave", rest @ ..] => ("leave", 0, rest, &[]),
@@ -101,6 +107,33 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     let limit = || seen.get("--limit").map(|value| digits(value)).transpose();
     let mut body = None;
     let request = match op {
+        "send" => {
+            let path = std::path::Path::new(positionals[1]);
+            let last = path.file_name().and_then(|name| name.to_str()).ok_or(())?;
+            let file = std::path::absolute(path).map_err(|_| ())?;
+            Request::Send {
+                app: required("--app")?.into(),
+                computer: positionals[0].into(),
+                name: seen.get("--name").copied().unwrap_or(last).into(),
+                file: file.into_os_string().into_string().map_err(|_| ())?,
+            }
+        }
+        "delivery_folder_set" => Request::DeliveryFolderSet {
+            app: required("--app")?.into(),
+            folder: std::path::absolute(positionals[0])
+                .map_err(|_| ())?
+                .into_os_string()
+                .into_string()
+                .map_err(|_| ())?,
+        },
+        "delivery_folder_clear" => Request::DeliveryFolderClear {
+            app: required("--app")?.into(),
+        },
+        "deliveries" => Request::Deliveries {
+            app: required("--app")?.into(),
+            after: seen.get("--after").map(|value| digits(value)).transpose()?,
+            limit: limit()?,
+        },
         "hello" => Request::Hello {},
         "id" => Request::Id {},
         "join" => {

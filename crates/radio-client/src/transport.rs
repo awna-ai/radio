@@ -36,6 +36,8 @@ pub fn request_line(socket: &Path, request: &Request) -> Result<(Response, Strin
 
 fn answer_wait(request: &Request) -> Duration {
     match request {
+        // The node waits up to 130 seconds for a file send, including the dial.
+        Request::Send { .. } => Duration::from_secs(135),
         Request::Join { .. } | Request::ComputerRemove { .. } | Request::Leave {} => {
             Duration::from_secs(120)
         }

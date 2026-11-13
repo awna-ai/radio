@@ -1,7 +1,7 @@
 use crate::log::{Field, Log};
 use radio_client::{
-    Computer, Fleet, JoinCodeInfo, Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR, Protocol,
-    REQUEST_MAX_BYTES, Request, Response, Room, StatusLine,
+    Computer, Delivery, Fleet, JoinCodeInfo, Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR,
+    Protocol, REQUEST_MAX_BYTES, Request, Response, Room, StatusLine,
 };
 use radio_rooms::{Author, OWNED, READ_MAX, RoomStore};
 use std::{
@@ -405,6 +405,70 @@ impl Server {
             Request::Leave {} => {
                 self.start_link()?;
                 response.delivered = Some(self.link.as_ref().unwrap().leave(now)? as u64);
+            }
+            Request::Send {
+                app,
+                computer,
+                name,
+                file,
+            } => {
+                drop(self.fleet_db()?);
+                if !self.store.registered(&app)? {
+                    return Err("the app is not registered".into());
+                }
+                self.start_link()?;
+                if !Path::new(&file).is_absolute() {
+                    return Err("the file must be an absolute path".into());
+                }
+                if !radio_link::wire::file_name(&name) {
+                    return Err("not a file name".into());
+                }
+                response.size = Some(self.link.as_ref().unwrap().send_file(
+                    &computer,
+                    &app,
+                    &name,
+                    Path::new(&file),
+                )?);
+            }
+            Request::DeliveryFolderSet { app, folder } => {
+                drop(self.fleet_db()?);
+                if !self.store.registered(&app)? {
+                    return Err("the app is not registered".into());
+                }
+                self.fleet_db()?
+                    .set_delivery_folder(&app, Path::new(&folder))?;
+            }
+            Request::DeliveryFolderClear { app } => {
+                drop(self.fleet_db()?);
+                if !self.store.registered(&app)? {
+                    return Err("the app is not registered".into());
+                }
+                response.removed = Some(self.fleet_db()?.clear_delivery_folder(&app)?);
+            }
+            Request::Deliveries { app, after, limit } => {
+                drop(self.fleet_db()?);
+                if !self.store.registered(&app)? {
+                    return Err("the app is not registered".into());
+                }
+                let limit = limit.unwrap_or(100);
+                if !(1..=500).contains(&limit) {
+                    return Err("not a limit".into());
+                }
+                // SQLite ids cannot exceed i64::MAX, so larger cursors have no later row.
+                let after = i64::try_from(after.unwrap_or(0)).unwrap_or(i64::MAX);
+                response.deliveries = Some(
+                    self.fleet_db()?
+                        .arrivals(&app, after, limit as usize)?
+                        .into_iter()
+                        .map(|row| Delivery {
+                            id: row.id,
+                            computer: row.computer,
+                            name: row.name,
+                            size: row.size,
+                            at: row.at,
+                        })
+                        .collect(),
+                );
             }
             Request::FleetInit { name } => {
                 drop(self.fleet_db()?);

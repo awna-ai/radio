@@ -25,18 +25,11 @@ pub async fn read<T: DeserializeOwned, R: AsyncRead + Unpin>(
     r: &mut R,
     cap: usize,
 ) -> Result<T, &'static str> {
-    let mut prefix = [0; 4];
-    r.read_exact(&mut prefix).await.map_err(|_| INVALID)?;
-    let length = u32::from_be_bytes(prefix) as usize;
-    if length == 0 || length > cap {
-        return Err(INVALID);
-    }
-    let mut bytes = vec![0; length];
-    r.read_exact(&mut bytes).await.map_err(|_| INVALID)?;
+    let value = read_head(r, cap).await?;
     if r.read(&mut [0]).await.map_err(|_| INVALID)? != 0 {
         return Err(INVALID);
     }
-    serde_json::from_slice(&bytes).map_err(|_| INVALID)
+    Ok(value)
 }
 
 pub async fn read_head<T: DeserializeOwned, R: AsyncRead + Unpin>(

@@ -290,6 +290,26 @@ fn a_source_link_or_directory_is_refused() {
     );
 }
 
+#[test]
+fn a_source_fifo_is_refused_without_waiting_for_a_writer() {
+    use std::os::unix::ffi::OsStrExt;
+    let a = Computer::new("garden");
+    let path = a.dir.0.join("pipe");
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: the path is NUL-terminated and valid for the call.
+    assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+    let (sent, received) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        sent.send(a.node.send_file("unknown", "notes", "letter", &path))
+            .unwrap();
+    });
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(2)),
+        Ok(Err("not a regular file"))
+    );
+    worker.join().unwrap();
+}
+
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -350,38 +370,49 @@ fn a_held_body_makes_the_next_delivery_busy() {
     assert_eq!(b.node.join(a.code(), now()), Ok(()));
     wait(|| a.state(&b) == Some(State::Accepted));
     let inbox = folder(&a);
-    let rt = runtime();
-    let (peer, mut held, _recv) = rt.block_on(bounded(async {
-        let peer = b
-            .node
-            .link()
-            .dial(a.node.id(), &a.node.addrs())
-            .await
-            .unwrap();
-        let (mut send, recv) = peer.connection().open_bi().await.unwrap();
-        radio_link::frame::write(
-            &mut send,
-            &radio_link::wire::Request::File {
-                to: a.node.id().to_string(),
-                app: "notes".into(),
-                name: "held".into(),
-                size: 3,
-            },
-            radio_link::frame::CONTROL_CAP,
-        )
-        .await
-        .unwrap();
-        send.write_all(b"a").await.unwrap();
-        (peer, send, recv)
-    }));
-    wait(|| fs::read_dir(&inbox).unwrap().count() == 1);
-    let path = source(&b, b"other");
-    assert_eq!(
-        b.node.send_file("garden", "notes", "letter", &path),
-        Err("that computer is busy; try again")
-    );
-    held.reset(0u32.into()).unwrap();
-    drop(peer);
+    let (written, ready) = std::sync::mpsc::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    std::thread::scope(|scope| {
+        let a = &a;
+        let b = &b;
+        let thread = scope.spawn(move || {
+            runtime().block_on(bounded(async {
+                let peer = b
+                    .node
+                    .link()
+                    .dial(a.node.id(), &a.node.addrs())
+                    .await
+                    .unwrap();
+                let (mut send, _recv) = peer.connection().open_bi().await.unwrap();
+                radio_link::frame::write(
+                    &mut send,
+                    &radio_link::wire::Request::File {
+                        to: a.node.id().to_string(),
+                        app: "notes".into(),
+                        name: "held".into(),
+                        size: 3,
+                    },
+                    radio_link::frame::CONTROL_CAP,
+                )
+                .await
+                .unwrap();
+                send.write_all(b"a").await.unwrap();
+                written.send(()).unwrap();
+                released.await.unwrap();
+                send.reset(0u32.into()).unwrap();
+                drop(peer);
+            }));
+        });
+        ready.recv_timeout(Duration::from_secs(2)).unwrap();
+        wait(|| fs::read_dir(&inbox).unwrap().count() == 1);
+        let path = source(b, b"other");
+        assert_eq!(
+            b.node.send_file("garden", "notes", "letter", &path),
+            Err("that computer is busy; try again")
+        );
+        release.send(()).unwrap();
+        thread.join().unwrap();
+    });
     wait(|| fs::read_dir(&inbox).unwrap().count() == 0);
     no_arrivals(&a);
 }
@@ -399,28 +430,14 @@ fn an_unreachable_computer_fails_within_the_dial_deadline() {
     a.found();
     assert_eq!(b.node.join(a.code(), now()), Ok(()));
     wait(|| a.state(&b) == Some(State::Accepted));
-    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-    let record =
-        b.db.lock()
-            .unwrap()
-            .resign(
-                &b.key,
-                "birch",
-                &[socket.local_addr().unwrap()],
-                "notes",
-                None,
-                None,
-                now(),
-            )
-            .unwrap();
-    a.db.lock()
-        .unwrap()
-        .apply_computer(&a.node.id(), &record)
-        .unwrap();
+    let oak = Computer::new("oak");
+    assert_eq!(oak.node.join(a.code(), now()), Ok(()));
+    wait(|| a.state(&oak) == Some(State::Accepted));
+    drop(oak);
     let path = source(&a, b"hello");
     let start = Instant::now();
     assert_eq!(
-        a.node.send_file("birch", "notes", "letter", &path),
+        a.node.send_file("oak", "notes", "letter", &path),
         Err("the computer could not be reached")
     );
     assert!(start.elapsed() < Duration::from_millis(2100));

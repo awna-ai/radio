@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 6;
+pub const PROTOCOL_MINOR: u32 = 7;
 
-/// The ops major 1, minor 6 serves, in this order.
+/// The ops major 1, minor 7 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -40,6 +40,10 @@ pub const OPS: &[&str] = &[
     "join",
     "computer_remove",
     "leave",
+    "send",
+    "delivery_folder_set",
+    "delivery_folder_clear",
+    "deliveries",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -151,6 +155,29 @@ pub enum Request {
     ComputerRemove { computer: String },
     /// Leaves this computer's fleet.
     Leave {},
+    /// Sends a regular file to this app on one computer of the fleet.
+    Send {
+        app: String,
+        computer: String,
+        /// The file name to use in the receiving app's folder.
+        name: String,
+        /// The absolute source path, with a final link refused by the daemon.
+        file: String,
+    },
+    /// Sets the private folder this app takes files in on this computer.
+    DeliveryFolderSet { app: String, folder: String },
+    /// Clears this app's delivery folder, if one was set.
+    DeliveryFolderClear { app: String },
+    /// Lists this app's arrivals in ascending id order.
+    Deliveries {
+        app: String,
+        /// Returns only arrivals whose ids are strictly greater; defaults to zero.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<u64>,
+        /// The arrival count, from 1 to 500; defaults to 100.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<u32>,
+    },
 }
 
 /// A member identified by a kind and a name.
@@ -255,6 +282,27 @@ pub struct Response {
     /// The number of computers a removal or leave reached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivered: Option<u64>,
+    /// The bytes sent by a successful file send.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// This app's arrivals in ascending id order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deliveries: Option<Vec<Delivery>>,
+}
+
+/// A file that arrived for the requesting app on this computer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Delivery {
+    /// The arrival id used as the next page's cursor.
+    pub id: i64,
+    /// The sending computer's name, or its public link id when unnamed.
+    pub computer: String,
+    /// The name of the file in this app's delivery folder.
+    pub name: String,
+    /// The file's size in bytes.
+    pub size: u64,
+    /// When the arrival was recorded, in seconds since the Unix epoch.
+    pub at: f64,
 }
 
 /// A room returned by the daemon.
@@ -381,7 +429,7 @@ mod tests {
 
     #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 6);
+        assert_eq!(PROTOCOL_MINOR, 7);
         assert_eq!(
             &OPS[20..23],
             &[
@@ -425,7 +473,7 @@ mod tests {
 
     #[test]
     fn network_contract_round_trips() {
-        assert_eq!(&OPS[23..], &["join", "computer_remove", "leave"]);
+        assert_eq!(&OPS[23..26], &["join", "computer_remove", "leave"]);
         for request in [
             Request::Join {
                 code: "rj1.nope".into(),

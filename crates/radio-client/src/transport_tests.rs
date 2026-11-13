@@ -127,3 +127,12 @@ fn network_ops_wait_for_deliveries() {
         assert_eq!(answer_wait(&request), Duration::from_secs(5));
     }
 }
+
+#[test]
+fn file_sends_wait_for_the_node_deadline() {
+    let request: Request = serde_json::from_value(
+        json!({"op":"send","app":"notes","computer":"garden","name":"letter","file":"/letter"}),
+    )
+    .unwrap();
+    assert_eq!(answer_wait(&request), Duration::from_secs(135));
+}

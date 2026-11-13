@@ -532,7 +532,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":6},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":7},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -2568,4 +2568,255 @@ fn operations_without_a_link_address_do_not_log_link_off() {
     );
     let log = fs::read_to_string(log_path).unwrap();
     assert_eq!(log.matches("link off").count(), before);
+}
+
+fn file_requests() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"v":1,"op":"send","app":"notes","computer":"birch","name":"letter","file":"/letter"}),
+        serde_json::json!({"v":1,"op":"delivery_folder_set","app":"notes","folder":"/inbox"}),
+        serde_json::json!({"v":1,"op":"delivery_folder_clear","app":"notes"}),
+        serde_json::json!({"v":1,"op":"deliveries","app":"notes"}),
+    ]
+}
+
+fn register_notes(server: &mut Server) {
+    server
+        .apply(Request::Register {
+            app: "notes".into(),
+            app_version: "1".into(),
+            members: vec![],
+        })
+        .unwrap();
+}
+
+#[test]
+fn file_ops_require_registration_and_link_setup() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    for request in file_requests() {
+        assert_eq!(
+            server.dispatch(request).unwrap_err(),
+            "the app is not registered"
+        );
+    }
+    for configured in [false, true] {
+        let fixture = Fixture::new();
+        let mut server = fixture.bind();
+        server = if configured {
+            server.with_link_dir(fixture.0.join("link"))
+        } else {
+            server.with_fleet_db(fixture.0.join("fleet.db"))
+        };
+        register_notes(&mut server);
+        for request in file_requests() {
+            assert_eq!(
+                server.dispatch(request).unwrap_err(),
+                "the link is not set up"
+            );
+        }
+    }
+}
+
+#[test]
+fn send_refuses_invalid_sources_and_unknown_computers() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0);
+    register_notes(&mut server);
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    server
+        .apply(Request::FleetInit {
+            name: "harbor".into(),
+        })
+        .unwrap();
+    let source = fixture.0.join("letter");
+    fs::write(&source, b"hello").unwrap();
+    let link = fixture.0.join("source-link");
+    symlink(&source, &link).unwrap();
+    let large = fixture.0.join("large");
+    fs::File::create(&large)
+        .unwrap()
+        .set_len(radio_link::wire::FILE_CAP + 1)
+        .unwrap();
+    let missing = fixture.0.join("missing");
+    for (path, name, phrase) in [
+        (
+            Path::new("relative"),
+            "letter",
+            "the file must be an absolute path",
+        ),
+        (source.as_path(), "../letter", "not a file name"),
+        (missing.as_path(), "letter", "the file could not be opened"),
+        (fixture.0.as_path(), "letter", "not a regular file"),
+        (link.as_path(), "letter", "the file could not be opened"),
+        (large.as_path(), "letter", "the file is larger than 64 MiB"),
+        (source.as_path(), "letter", "no such computer"),
+    ] {
+        let value = serde_json::json!({"v":1,"op":"send","app":"notes","computer":"birch","name":name,"file":path});
+        assert_eq!(server.dispatch(value).unwrap_err(), phrase, "{path:?}");
+    }
+}
+
+#[test]
+fn delivery_folders_check_paths_and_clear_without_a_fleet() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    register_notes(&mut server);
+    let folder = fixture.0.join("inbox");
+    fs::create_dir(&folder).unwrap();
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o700)).unwrap();
+    let link = fixture.0.join("folder-link");
+    symlink(&folder, &link).unwrap();
+    let public = fixture.0.join("public");
+    fs::create_dir(&public).unwrap();
+    fs::set_permissions(&public, fs::Permissions::from_mode(0o777)).unwrap();
+    for (folder, phrase) in [
+        (Path::new("relative"), "the folder must be an absolute path"),
+        (link.as_path(), "the folder could not be opened"),
+        (public.as_path(), "the folder is writable by others"),
+    ] {
+        assert_eq!(server.dispatch(serde_json::json!({"v":1,"op":"delivery_folder_set","app":"notes","folder":folder})).unwrap_err(), phrase);
+    }
+    assert!(
+        server
+            .dispatch(
+                serde_json::json!({"v":1,"op":"delivery_folder_set","app":"notes","folder":folder})
+            )
+            .unwrap()
+            .ok
+    );
+    for removed in [true, false] {
+        assert_eq!(
+            server
+                .dispatch(serde_json::json!({"v":1,"op":"delivery_folder_clear","app":"notes"}))
+                .unwrap()
+                .removed,
+            Some(removed)
+        );
+    }
+}
+
+#[test]
+fn deliveries_check_limits_and_page_only_the_registered_apps_arrivals() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    register_notes(&mut server);
+    for limit in [0, 501, u32::MAX] {
+        assert_eq!(
+            server
+                .dispatch(serde_json::json!({"v":1,"op":"deliveries","app":"notes","limit":limit}))
+                .unwrap_err(),
+            "not a limit"
+        );
+    }
+    for after in [serde_json::json!(-1), serde_json::json!(1.5)] {
+        assert_eq!(
+            server
+                .dispatch(serde_json::json!({"v":1,"op":"deliveries","app":"notes","after":after}))
+                .unwrap_err(),
+            NOT_REQUEST
+        );
+    }
+    for (app, name, at) in [
+        ("notes", "first", 2.0),
+        ("other", "private", 1.0),
+        ("notes", "second", 0.0),
+    ] {
+        server
+            .fleet_db()
+            .unwrap()
+            .add_arrival(app, name, 5, "birch", at)
+            .unwrap();
+    }
+    let rows = |server: &mut Server, fields: serde_json::Value| {
+        let mut value = serde_json::json!({"v":1,"op":"deliveries","app":"notes"});
+        value
+            .as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        serde_json::to_value(server.dispatch(value).unwrap()).unwrap()["deliveries"].clone()
+    };
+    assert_eq!(
+        rows(&mut server, serde_json::json!({})),
+        serde_json::json!([
+            {"id":1,"computer":"birch","name":"first","size":5,"at":2.0},
+            {"id":3,"computer":"birch","name":"second","size":5,"at":0.0},
+        ])
+    );
+    assert_eq!(
+        rows(&mut server, serde_json::json!({"limit":1}))
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        rows(&mut server, serde_json::json!({"after":1,"limit":500}))[0]["id"],
+        3
+    );
+    assert_eq!(
+        rows(&mut server, serde_json::json!({"after":u64::MAX})),
+        serde_json::json!([])
+    );
+    for _ in 0..100 {
+        server
+            .fleet_db()
+            .unwrap()
+            .add_arrival("notes", "later", 1, "birch", 3.0)
+            .unwrap();
+    }
+    assert_eq!(
+        rows(&mut server, serde_json::json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        100
+    );
+}
+
+#[test]
+fn a_failed_send_logs_neither_file_name_nor_path() {
+    let fixture = Fixture::new();
+    let log_path = fixture.0.join("radio.log");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    register_notes(&mut server);
+    let server = server.with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    let worker = start(server, 1);
+    let value = serde_json::json!({"v":1,"op":"send","app":"notes","computer":"birch","name":"private-letter.txt","file":"/private-folder/private-source.txt"});
+    let mut line = serde_json::to_vec(&value).unwrap();
+    line.push(b'\n');
+    assert_eq!(
+        raw(&fixture.socket(), &line).error.as_deref(),
+        Some("this computer has no link address")
+    );
+    worker.join().unwrap();
+    let log = fs::read_to_string(log_path).unwrap();
+    assert!(log.contains("op=\"send\" error=\"this computer has no link address\""));
+    for private in [
+        "private-letter.txt",
+        "/private-folder/private-source.txt",
+        "notes",
+        "birch",
+    ] {
+        assert!(!log.contains(private), "{private}");
+    }
 }

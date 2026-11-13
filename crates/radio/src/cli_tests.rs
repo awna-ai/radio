@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 6);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 7);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1126,4 +1126,110 @@ fn remove_and_leave_parse() {
     );
     assert_eq!(parse(&args(&["leave"])).unwrap().request, Request::Leave {});
     assert!(parse(&args(&["leave", "birch"])).is_err());
+}
+
+#[test]
+fn file_commands_preserve_requests_and_make_paths_absolute() {
+    let file = std::path::absolute("letter.txt").unwrap();
+    let folder = std::path::absolute("inbox").unwrap();
+    for (words, expected) in [
+        (
+            vec!["send", "garden", "letter.txt", "--app", "notes"],
+            serde_json::json!({"op":"send","computer":"garden","file":file,"app":"notes","name":"letter.txt"}),
+        ),
+        (
+            vec![
+                "send",
+                "garden",
+                "letter.txt",
+                "--app",
+                "notes",
+                "--name",
+                "renamed",
+            ],
+            serde_json::json!({"op":"send","computer":"garden","file":file,"app":"notes","name":"renamed"}),
+        ),
+        (
+            vec!["delivery", "folder", "set", "inbox", "--app", "notes"],
+            serde_json::json!({"op":"delivery_folder_set","folder":folder,"app":"notes"}),
+        ),
+        (
+            vec!["delivery", "folder", "clear", "--app", "notes"],
+            serde_json::json!({"op":"delivery_folder_clear","app":"notes"}),
+        ),
+        (
+            vec!["deliveries", "--app", "notes"],
+            serde_json::json!({"op":"deliveries","app":"notes"}),
+        ),
+        (
+            vec![
+                "deliveries",
+                "--app",
+                "notes",
+                "--after",
+                "7",
+                "--limit",
+                "2",
+            ],
+            serde_json::json!({"op":"deliveries","app":"notes","after":7,"limit":2}),
+        ),
+    ] {
+        let parsed = parse(&args(&words)).unwrap_or_else(|()| panic!("{words:?}"));
+        assert_eq!(parsed.body, None);
+        assert_eq!(serde_json::to_value(parsed.request).unwrap(), expected);
+    }
+}
+
+#[test]
+fn file_commands_refuse_bad_usage_and_nameless_paths() {
+    for words in [
+        vec!["send", "garden", "letter.txt"],
+        vec!["send", "garden", "--app", "notes"],
+        vec!["send", "garden", "/", "--app", "notes"],
+        vec!["send", "garden", "..", "--app", "notes"],
+        vec!["send", "garden", "", "--app", "notes"],
+        vec!["send", "garden", "..", "--app", "notes", "--name", "letter"],
+        vec!["delivery", "folder", "set", "inbox"],
+        vec!["delivery", "folder", "clear"],
+        vec!["delivery", "folder", "clear", "extra", "--app", "notes"],
+        vec!["deliveries"],
+        vec!["deliveries", "--app", "notes", "--after", "-1"],
+        vec!["deliveries", "--app", "notes", "--after", "1.5"],
+        vec!["deliveries", "--app", "notes", "--limit", "-1"],
+        vec!["deliveries", "--app", "notes", "--limit", "4294967296"],
+        vec!["deliveries", "--app", "notes", "--app", "notes"],
+    ] {
+        assert!(parse(&args(&words)).is_err(), "{words:?}");
+    }
+}
+
+#[test]
+fn file_commands_keep_final_links_unresolved() {
+    let file = BodyFile::new(b"hello");
+    let link = file.0.parent().unwrap().join("source-link");
+    std::os::unix::fs::symlink(&file.0, &link).unwrap();
+    let parsed = parse(&args(&[
+        "send",
+        "garden",
+        link.to_str().unwrap(),
+        "--app",
+        "notes",
+    ]))
+    .unwrap();
+    let value = serde_json::to_value(parsed.request).unwrap();
+    assert_eq!(value["file"], link.to_str().unwrap());
+    assert_eq!(value["name"], "source-link");
+    let parsed = parse(&args(&[
+        "delivery",
+        "folder",
+        "set",
+        link.to_str().unwrap(),
+        "--app",
+        "notes",
+    ]))
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(parsed.request).unwrap()["folder"],
+        link.to_str().unwrap()
+    );
 }
