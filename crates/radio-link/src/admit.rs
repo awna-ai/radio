@@ -32,9 +32,17 @@ pub trait Admission: Send + Sync + 'static {
     fn standing(&self, key: &EndpointId) -> Standing;
     fn join_open(&self) -> bool;
     fn fleet(&self) -> Option<String>;
+    fn delivery_folder(&self, _app: &str) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 impl Admission for Mutex<FleetDb> {
+    fn delivery_folder(&self, app: &str) -> Option<std::path::PathBuf> {
+        self.lock()
+            .ok()
+            .and_then(|db| db.delivery_folder(app).ok().flatten())
+    }
     fn standing(&self, key: &iroh::EndpointId) -> Standing {
         self.lock()
             .ok()
@@ -62,6 +70,8 @@ impl Admission for Mutex<FleetDb> {
 
 #[derive(Clone)]
 pub struct Limits {
+    pub file: Duration,
+    pub deliveries: usize,
     pub connections: usize,
     pub per_key: usize,
     pub joins: usize,
@@ -75,6 +85,8 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            file: Duration::from_secs(120),
+            deliveries: 2,
             connections: 32,
             per_key: 4,
             joins: 4,
@@ -98,6 +110,7 @@ pub struct Gate {
     pub(crate) admission: Arc<dyn Admission>,
     pub(crate) limits: Limits,
     live: Mutex<Vec<Live>>,
+    pub(crate) deliveries: Arc<tokio::sync::Semaphore>,
 }
 
 impl fmt::Debug for Gate {
@@ -107,9 +120,16 @@ impl fmt::Debug for Gate {
 }
 
 impl Gate {
+    pub(crate) fn deliveries_permit(
+        &self,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
+        self.deliveries.clone().try_acquire_owned()
+    }
+
     pub fn new(admission: Arc<dyn Admission>, limits: Limits) -> Self {
         Self {
             admission,
+            deliveries: Arc::new(tokio::sync::Semaphore::new(limits.deliveries)),
             limits,
             live: Mutex::new(Vec::new()),
         }

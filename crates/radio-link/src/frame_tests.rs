@@ -77,3 +77,18 @@ async fn writer_refuses_over_cap_without_writing() {
         assert!(bytes.is_empty());
     }
 }
+
+#[tokio::test]
+async fn head_leaves_body_on_the_stream() {
+    let (mut writer, mut reader) = duplex(100);
+    write(&mut writer, &"head", CONTROL_CAP).await.unwrap();
+    writer.write_all(b"body").await.unwrap();
+    writer.shutdown().await.unwrap();
+    assert_eq!(
+        read_head::<String, _>(&mut reader, CONTROL_CAP).await,
+        Ok("head".into())
+    );
+    let mut body = Vec::new();
+    reader.read_to_end(&mut body).await.unwrap();
+    assert_eq!(body, b"body");
+}

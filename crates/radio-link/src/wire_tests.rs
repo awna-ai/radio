@@ -163,7 +163,7 @@ fn record_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 2);
+    assert_eq!(LINK_MINOR, 3);
 }
 
 #[test]
@@ -235,5 +235,40 @@ fn computer_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 2);
+    assert_eq!(LINK_MINOR, 3);
+}
+
+#[test]
+fn file_names_obey_byte_and_path_rules() {
+    for name in ["x", "report.txt", "résumé", &"a".repeat(255)] {
+        assert!(file_name(name), "{name:?}");
+    }
+    for name in [
+        "../x",
+        "a/b",
+        ".hidden",
+        "",
+        &"a".repeat(256),
+        "a\n",
+        "a\0",
+        "a\\b",
+        "a\u{7f}",
+        "a\u{1f}",
+    ] {
+        assert!(!file_name(name), "{name:?}");
+    }
+}
+
+#[test]
+fn file_wire_shapes_and_minor() {
+    let file =
+        json!({"type":"file", "to":"c".repeat(64), "app":"notes", "name":"x", "size":67108864});
+    assert!(serde_json::from_value::<Request>(file.clone()).is_ok());
+    let refused = json!({"type":"refused", "reason":"busy"});
+    assert!(serde_json::from_value::<Answer>(refused.clone()).is_ok());
+    let request: Request = serde_json::from_value(file.clone()).unwrap();
+    assert_eq!(serde_json::to_value(request).unwrap(), file);
+    let answer: Answer = serde_json::from_value(refused.clone()).unwrap();
+    assert_eq!(serde_json::to_value(answer).unwrap(), refused);
+    assert_eq!(LINK_MINOR, 3);
 }

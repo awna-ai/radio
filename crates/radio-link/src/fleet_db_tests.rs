@@ -76,7 +76,7 @@ fn opens_private_schema_and_reopens_data() {
 }
 #[test]
 fn refuses_newer_and_negative_schema_versions() {
-    for version in [5, -1] {
+    for version in [SCHEMA_VERSION + 1, -1] {
         let temp = Temp::new();
         let db = temp.open();
         db.conn
@@ -85,7 +85,7 @@ fn refuses_newer_and_negative_schema_versions() {
         drop(db);
         assert_eq!(
             FleetDb::open(&temp.path()).err(),
-            Some(if version == 5 {
+            Some(if version > SCHEMA_VERSION {
                 "fleet.db is newer than this build"
             } else {
                 "fleet.db could not be read"
@@ -428,7 +428,7 @@ fn schema_four_has_every_table_and_found_local() {
         db.conn
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        SCHEMA_VERSION
     );
     for table in [
         "fleet",
@@ -493,7 +493,7 @@ fn migrates_version_one_with_and_without_fleet() {
             db.conn
                 .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            4
+            SCHEMA_VERSION
         );
         assert_eq!(
             db.conn
@@ -2575,7 +2575,7 @@ fn migrates_schema_two_preserving_rows() {
         db.conn
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        SCHEMA_VERSION
     );
     assert_eq!(db.fleet().unwrap(), Some(record));
     assert_eq!(db.computers().unwrap()[0].key, peer.to_string());
@@ -3029,10 +3029,193 @@ fn migrates_schema_three_preserving_fleet_and_computers() {
         db.conn
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        SCHEMA_VERSION
     );
     assert_eq!(db.fleet().unwrap(), Some(record));
     assert_eq!(db.computers().unwrap()[0].key, peer.to_string());
     let ip = "10.0.0.2".parse().unwrap();
     assert_eq!(db.add_link_address(ip).unwrap(), vec![ip]);
+}
+
+#[test]
+fn migrates_schema_four_preserving_addresses() {
+    let temp = Temp::new();
+    key::private_folder(&temp.0).unwrap();
+    let conn = Connection::open(temp.path()).unwrap();
+    for schema in [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4] {
+        conn.execute_batch(schema).unwrap();
+    }
+    conn.execute("INSERT INTO link_addresses VALUES ('10.0.0.2', 4)", [])
+        .unwrap();
+    conn.pragma_update(None, "user_version", 4).unwrap();
+    drop(conn);
+    let db = temp.open();
+    assert_eq!(
+        db.conn
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        db.link_addresses().unwrap(),
+        vec!["10.0.0.2".parse::<IpAddr>().unwrap()]
+    );
+    for table in ["delivery_folders", "arrivals"] {
+        assert_eq!(
+            db.conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name=?1",
+                    [table],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+    }
+}
+
+#[test]
+fn delivery_folder_sets_replaces_clears_and_survives_forgetting() {
+    let temp = Temp::new();
+    let (mut db, _) = temp.found();
+    let first = temp.0.join("first");
+    let second = temp.0.join("second");
+    key::private_folder(&first).unwrap();
+    key::private_folder(&second).unwrap();
+    assert_eq!(db.delivery_folder("notes").unwrap(), None);
+    assert_eq!(db.set_delivery_folder("notes", &first), Ok(()));
+    assert_eq!(db.delivery_folder("notes").unwrap(), Some(first));
+    assert_eq!(db.set_delivery_folder("notes", &second), Ok(()));
+    db.forget().unwrap();
+    drop(db);
+    let mut db = temp.open();
+    assert_eq!(db.delivery_folder("notes").unwrap(), Some(second));
+    assert!(db.clear_delivery_folder("notes").unwrap());
+    assert!(!db.clear_delivery_folder("notes").unwrap());
+    assert_eq!(db.delivery_folder("notes").unwrap(), None);
+}
+
+#[test]
+fn delivery_folder_rejects_bad_app_name() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    assert_eq!(
+        db.set_delivery_folder("Bad/name", &temp.0),
+        Err("not an app name")
+    );
+    assert_eq!(db.delivery_folder("Bad/name").unwrap(), None);
+}
+
+#[test]
+fn delivery_folder_requires_absolute_path() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    assert_eq!(
+        db.set_delivery_folder("notes", Path::new("relative")),
+        Err("the folder must be an absolute path")
+    );
+    assert_eq!(db.delivery_folder("notes").unwrap(), None);
+}
+
+#[test]
+fn delivery_folder_checks_before_replacing_and_preserves_path() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let folder = temp.0.join("folder");
+    key::private_folder(&folder).unwrap();
+    let chosen = folder.join("..").join("folder");
+    db.set_delivery_folder("notes", &chosen).unwrap();
+    assert_eq!(db.delivery_folder("notes").unwrap(), Some(chosen.clone()));
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o777)).unwrap();
+    assert_eq!(
+        db.set_delivery_folder("notes", &folder),
+        Err("the folder is writable by others")
+    );
+    assert_eq!(db.delivery_folder("notes").unwrap(), Some(chosen));
+}
+
+#[test]
+fn arrivals_list_in_id_order_after_cursor_and_survive_forgetting() {
+    let temp = Temp::new();
+    let (mut db, _) = temp.found();
+    assert_eq!(
+        db.add_arrival("notes", "first.txt", 19, "birch", 30.0),
+        Ok(1)
+    );
+    assert_eq!(db.add_arrival("other", "other.txt", 1, "cedar", 0.0), Ok(2));
+    assert_eq!(
+        db.add_arrival("notes", "second.txt", 20, "cedar", 10.0),
+        Ok(3)
+    );
+    assert_eq!(
+        db.arrivals("notes", 0, 10).unwrap(),
+        vec![
+            Arrival {
+                id: 1,
+                app: "notes".into(),
+                name: "first.txt".into(),
+                size: 19,
+                computer: "birch".into(),
+                at: 30.0
+            },
+            Arrival {
+                id: 3,
+                app: "notes".into(),
+                name: "second.txt".into(),
+                size: 20,
+                computer: "cedar".into(),
+                at: 10.0
+            },
+        ]
+    );
+    db.forget().unwrap();
+    drop(db);
+    let db = temp.open();
+    assert_eq!(
+        db.arrivals("notes", 1, 10)
+            .unwrap()
+            .iter()
+            .map(|row| row.id)
+            .collect::<Vec<_>>(),
+        vec![3]
+    );
+    assert!(db.arrivals("notes", 3, 10).unwrap().is_empty());
+}
+
+#[test]
+fn arrivals_clamp_page_limit() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    for _ in 0..501 {
+        db.add_arrival("notes", "note.txt", 1, "birch", 0.0)
+            .unwrap();
+    }
+    assert_eq!(db.arrivals("notes", 0, 0).unwrap().len(), 1);
+    assert_eq!(db.arrivals("notes", 0, usize::MAX).unwrap().len(), 500);
+}
+
+#[test]
+fn arrivals_keep_ten_thousand_per_app() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    db.add_arrival("other", "kept.txt", 1, "cedar", 0.0)
+        .unwrap();
+    for _ in 0..10_005 {
+        db.add_arrival("notes", "note.txt", 1, "birch", 0.0)
+            .unwrap();
+    }
+    let first = db.arrivals("notes", 0, 1).unwrap();
+    assert_eq!(first[0].id, 7);
+    let mut after = 0;
+    let mut count = 0;
+    loop {
+        let rows = db.arrivals("notes", after, 500).unwrap();
+        if rows.is_empty() {
+            break;
+        }
+        count += rows.len();
+        after = rows.last().unwrap().id;
+    }
+    assert_eq!(count, 10_000);
+    assert_eq!(db.arrivals("other", 0, 10).unwrap()[0].name, "kept.txt");
 }

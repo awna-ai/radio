@@ -1,6 +1,7 @@
 pub mod admit;
 pub mod code;
 pub mod computer_record;
+pub mod delivery;
 pub mod endpoint;
 pub mod fleet;
 pub mod fleet_db;

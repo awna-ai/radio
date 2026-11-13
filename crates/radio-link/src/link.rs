@@ -21,6 +21,7 @@ use tokio::{
 pub const REFUSED: u32 = 1;
 pub const IDLE: u32 = 2;
 pub const BAD_FRAME: u32 = 3;
+const BAD_BODY: &str = "the file body is not valid";
 const UNANSWERED: &str = "the computer did not answer";
 
 #[derive(Clone)]
@@ -31,6 +32,12 @@ pub struct Local {
 
 #[derive(Debug)]
 pub enum Event {
+    Arrived {
+        from: EndpointId,
+        app: String,
+        name: String,
+        size: u64,
+    },
     Computer {
         from: EndpointId,
         record: ComputerRecord,
@@ -278,11 +285,104 @@ async fn serve_stream(
     started: Instant,
 ) {
     let (mut send, mut recv) = stream;
-    let deadline = started + gate.limits.frame;
+    let head = timeout_at(
+        started + gate.limits.frame,
+        frame::read_head::<Request, _>(&mut recv, CONTROL_CAP),
+    )
+    .await;
+    let Ok(Ok(request)) = head else {
+        let _ = recv.stop(BAD_FRAME.into());
+        let _ = send.reset(BAD_FRAME.into());
+        return;
+    };
+    let deadline = started
+        + if matches!(request, Request::File { .. }) {
+            gate.limits.file
+        } else {
+            gate.limits.frame
+        };
     let result = timeout_at(deadline, async {
-        let request = frame::read::<Request, _>(&mut recv, CONTROL_CAP).await?;
+        if !matches!(request, Request::File { .. })
+            && recv.read(&mut [0]).await.map_err(|_| UNANSWERED)?.is_some()
+        {
+            return Err(UNANSWERED);
+        }
         let from = connection.remote_id();
         match request {
+            Request::File {
+                to,
+                app,
+                name,
+                size,
+            } => {
+                if !wire::valid_file(&to, &app, &name, size, &id) {
+                    return Err(UNANSWERED);
+                }
+                if gate.admission.standing(&from) != Standing::Accepted
+                    || connection.close_reason().is_some()
+                {
+                    connection.close(REFUSED.into(), &[]);
+                    return Ok(());
+                }
+                let Some(folder) = gate.admission.delivery_folder(&app) else {
+                    return refuse_file(&mut send, wire::NO_FOLDER).await;
+                };
+                let Ok(delivery) = gate.deliveries_permit() else {
+                    return refuse_file(&mut send, wire::BUSY).await;
+                };
+                let event = events
+                    .clone()
+                    .reserve_owned()
+                    .await
+                    .map_err(|_| UNANSWERED)?;
+                if gate.admission.standing(&from) != Standing::Accepted
+                    || connection.close_reason().is_some()
+                {
+                    connection.close(REFUSED.into(), &[]);
+                    return Ok(());
+                }
+                let (sender, mut chunks) = mpsc::channel::<Vec<u8>>(2);
+                let target = name.clone();
+                let arrival = Event::Arrived {
+                    from,
+                    app,
+                    name,
+                    size,
+                };
+                let mut worker = tokio::task::spawn_blocking(move || {
+                    let _delivery = delivery;
+                    let written = crate::delivery::write(&folder, &target, |file| {
+                        use std::io::Write;
+                        loop {
+                            let bytes = chunks.blocking_recv().ok_or(BAD_BODY)?;
+                            if bytes.is_empty() {
+                                return Ok(());
+                            }
+                            file.write_all(&bytes).map_err(|_| wire::WRITE)?;
+                        }
+                    });
+                    if written.is_ok() {
+                        event.send(arrival);
+                    }
+                    written
+                });
+                let written = tokio::select! {
+                    result = &mut worker => result.map_err(|_| UNANSWERED)?,
+                    result = feed_file(&mut recv, sender, size) => {
+                        let written = worker.await.map_err(|_| UNANSWERED)?;
+                        if result == Err(BAD_BODY) { return Err(BAD_BODY); }
+                        written
+                    }
+                };
+                match written {
+                    Ok(()) => {
+                        frame::write(&mut send, &Answer::Ok, CONTROL_CAP).await?;
+                        send.finish().map_err(|_| UNANSWERED)?;
+                    }
+                    Err(BAD_BODY) => return Err(BAD_BODY),
+                    Err(reason) => return refuse_file(&mut send, reason).await,
+                }
+            }
             Request::Hello { hello } => {
                 if !wire::valid_hello(&hello) {
                     return Err(UNANSWERED);
@@ -382,6 +482,114 @@ async fn serve_stream(
     }
 }
 
+async fn feed_file<R: tokio::io::AsyncRead + Unpin>(
+    recv: &mut R,
+    sender: mpsc::Sender<Vec<u8>>,
+    size: u64,
+) -> Result<(), &'static str> {
+    use tokio::io::AsyncReadExt;
+    let mut remaining = size;
+    let mut buffer = vec![0; 64 * 1024];
+    while remaining > 0 {
+        let take = remaining.min(buffer.len() as u64) as usize;
+        let count = recv.read(&mut buffer[..take]).await.map_err(|_| BAD_BODY)?;
+        if count == 0 {
+            return Err(BAD_BODY);
+        }
+        remaining -= count as u64;
+        sender
+            .send(buffer[..count].to_vec())
+            .await
+            .map_err(|_| UNANSWERED)?;
+    }
+    if recv.read(&mut [0]).await.map_err(|_| BAD_BODY)? != 0 {
+        return Err(BAD_BODY);
+    }
+    sender.send(Vec::new()).await.map_err(|_| UNANSWERED)?;
+    Ok(())
+}
+
+async fn exchange_file<R, W, A>(
+    file: &mut R,
+    send: &mut W,
+    recv: &mut A,
+    size: u64,
+) -> Result<(), &'static str>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+    A: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let upload = async {
+        let mut remaining = size;
+        let mut buffer = vec![0; 64 * 1024];
+        while remaining > 0 {
+            let take = remaining.min(buffer.len() as u64) as usize;
+            let count = file
+                .read(&mut buffer[..take])
+                .await
+                .map_err(|_| "the file changed while it was sent")?;
+            if count == 0 {
+                return Err("the file changed while it was sent");
+            }
+            send.write_all(&buffer[..count])
+                .await
+                .map_err(|_| UNANSWERED)?;
+            remaining -= count as u64;
+        }
+        send.shutdown().await.map_err(|_| UNANSWERED)
+    };
+    let answer = frame::read::<Answer, _>(recv, CONTROL_CAP);
+    tokio::pin!(upload, answer);
+    let received = tokio::select! {
+        biased;
+        received = &mut answer => {
+            match received? {
+                Answer::Refused { reason } => return Err(file_refusal(&reason)),
+                Answer::Ok => { upload.await?; return Ok(()); }
+                _ => return Err(UNANSWERED),
+            }
+        }
+        sent = &mut upload => {
+            if let Err(error) = sent && error != UNANSWERED { return Err(error); }
+            // A receiver refusing before the body stops its receive stream too.
+            // Read its answer before turning that stop into a generic error.
+            let received = answer.await?;
+            if sent.is_err() && !matches!(received, Answer::Refused { .. }) { return Err(UNANSWERED); }
+            received
+        }
+    };
+    match received {
+        Answer::Ok => Ok(()),
+        Answer::Refused { reason } => Err(file_refusal(&reason)),
+        _ => Err(UNANSWERED),
+    }
+}
+
+fn file_refusal(reason: &str) -> &'static str {
+    match reason {
+        wire::NO_FOLDER => "that app takes no files on that computer",
+        wire::EXISTS => "a file with that name is already there",
+        wire::BUSY => "that computer is busy; try again",
+        wire::FOLDER => "that app's folder on that computer is not usable",
+        wire::WRITE => "that computer could not write the file",
+        _ => UNANSWERED,
+    }
+}
+
+async fn refuse_file(send: &mut SendStream, reason: &str) -> Result<(), &'static str> {
+    frame::write(
+        send,
+        &Answer::Refused {
+            reason: reason.into(),
+        },
+        CONTROL_CAP,
+    )
+    .await?;
+    send.finish().map_err(|_| UNANSWERED)
+}
+
 pub struct Peer {
     connection: Connection,
     gate: Arc<Gate>,
@@ -415,6 +623,47 @@ impl Peer {
             }
             _ => Err(UNANSWERED),
         }
+    }
+
+    pub async fn send_file(
+        &self,
+        app: &str,
+        name: &str,
+        file: std::fs::File,
+        size: u64,
+    ) -> Result<(), &'static str> {
+        if !wire::file_name(name) {
+            return Err("not a file name");
+        }
+        if size > wire::FILE_CAP {
+            return Err("the file is larger than 64 MiB");
+        }
+        timeout(self.gate.limits.file, async {
+            let (mut send, mut recv) = self.connection.open_bi().await.map_err(|_| UNANSWERED)?;
+            let result = async {
+                frame::write(
+                    &mut send,
+                    &Request::File {
+                        to: self.id().to_string(),
+                        app: app.into(),
+                        name: name.into(),
+                        size,
+                    },
+                    CONTROL_CAP,
+                )
+                .await?;
+                let mut file = tokio::fs::File::from_std(file);
+                exchange_file(&mut file, &mut send, &mut recv, size).await
+            }
+            .await;
+            if result.is_err() {
+                let _ = recv.stop(BAD_FRAME.into());
+                let _ = send.reset(BAD_FRAME.into());
+            }
+            result
+        })
+        .await
+        .map_err(|_| UNANSWERED)?
     }
 
     pub async fn send_app(&self, app: &str, body: &str) -> Result<(), &'static str> {
@@ -471,5 +720,79 @@ impl Peer {
         .await
         .map_err(|_| UNANSWERED)?
         .map_err(|_| UNANSWERED)
+    }
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn only_an_exact_body_completes_the_writer() {
+        for (bytes, size, expected) in [
+            (b"abc".as_slice(), 3, Ok(())),
+            (b"ab".as_slice(), 3, Err(BAD_BODY)),
+            (b"abcd".as_slice(), 3, Err(BAD_BODY)),
+            (b"".as_slice(), 0, Ok(())),
+        ] {
+            let (sender, mut receiver) = mpsc::channel(4);
+            assert_eq!(feed_file(&mut &bytes[..], sender, size).await, expected);
+            let mut chunks = Vec::new();
+            while let Some(chunk) = receiver.recv().await {
+                chunks.push(chunk);
+            }
+            assert_eq!(chunks.last().is_some_and(Vec::is_empty), expected.is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_large_upload_observes_refusal_without_body_consumption() {
+        use tokio::io::{AsyncWriteExt, duplex};
+        let (mut send, _unread_body) = duplex(1);
+        let (mut answer, mut recv) = duplex(128);
+        frame::write(
+            &mut answer,
+            &Answer::Refused {
+                reason: wire::BUSY.into(),
+            },
+            CONTROL_CAP,
+        )
+        .await
+        .unwrap();
+        answer.shutdown().await.unwrap();
+        let mut file = &vec![0u8; 1024 * 1024][..];
+        assert_eq!(
+            timeout(
+                std::time::Duration::from_millis(100),
+                exchange_file(&mut file, &mut send, &mut recv, 1024 * 1024)
+            )
+            .await,
+            Ok(Err("that computer is busy; try again"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_short_source_reports_it_changed() {
+        use tokio::io::duplex;
+        let (mut send, _body) = duplex(128);
+        let (_answer, mut recv) = duplex(128);
+        assert_eq!(
+            exchange_file(&mut &b"ab"[..], &mut send, &mut recv, 3).await,
+            Err("the file changed while it was sent")
+        );
+    }
+
+    #[test]
+    fn refusal_sentences_are_exact() {
+        for (reason, expected) in [
+            ("no_folder", "that app takes no files on that computer"),
+            ("exists", "a file with that name is already there"),
+            ("busy", "that computer is busy; try again"),
+            ("folder", "that app's folder on that computer is not usable"),
+            ("write", "that computer could not write the file"),
+            ("other", "the computer did not answer"),
+        ] {
+            assert_eq!(file_refusal(reason), expected);
+        }
     }
 }

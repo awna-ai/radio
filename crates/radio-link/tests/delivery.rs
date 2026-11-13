@@ -1,0 +1,427 @@
+mod common;
+
+use common::{SHA, bounded};
+use radio_link::{
+    SecretKey,
+    admit::Limits,
+    code::{Hints, JoinCode},
+    fleet_db::{FleetDb, State},
+    link::Local,
+    node::Node,
+};
+use std::{
+    fs,
+    os::unix::fs::{PermissionsExt, symlink},
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+
+struct Temp(PathBuf);
+impl Drop for Temp {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+struct Computer {
+    node: Node,
+    key: SecretKey,
+    db: Arc<Mutex<FleetDb>>,
+    dir: Temp,
+}
+
+impl Computer {
+    fn new(name: &str) -> Self {
+        Self::with_limits(name, Limits::default())
+    }
+
+    fn with_limits(name: &str, limits: Limits) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "radio-delivery-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let db = Arc::new(Mutex::new(FleetDb::open(&dir.join("fleet.db")).unwrap()));
+        let key = SecretKey::generate();
+        let node = Node::start(
+            key.clone(),
+            &["127.0.0.1:0".parse().unwrap()],
+            db.clone(),
+            Local {
+                name: name.into(),
+                sha: SHA.into(),
+            },
+            limits,
+        )
+        .unwrap();
+        Self {
+            node,
+            key,
+            db,
+            dir: Temp(dir),
+        }
+    }
+
+    fn found(&self) {
+        self.db
+            .lock()
+            .unwrap()
+            .found(&self.key, "harbor", &self.dir.0.join("link"))
+            .unwrap();
+    }
+
+    fn code(&self) -> JoinCode {
+        self.db
+            .lock()
+            .unwrap()
+            .create_code(
+                &self.key,
+                None,
+                None,
+                Hints {
+                    direct: self.node.addrs(),
+                },
+                now(),
+            )
+            .unwrap()
+            .0
+    }
+
+    fn state(&self, other: &Self) -> Option<State> {
+        self.db
+            .lock()
+            .unwrap()
+            .computers()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.key == other.node.id().to_string())
+            .map(|row| row.state)
+    }
+}
+
+fn now() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64()
+}
+
+fn wait(mut ready: impl FnMut() -> bool) {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(bounded(async {
+            while !ready() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }));
+}
+
+fn joined() -> (Computer, Computer) {
+    let a = Computer::new("garden");
+    let b = Computer::new("birch");
+    a.found();
+    assert_eq!(b.node.join(a.code(), now()), Ok(()));
+    wait(|| a.state(&b) == Some(State::Accepted));
+    (a, b)
+}
+
+fn folder(computer: &Computer) -> PathBuf {
+    let path = computer.dir.0.join("inbox");
+    fs::create_dir(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+    computer
+        .db
+        .lock()
+        .unwrap()
+        .set_delivery_folder("notes", &path)
+        .unwrap();
+    path
+}
+fn source(computer: &Computer, bytes: &[u8]) -> PathBuf {
+    let path = computer.dir.0.join("source");
+    fs::write(&path, bytes).unwrap();
+    path
+}
+fn no_arrivals(computer: &Computer) {
+    assert!(
+        computer
+            .db
+            .lock()
+            .unwrap()
+            .arrivals("notes", 0, 10)
+            .unwrap()
+            .is_empty()
+    );
+}
+#[test]
+fn a_mebibyte_arrives_with_private_mode_and_sender_name() {
+    let (a, b) = joined();
+    let inbox = folder(&a);
+    let bytes: Vec<u8> = (0..1024 * 1024).map(|i| (i % 251) as u8).collect();
+    let path = source(&b, &bytes);
+    assert_eq!(
+        b.node.send_file("garden", "notes", "letter", &path),
+        Ok(bytes.len() as u64)
+    );
+    assert_eq!(fs::read(inbox.join("letter")).unwrap(), bytes);
+    assert_eq!(
+        fs::metadata(inbox.join("letter"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    wait(|| {
+        !a.db
+            .lock()
+            .unwrap()
+            .arrivals("notes", 0, 10)
+            .unwrap()
+            .is_empty()
+    });
+    let rows = a.db.lock().unwrap().arrivals("notes", 0, 10).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        (&*rows[0].computer, &*rows[0].name, rows[0].size),
+        ("birch", "letter", bytes.len() as u64)
+    );
+}
+#[test]
+fn an_unpaired_computer_cannot_deliver() {
+    let a = Computer::new("garden");
+    let b = Computer::new("birch");
+    a.found();
+    let inbox = folder(&a);
+    runtime().block_on(bounded(async {
+        let result = b.node.link().dial(a.node.id(), &a.node.addrs()).await;
+        assert!(matches!(result, Err("the computer is not let in")));
+    }));
+    assert_eq!(fs::read_dir(inbox).unwrap().count(), 0);
+    no_arrivals(&a);
+}
+#[test]
+fn an_oversize_file_is_refused_before_lookup_or_dial() {
+    let a = Computer::new("garden");
+    let path = source(&a, b"");
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(radio_link::wire::FILE_CAP + 1)
+        .unwrap();
+    assert_eq!(
+        a.node.send_file("unknown", "notes", "letter", &path),
+        Err("the file is larger than 64 MiB")
+    );
+}
+#[test]
+fn an_unregistered_app_takes_no_file() {
+    let (a, b) = joined();
+    let path = source(&b, b"hello");
+    assert_eq!(
+        b.node.send_file("garden", "notes", "letter", &path),
+        Err("that app takes no files on that computer")
+    );
+    no_arrivals(&a);
+}
+#[test]
+fn invalid_names_are_refused_before_dial() {
+    let a = Computer::new("garden");
+    let path = source(&a, b"hello");
+    for name in ["../x", "a/b", ".hidden", "", &"x".repeat(256), "line\nfeed"] {
+        assert_eq!(
+            a.node.send_file("unknown", "notes", name, &path),
+            Err("not a file name"),
+            "{name:?}"
+        );
+    }
+}
+#[test]
+fn a_swapped_folder_link_is_never_followed() {
+    let (a, b) = joined();
+    let inbox = folder(&a);
+    let target = a.dir.0.join("target");
+    fs::create_dir(&target).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::remove_dir(&inbox).unwrap();
+    symlink(&target, &inbox).unwrap();
+    let path = source(&b, b"hello");
+    assert_eq!(
+        b.node.send_file("garden", "notes", "letter", &path),
+        Err("that app's folder on that computer is not usable")
+    );
+    assert_eq!(fs::read_dir(target).unwrap().count(), 0);
+    no_arrivals(&a);
+}
+#[test]
+fn an_existing_file_is_never_replaced() {
+    let (a, b) = joined();
+    let inbox = folder(&a);
+    let path = source(&b, b"first");
+    assert_eq!(b.node.send_file("garden", "notes", "letter", &path), Ok(5));
+    fs::write(&path, b"other").unwrap();
+    assert_eq!(
+        b.node.send_file("garden", "notes", "letter", &path),
+        Err("a file with that name is already there")
+    );
+    assert_eq!(fs::read(inbox.join("letter")).unwrap(), b"first");
+}
+#[test]
+fn a_source_link_or_directory_is_refused() {
+    let a = Computer::new("garden");
+    let path = source(&a, b"hello");
+    let link = a.dir.0.join("source-link");
+    symlink(&path, &link).unwrap();
+    assert_eq!(
+        a.node.send_file("unknown", "notes", "letter", &link),
+        Err("the file could not be opened")
+    );
+    assert_eq!(
+        a.node.send_file("unknown", "notes", "letter", &a.dir.0),
+        Err("not a regular file")
+    );
+}
+
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
+#[test]
+fn oversized_and_path_heads_are_reset() {
+    for (name, size) in [("letter", radio_link::wire::FILE_CAP + 1), ("../x", 0)] {
+        let (a, b) = joined();
+        let inbox = folder(&a);
+        runtime().block_on(bounded(async {
+            let peer = b.node.link().dial(a.node.id(),&a.node.addrs()).await.unwrap();
+            let (mut send,mut recv) = peer.connection().open_bi().await.unwrap();
+            radio_link::frame::write(&mut send,&radio_link::wire::Request::File {
+                to:a.node.id().to_string(),app:"notes".into(),name:name.into(),size
+            },radio_link::frame::CONTROL_CAP).await.unwrap();
+            send.finish().unwrap();
+            assert!(matches!(recv.read_chunk(1).await,Err(iroh::endpoint::ReadError::Reset(code)) if code == radio_link::link::BAD_FRAME.into()));
+        }));
+        assert_eq!(fs::read_dir(inbox).unwrap().count(), 0);
+        no_arrivals(&a);
+    }
+}
+
+#[test]
+fn short_and_long_bodies_are_reset_without_leaving_files() {
+    for body in [b"ab".as_slice(), b"abcd".as_slice()] {
+        let (a, b) = joined();
+        let inbox = folder(&a);
+        runtime().block_on(bounded(async {
+            let peer = b.node.link().dial(a.node.id(),&a.node.addrs()).await.unwrap();
+            let (mut send,mut recv) = peer.connection().open_bi().await.unwrap();
+            radio_link::frame::write(&mut send,&radio_link::wire::Request::File {
+                to:a.node.id().to_string(),app:"notes".into(),name:"letter".into(),size:3
+            },radio_link::frame::CONTROL_CAP).await.unwrap();
+            send.write_all(body).await.unwrap();
+            send.finish().unwrap();
+            assert!(matches!(recv.read_chunk(1).await,Err(iroh::endpoint::ReadError::Reset(code)) if code == radio_link::link::BAD_FRAME.into()));
+        }));
+        assert_eq!(fs::read_dir(inbox).unwrap().count(), 0);
+        no_arrivals(&a);
+    }
+}
+
+#[test]
+fn a_held_body_makes_the_next_delivery_busy() {
+    let a = Computer::with_limits(
+        "garden",
+        Limits {
+            deliveries: 1,
+            ..Limits::default()
+        },
+    );
+    let b = Computer::new("birch");
+    a.found();
+    assert_eq!(b.node.join(a.code(), now()), Ok(()));
+    wait(|| a.state(&b) == Some(State::Accepted));
+    let inbox = folder(&a);
+    let rt = runtime();
+    let (peer, mut held, _recv) = rt.block_on(bounded(async {
+        let peer = b
+            .node
+            .link()
+            .dial(a.node.id(), &a.node.addrs())
+            .await
+            .unwrap();
+        let (mut send, recv) = peer.connection().open_bi().await.unwrap();
+        radio_link::frame::write(
+            &mut send,
+            &radio_link::wire::Request::File {
+                to: a.node.id().to_string(),
+                app: "notes".into(),
+                name: "held".into(),
+                size: 3,
+            },
+            radio_link::frame::CONTROL_CAP,
+        )
+        .await
+        .unwrap();
+        send.write_all(b"a").await.unwrap();
+        (peer, send, recv)
+    }));
+    wait(|| fs::read_dir(&inbox).unwrap().count() == 1);
+    let path = source(&b, b"other");
+    assert_eq!(
+        b.node.send_file("garden", "notes", "letter", &path),
+        Err("that computer is busy; try again")
+    );
+    held.reset(0u32.into()).unwrap();
+    drop(peer);
+    wait(|| fs::read_dir(&inbox).unwrap().count() == 0);
+    no_arrivals(&a);
+}
+
+#[test]
+fn an_unreachable_computer_fails_within_the_dial_deadline() {
+    let a = Computer::with_limits(
+        "garden",
+        Limits {
+            dial: Duration::from_millis(100),
+            ..Limits::default()
+        },
+    );
+    let b = Computer::new("birch");
+    a.found();
+    assert_eq!(b.node.join(a.code(), now()), Ok(()));
+    wait(|| a.state(&b) == Some(State::Accepted));
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let record =
+        b.db.lock()
+            .unwrap()
+            .resign(
+                &b.key,
+                "birch",
+                &[socket.local_addr().unwrap()],
+                "notes",
+                None,
+                None,
+                now(),
+            )
+            .unwrap();
+    a.db.lock()
+        .unwrap()
+        .apply_computer(&a.node.id(), &record)
+        .unwrap();
+    let path = source(&a, b"hello");
+    let start = Instant::now();
+    assert_eq!(
+        a.node.send_file("birch", "notes", "letter", &path),
+        Err("the computer could not be reached")
+    );
+    assert!(start.elapsed() < Duration::from_millis(2100));
+}

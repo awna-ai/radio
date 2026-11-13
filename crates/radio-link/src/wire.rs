@@ -1,7 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 pub const LINK_MAJOR: u32 = 1;
-pub const LINK_MINOR: u32 = 2;
+pub const LINK_MINOR: u32 = 3;
+pub const NO_FOLDER: &str = "no_folder";
+pub const EXISTS: &str = "exists";
+pub const BUSY: &str = "busy";
+pub const FOLDER: &str = "folder";
+pub const WRITE: &str = "write";
+pub const FILE_CAP: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,6 +32,12 @@ impl std::fmt::Debug for JoinRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    File {
+        to: String,
+        app: String,
+        name: String,
+        size: u64,
+    },
     Computer {
         record: crate::computer_record::ComputerRecord,
     },
@@ -50,6 +62,7 @@ pub enum Request {
     from = "AnswerFields"
 )]
 pub enum Answer {
+    Refused { reason: String },
     Hello { hello: Hello },
     Ok,
 }
@@ -57,6 +70,7 @@ pub enum Answer {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum AnswerFields {
+    Refused { reason: String },
     Hello { hello: Hello },
     Ok {},
 }
@@ -64,6 +78,7 @@ enum AnswerFields {
 impl From<AnswerFields> for Answer {
     fn from(fields: AnswerFields) -> Self {
         match fields {
+            AnswerFields::Refused { reason } => Self::Refused { reason },
             AnswerFields::Hello { hello } => Self::Hello { hello },
             AnswerFields::Ok {} => Self::Ok,
         }
@@ -126,6 +141,25 @@ pub(crate) fn valid_hello(hello: &Hello) -> bool {
 
 pub(crate) fn valid_app(to: &str, app: &str, local: &iroh::EndpointId) -> bool {
     hex64(to) && to == local.to_string() && app_name(app)
+}
+
+pub fn file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b >= 0x20 && b != 0x7f && b != b'/' && b != b'\\')
+}
+
+pub(crate) fn valid_file(
+    to: &str,
+    app: &str,
+    name: &str,
+    size: u64,
+    local: &iroh::EndpointId,
+) -> bool {
+    valid_app(to, app, local) && file_name(name) && size <= FILE_CAP
 }
 
 #[cfg(test)]

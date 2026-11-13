@@ -3,12 +3,14 @@ use crate::{
     admit::{Admission, Limits},
     code::JoinCode,
     computer_record::ComputerRecord,
-    fleet_db::{Computer, FleetDb},
+    fleet_db::{Computer, FleetDb, State},
     join,
     link::{Event, Link, Local},
 };
 use std::{
     net::SocketAddr,
+    os::unix::fs::OpenOptionsExt,
+    path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -31,6 +33,7 @@ pub struct Node {
     link: Arc<Link>,
     key: SecretKey,
     db: Arc<Mutex<FleetDb>>,
+    limits: Limits,
     publish: watch::Sender<Option<ComputerRecord>>,
     published: Arc<AtomicU64>,
     ended: Arc<AtomicBool>,
@@ -56,7 +59,7 @@ impl Node {
             key.clone(),
             addrs,
             db.clone() as Arc<dyn Admission>,
-            limits,
+            limits.clone(),
             local,
         ))?);
         let (stop, stopped) = oneshot::channel();
@@ -83,6 +86,7 @@ impl Node {
             link,
             key,
             db,
+            limits,
             publish,
             published,
             ended,
@@ -122,7 +126,11 @@ impl Node {
             let result = join::join(&link, &key, &db, &code, now).await;
             let _ = sender.send(result);
         });
-        wait(receiver, WAIT)?
+        wait(
+            receiver,
+            WAIT,
+            "still telling the other computers; check computer_list later",
+        )?
     }
 
     pub fn remove(&self, target: &str, now: f64) -> Result<usize, &'static str> {
@@ -136,7 +144,11 @@ impl Node {
             let result = join::remove(&link, &key, &db, &target, now).await;
             let _ = sender.send(result);
         });
-        wait(receiver, WAIT)?
+        wait(
+            receiver,
+            WAIT,
+            "still telling the other computers; check computer_list later",
+        )?
     }
 
     pub fn leave(&self, now: f64) -> Result<usize, &'static str> {
@@ -149,7 +161,52 @@ impl Node {
             let result = join::leave(&link, &key, &db, now).await;
             let _ = sender.send(result);
         });
-        wait(receiver, WAIT)?
+        wait(
+            receiver,
+            WAIT,
+            "still telling the other computers; check computer_list later",
+        )?
+    }
+
+    pub fn send_file(
+        &self,
+        computer: &str,
+        app: &str,
+        name: &str,
+        path: &Path,
+    ) -> Result<u64, &'static str> {
+        let (file, size) = open_file(name, path)?;
+        let computer = self
+            .db
+            .lock()
+            .map_err(|_| "the fleet store is busy")?
+            .computer(computer)?;
+        if computer.state != State::Accepted {
+            return Err("the computer is not let in");
+        }
+        if computer.addrs.is_empty() {
+            return Err(crate::endpoint::NO_ADDRESS);
+        }
+        let id: EndpointId = computer.key.parse().map_err(|_| "not a computer key")?;
+        if !self.running() {
+            return Err("the link stopped");
+        }
+        let (link, app, name) = (self.link.clone(), app.to_owned(), name.to_owned());
+        let (sender, receiver) = sync_channel(1);
+        self.runtime.handle().spawn(async move {
+            let result = async {
+                let peer = link.dial(id, &computer.addrs).await?;
+                peer.send_file(&app, &name, file, size).await?;
+                Ok(size)
+            }
+            .await;
+            let _ = sender.send(result);
+        });
+        wait(
+            receiver,
+            self.limits.file + self.limits.dial + Duration::from_secs(5),
+            "the send did not finish in time",
+        )?
     }
 
     pub fn block(&self, target: &str) -> Result<Computer, &'static str> {
@@ -217,6 +274,14 @@ async fn drive(
                 Some(Event::Computer { record, .. }) => {
                     let _ = join::apply_computer(&link, &db, &record);
                 }
+                Some(Event::Arrived { from, app, name, size }) => {
+                    if let Ok(mut db) = db.lock() {
+                        let computer = db.computer(&from.to_string()).ok()
+                            .and_then(|computer| computer.name)
+                            .unwrap_or_else(|| from.to_string());
+                        let _ = db.add_arrival(&app, &name, size, &computer, now());
+                    }
+                }
                 Some(_) => {},
                 None => break false,
             },
@@ -239,9 +304,34 @@ fn now() -> f64 {
         .as_secs_f64()
 }
 
-fn wait<T>(receiver: Receiver<T>, timeout: Duration) -> Result<T, &'static str> {
+fn open_file(name: &str, path: &Path) -> Result<(std::fs::File, u64), &'static str> {
+    if !crate::wire::file_name(name) {
+        return Err("not a file name");
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|_| "the file could not be opened")?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| "the file could not be opened")?;
+    if !metadata.is_file() {
+        return Err("not a regular file");
+    }
+    if metadata.len() > crate::wire::FILE_CAP {
+        return Err("the file is larger than 64 MiB");
+    }
+    Ok((file, metadata.len()))
+}
+
+fn wait<T>(
+    receiver: Receiver<T>,
+    timeout: Duration,
+    message: &'static str,
+) -> Result<T, &'static str> {
     receiver.recv_timeout(timeout).map_err(|error| match error {
-        RecvTimeoutError::Timeout => "still telling the other computers; check computer_list later",
+        RecvTimeoutError::Timeout => message,
         RecvTimeoutError::Disconnected => "the link stopped",
     })
 }
@@ -251,10 +341,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_file_wait_uses_its_timeout_sentence() {
+        let (_sender, receiver) = sync_channel::<()>(1);
+        assert_eq!(
+            wait(receiver, Duration::ZERO, "the send did not finish in time"),
+            Err("the send did not finish in time")
+        );
+    }
+
+    #[test]
+    fn file_prechecks_reject_invalid_names_sources_and_size() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("radio-node-file-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("source");
+        std::fs::write(&path, b"hello").unwrap();
+        for name in ["../x", "a/b", ".hidden", "", &"x".repeat(256), "line\nfeed"] {
+            assert_eq!(open_file(name, &path).err(), Some("not a file name"));
+        }
+        let link = dir.join("link");
+        symlink(&path, &link).unwrap();
+        assert_eq!(
+            open_file("letter", &link).err(),
+            Some("the file could not be opened")
+        );
+        assert_eq!(open_file("letter", &dir).err(), Some("not a regular file"));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(crate::wire::FILE_CAP + 1)
+            .unwrap();
+        assert_eq!(
+            open_file("letter", &path).err(),
+            Some("the file is larger than 64 MiB")
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_wait_times_out_with_the_delivery_phrase() {
         let (sender, receiver) = sync_channel::<()>(1);
         assert_eq!(
-            wait(receiver, Duration::ZERO),
+            wait(
+                receiver,
+                Duration::ZERO,
+                "still telling the other computers; check computer_list later"
+            ),
             Err("still telling the other computers; check computer_list later")
         );
         assert!(sender.send(()).is_err());
@@ -265,6 +399,13 @@ mod tests {
     fn a_disconnected_wait_reports_the_link_stopped() {
         let (sender, receiver) = sync_channel::<()>(1);
         drop(sender);
-        assert_eq!(wait(receiver, WAIT), Err("the link stopped"));
+        assert_eq!(
+            wait(
+                receiver,
+                WAIT,
+                "still telling the other computers; check computer_list later"
+            ),
+            Err("the link stopped")
+        );
     }
 }

@@ -22,7 +22,7 @@ use std::{
 };
 
 pub const DB_FILE: &str = "fleet.db";
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 pub const JOIN_RECORDS_MAX: usize = 256 * 1024;
 pub const CODES_MAX: usize = 64;
 pub const TTL_DEFAULT: u64 = 30 * 60;
@@ -103,6 +103,15 @@ CREATE TABLE link_addresses (
 ) STRICT;
 ";
 
+const SCHEMA_5: &str = "
+CREATE TABLE delivery_folders (app TEXT PRIMARY KEY, folder TEXT NOT NULL) STRICT;
+CREATE TABLE arrivals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL,
+    computer TEXT NOT NULL, at REAL NOT NULL
+) STRICT;
+";
+
 pub const INTRODUCTIONS_PER_DAY: i64 = 3;
 pub const DAY: f64 = 86400.0;
 pub const HELD_PER_SIGNER: i64 = 64;
@@ -154,6 +163,16 @@ pub struct CodeRow {
     pub uses: u32,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Arrival {
+    pub id: i64,
+    pub app: String,
+    pub name: String,
+    pub size: u64,
+    pub computer: String,
+    pub at: f64,
+}
+
 pub struct FleetDb {
     conn: Connection,
 }
@@ -197,6 +216,85 @@ impl FleetDb {
             .map_err(|_| WRITE)?;
         migrate(&mut conn)?;
         Ok(Self { conn })
+    }
+
+    pub fn set_delivery_folder(&mut self, app: &str, folder: &Path) -> Result<(), &'static str> {
+        if !wire::app_name(app) {
+            return Err("not an app name");
+        }
+        if !folder.is_absolute() {
+            return Err("the folder must be an absolute path");
+        }
+        let _folder = crate::delivery::check_folder(folder)?;
+        let folder = folder.to_str().ok_or(WRITE)?;
+        self.conn.execute("INSERT INTO delivery_folders (app, folder) VALUES (?1, ?2) ON CONFLICT(app) DO UPDATE SET folder = excluded.folder", params![app, folder]).map_err(|_| WRITE)?;
+        Ok(())
+    }
+    pub fn clear_delivery_folder(&mut self, app: &str) -> Result<bool, &'static str> {
+        self.conn
+            .execute("DELETE FROM delivery_folders WHERE app = ?1", [app])
+            .map(|rows| rows != 0)
+            .map_err(|_| WRITE)
+    }
+    pub fn delivery_folder(&self, app: &str) -> Result<Option<PathBuf>, &'static str> {
+        self.conn
+            .query_row(
+                "SELECT folder FROM delivery_folders WHERE app = ?1",
+                [app],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map(|folder| folder.map(PathBuf::from))
+            .map_err(|_| READ)
+    }
+    pub fn add_arrival(
+        &mut self,
+        app: &str,
+        name: &str,
+        size: u64,
+        computer: &str,
+        at: f64,
+    ) -> Result<i64, &'static str> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        tx.execute(
+            "INSERT INTO arrivals (app, name, size, computer, at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                app,
+                name,
+                i64::try_from(size).map_err(|_| WRITE)?,
+                computer,
+                at
+            ],
+        )
+        .map_err(|_| WRITE)?;
+        let id = tx.last_insert_rowid();
+        tx.execute("DELETE FROM arrivals WHERE app = ?1 AND id IN (SELECT id FROM arrivals WHERE app = ?1 ORDER BY id DESC LIMIT -1 OFFSET 10000)", [app]).map_err(|_| WRITE)?;
+        tx.commit().map_err(|_| WRITE)?;
+        Ok(id)
+    }
+    pub fn arrivals(
+        &self,
+        app: &str,
+        after: i64,
+        limit: usize,
+    ) -> Result<Vec<Arrival>, &'static str> {
+        let mut stmt = self.conn.prepare("SELECT id, app, name, size, computer, at FROM arrivals WHERE app = ?1 AND id > ?2 ORDER BY id LIMIT ?3").map_err(|_| READ)?;
+        stmt.query_map(params![app, after, limit.clamp(1, 500) as i64], |row| {
+            Ok(Arrival {
+                id: row.get(0)?,
+                app: row.get(1)?,
+                name: row.get(2)?,
+                size: u64::try_from(row.get::<_, i64>(3)?)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                computer: row.get(4)?,
+                at: row.get(5)?,
+            })
+        })
+        .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+        .map_err(|_| READ)
     }
 
     pub fn link_addresses(&self) -> Result<Vec<IpAddr>, &'static str> {
@@ -1511,12 +1609,15 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
             tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?;
         }
         2 => tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?,
-        3 => {}
+        3 | 4 => {}
         SCHEMA_VERSION => return Ok(()),
         value if value > SCHEMA_VERSION => return Err("fleet.db is newer than this build"),
         _ => return Err(READ),
     }
-    tx.execute_batch(SCHEMA_4).map_err(|_| WRITE)?;
+    if version < 4 {
+        tx.execute_batch(SCHEMA_4).map_err(|_| WRITE)?;
+    }
+    tx.execute_batch(SCHEMA_5).map_err(|_| WRITE)?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|_| WRITE)?;
     tx.commit().map_err(|_| WRITE)
