@@ -23,13 +23,17 @@ pub enum Boot {
 }
 
 pub trait Node {
-    type Msg: Clone;
+    type Msg;
+    /// Bytes this message takes on the wire; the simulator adds nothing to it.
     fn size(msg: &Self::Msg) -> u32;
     fn receive(&mut self, from: Member, msg: Self::Msg, ctx: &mut Ctx<'_, Self::Msg>);
+    /// This member starts a change (it is the change's origin).
     fn originate(&mut self, change: Change, ctx: &mut Ctx<'_, Self::Msg>);
     fn timer(&mut self, token: u64, ctx: &mut Ctx<'_, Self::Msg>);
+    /// A message this member sent found its receiver asleep or gone.
     fn undelivered(&mut self, to: Member, msg: Self::Msg, ctx: &mut Ctx<'_, Self::Msg>);
     fn slept(&mut self) {}
+    /// Every timer was cancelled when the member fell asleep; set again here what should run.
     fn woke(&mut self, _ctx: &mut Ctx<'_, Self::Msg>) {}
 }
 
@@ -197,12 +201,13 @@ enum Event<M> {
 }
 struct Scheduled<M> {
     at: Millis,
+    last: bool,
     sequence: u64,
     event: Event<M>,
 }
 impl<M> PartialEq for Scheduled<M> {
     fn eq(&self, other: &Self) -> bool {
-        (self.at, self.sequence) == (other.at, other.sequence)
+        (self.at, self.last, self.sequence) == (other.at, other.last, other.sequence)
     }
 }
 impl<M> Eq for Scheduled<M> {}
@@ -213,7 +218,7 @@ impl<M> PartialOrd for Scheduled<M> {
 }
 impl<M> Ord for Scheduled<M> {
     fn cmp(&self, other: &Self) -> Ordering {
-        (other.at, other.sequence).cmp(&(self.at, self.sequence))
+        (other.at, other.last, other.sequence).cmp(&(self.at, self.last, self.sequence))
     }
 }
 struct Engine<'a, N: Node> {
@@ -233,6 +238,7 @@ impl<N: Node> Engine<'_, N> {
     fn schedule(&mut self, at: Millis, event: Event<N::Msg>) {
         self.heap.push(Scheduled {
             at,
+            last: matches!(event, Event::Measure(_)),
             sequence: self.sequence,
             event,
         });

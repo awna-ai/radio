@@ -2,14 +2,26 @@ use super::*;
 
 struct Quiet;
 impl Node for Quiet {
-    type Msg = ();
-    fn size(_: &()) -> u32 {
+    type Msg = Self;
+    fn size(_: &Self) -> u32 {
         0
     }
-    fn receive(&mut self, _: Member, _: (), _: &mut Ctx<'_, ()>) {}
-    fn originate(&mut self, _: Change, _: &mut Ctx<'_, ()>) {}
-    fn timer(&mut self, _: u64, _: &mut Ctx<'_, ()>) {}
-    fn undelivered(&mut self, _: Member, _: (), _: &mut Ctx<'_, ()>) {}
+    fn receive(&mut self, _: Member, _: Self, _: &mut Ctx<'_, Self>) {}
+    fn originate(&mut self, _: Change, _: &mut Ctx<'_, Self>) {}
+    fn timer(&mut self, _: u64, _: &mut Ctx<'_, Self>) {}
+    fn undelivered(&mut self, _: Member, _: Self, _: &mut Ctx<'_, Self>) {}
+}
+#[test]
+fn messages_need_not_be_clone() {
+    let mut scenario = Scenario::new(1, 2);
+    scenario.asleep = 0.0;
+    scenario.measure_from = 0;
+    let (report, _) = run(&scenario, |me, _, ctx| {
+        ctx.send(1 - me, Quiet);
+        Quiet
+    })
+    .unwrap();
+    assert!(report.traffic.iter().all(|traffic| traffic.received == 1));
 }
 #[test]
 fn random_is_repeatable_and_bounded() {

@@ -34,7 +34,7 @@ fn counts_messages_and_bytes() {
 #[path = "sim/push.rs"]
 mod push;
 use push::Push;
-use std::time::Instant;
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
 fn changes() -> Vec<(Millis, Kind)> {
     vec![
@@ -80,23 +80,29 @@ fn every_message_is_accounted_for() {
     assert!(sum(|t| t.undelivered) > 0);
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Entry {
     Receive(Millis),
     Timer(Millis),
     SleepAfter(Millis),
     Wake(Millis),
     Failed(Millis),
+    Originate(Change, Member, Millis),
 }
+type Calls = Rc<RefCell<Vec<(Member, Entry)>>>;
 struct Log {
     entries: Vec<Entry>,
     last: Millis,
     members: u32,
     direct: bool,
     pulse: bool,
+    skip_one: bool,
+    repeat: bool,
+    me: Member,
+    calls: Calls,
 }
 impl Log {
-    fn start(_: Member, boot: Boot, _: &mut Ctx<'_, Option<Change>>) -> Self {
+    fn start(me: Member, boot: Boot, _: &mut Ctx<'_, Option<Change>>) -> Self {
         Self {
             entries: Vec::new(),
             last: 0,
@@ -106,7 +112,15 @@ impl Log {
             },
             direct: true,
             pulse: false,
+            skip_one: false,
+            repeat: false,
+            me,
+            calls: Calls::default(),
         }
+    }
+    fn record(&mut self, entry: Entry) {
+        self.calls.borrow_mut().push((self.me, entry.clone()));
+        self.entries.push(entry);
     }
     fn pulse(&mut self, ctx: &mut Ctx<'_, Option<Change>>) {
         let mut to = ctx.random(self.members - 1);
@@ -124,38 +138,46 @@ impl Node for Log {
     }
     fn receive(&mut self, _: Member, msg: Self::Msg, ctx: &mut Ctx<'_, Self::Msg>) {
         self.last = ctx.now();
-        self.entries.push(Entry::Receive(ctx.now()));
+        self.record(Entry::Receive(ctx.now()));
         if let Some(change) = msg {
             ctx.applied(change.id);
-            ctx.applied(change.id);
-        }
-    }
-    fn originate(&mut self, change: Change, ctx: &mut Ctx<'_, Self::Msg>) {
-        if self.direct {
-            for to in 0..self.members {
-                if to != ctx.me() && to != change.subject {
-                    ctx.send(to, Some(change));
-                }
+            if self.repeat {
+                ctx.after(50, change.id as u64 + 1);
             }
         }
     }
-    fn timer(&mut self, _: u64, ctx: &mut Ctx<'_, Self::Msg>) {
+    fn originate(&mut self, change: Change, ctx: &mut Ctx<'_, Self::Msg>) {
         self.last = ctx.now();
-        self.entries.push(Entry::Timer(ctx.now()));
-        if self.pulse {
+        self.record(Entry::Originate(change, ctx.me(), ctx.now()));
+        if self.direct {
+            let origin = ctx.me();
+            let targets = (0..self.members)
+                .filter(|to| *to != origin && *to != change.subject)
+                .skip(usize::from(self.skip_one));
+            for to in targets {
+                ctx.send(to, Some(change));
+            }
+        }
+    }
+    fn timer(&mut self, token: u64, ctx: &mut Ctx<'_, Self::Msg>) {
+        self.last = ctx.now();
+        self.record(Entry::Timer(ctx.now()));
+        if token > 0 {
+            ctx.applied((token - 1) as u32);
+        } else if self.pulse {
             self.pulse(ctx);
         }
     }
     fn undelivered(&mut self, _: Member, _: Self::Msg, ctx: &mut Ctx<'_, Self::Msg>) {
         self.last = ctx.now();
-        self.entries.push(Entry::Failed(ctx.now()));
+        self.record(Entry::Failed(ctx.now()));
     }
     fn slept(&mut self) {
-        self.entries.push(Entry::SleepAfter(self.last));
+        self.record(Entry::SleepAfter(self.last));
     }
     fn woke(&mut self, ctx: &mut Ctx<'_, Self::Msg>) {
         self.last = ctx.now();
-        self.entries.push(Entry::Wake(ctx.now()));
+        self.record(Entry::Wake(ctx.now()));
         if self.pulse {
             self.pulse(ctx);
         }
@@ -251,6 +273,8 @@ fn gone_members_never_run_again() {
         let subject = report.spreads[0].change.subject as usize;
         assert!(nodes[subject].entries.iter().all(|entry| match entry {
             Entry::Receive(t) | Entry::Timer(t) | Entry::Wake(t) | Entry::Failed(t) => *t < 500,
+            Entry::Originate(change, _, t) =>
+                kind == Kind::Leave && change.subject == subject as Member && *t == 500,
             Entry::SleepAfter(_) => false,
         }));
         assert!(report.traffic.iter().map(|t| t.undelivered).sum::<u64>() > 0);
@@ -501,4 +525,352 @@ fn change_window_can_end_just_before_duration() {
         (spread.targets, spread.reached, spread.after_99),
         (2, 2, Some(10))
     );
+}
+
+#[test]
+fn removals_pick_live_subjects_and_other_awake_origins() {
+    let mut sleeping_subjects = 0;
+    let mut lone_awake_removals = 0;
+    let mut removals = 0;
+    for seed in 0..50 {
+        let mut scenario = Scenario::new(seed, 4 + (seed % 3) as u32);
+        scenario.asleep = 0.7;
+        scenario.sleep_mean = 200;
+        scenario.duration = 5_001;
+        scenario.measure_from = 0;
+        scenario.window = 100;
+        scenario.latency = (10, 50);
+        scenario.changes = (1..=45)
+            .map(|i| {
+                (
+                    i * 100,
+                    if i % 4 == 0 {
+                        Kind::Join
+                    } else if i % 7 == 0 {
+                        Kind::Leave
+                    } else {
+                        Kind::Remove
+                    },
+                )
+            })
+            .collect();
+        let calls = Calls::default();
+        let (report, _) = run(&scenario, |me, boot, ctx| {
+            let mut node = Log::start(me, boot, ctx);
+            node.calls = calls.clone();
+            node.members = scenario.members;
+            node.direct = false;
+            node.pulse = true;
+            node.pulse(ctx);
+            node
+        })
+        .unwrap();
+        let mut awake = vec![false; report.members as usize];
+        awake[..scenario.members as usize].fill(true);
+        let mut gone = vec![false; report.members as usize];
+        let mut originated = 0;
+        for (member, entry) in calls.borrow().iter() {
+            let me = *member as usize;
+            assert!(
+                !gone[me],
+                "callback after member {me} was gone: {entry:?}, seed {seed}"
+            );
+            match entry {
+                Entry::SleepAfter(_) => awake[me] = false,
+                Entry::Wake(_) => awake[me] = true,
+                Entry::Originate(change, caller, at) => {
+                    let spread = &report.spreads[originated];
+                    assert_eq!((change, at), (&spread.change, &spread.at));
+                    originated += 1;
+                    assert_eq!(*caller, change.origin, "originate caller, seed {seed}");
+                    assert_eq!(*member, change.origin);
+                    assert!(awake[me], "origin was asleep, seed {seed}");
+                    let subject = change.subject as usize;
+                    assert!(!gone[subject], "subject was already gone, seed {seed}");
+                    match change.kind {
+                        Kind::Join => awake[subject] = true,
+                        Kind::Remove => {
+                            assert_ne!(
+                                change.origin, change.subject,
+                                "removal origin equals subject, seed {seed}"
+                            );
+                            lone_awake_removals += usize::from(
+                                awake
+                                    .iter()
+                                    .zip(&gone)
+                                    .filter(|(awake, gone)| **awake && !**gone)
+                                    .count()
+                                    == 1,
+                            );
+                            sleeping_subjects += usize::from(!awake[subject]);
+                            removals += 1;
+                            gone[subject] = true;
+                        }
+                        Kind::Leave => gone[subject] = true,
+                    }
+                }
+                _ => assert!(awake[me], "callback while asleep: {entry:?}, seed {seed}"),
+            }
+        }
+        assert_eq!(originated, report.spreads.len());
+    }
+    assert!(removals > 100);
+    assert!(
+        sleeping_subjects > 0,
+        "removals must include sleeping subjects"
+    );
+    assert!(
+        lone_awake_removals > 0,
+        "removals must exercise the lone awake exclusion"
+    );
+}
+
+#[test]
+fn receive_and_failure_counts_start_at_measure_from() {
+    for (asleep, remove_at) in [(0.3, 6_500), (0.0, 6_500), (0.0, 2_000)] {
+        let mut scenario = Scenario::new(26, 20);
+        scenario.asleep = asleep;
+        scenario.sleep_mean = 200;
+        scenario.duration = 10_000;
+        scenario.measure_from = 5_000;
+        scenario.window = 500;
+        scenario.changes = vec![(remove_at, Kind::Remove)];
+        let (report, nodes) = run(&scenario, |me, boot, ctx| {
+            let mut node = Log::start(me, boot, ctx);
+            node.direct = false;
+            node.pulse = true;
+            node.pulse(ctx);
+            node
+        })
+        .unwrap();
+        let mut before_received = 0;
+        let mut before_failed = 0;
+        let mut received = 0;
+        let mut failed = 0;
+        let mut silent_failures = 0;
+        for (me, (node, traffic)) in nodes.iter().zip(&report.traffic).enumerate() {
+            let mut node_received = 0;
+            let mut node_failed = 0;
+            for entry in &node.entries {
+                match entry {
+                    Entry::Receive(at) if *at >= scenario.measure_from => node_received += 1,
+                    Entry::Receive(_) => before_received += 1,
+                    Entry::Failed(at) if *at >= scenario.measure_from => node_failed += 1,
+                    Entry::Failed(_) => before_failed += 1,
+                    _ => {}
+                }
+            }
+            assert_eq!(
+                traffic.received, node_received,
+                "receive window, member {me}, asleep {asleep}"
+            );
+            assert_eq!(traffic.received_bytes, node_received * 100);
+            assert!(
+                node_failed <= traffic.undelivered,
+                "failure callbacks, member {me}"
+            );
+            if asleep == 0.0 {
+                assert_eq!(
+                    traffic.undelivered, node_failed,
+                    "failure window, member {me}"
+                );
+            }
+            silent_failures += traffic.undelivered - node_failed;
+            received += node_received;
+            failed += node_failed;
+        }
+        assert!(before_received > 0 && received > 0 && failed > 0);
+        if remove_at < scenario.measure_from {
+            assert!(before_failed > 0);
+        }
+        if asleep > 0.0 {
+            assert!(before_failed > 0 && silent_failures > 0);
+        }
+    }
+}
+
+#[test]
+fn spread_percentile_sorts_delays_and_rounds_target_rank_up() {
+    for (members, skip_one) in [(150, false), (151, true)] {
+        let mut scenario = Scenario::new(28, members);
+        scenario.asleep = 0.0;
+        scenario.latency = (1, 500);
+        scenario.measure_from = 0;
+        scenario.window = 1_000;
+        scenario.duration = 1_101;
+        scenario.changes = vec![(100, Kind::Join)];
+        let (report, nodes) = run(&scenario, |me, boot, ctx| {
+            let mut node = Log::start(me, boot, ctx);
+            node.skip_one = skip_one;
+            node
+        })
+        .unwrap();
+        let spread = &report.spreads[0];
+        let mut delays: Vec<_> = nodes
+            .iter()
+            .enumerate()
+            .filter(|(me, _)| {
+                *me != spread.change.origin as usize && *me != spread.change.subject as usize
+            })
+            .flat_map(|(_, node)| {
+                node.entries.iter().filter_map(|entry| match entry {
+                    Entry::Receive(at) => Some(*at - spread.at),
+                    _ => None,
+                })
+            })
+            .collect();
+        delays.sort_unstable();
+        let targets = members - 1;
+        let rank = (0.99 * targets as f64).ceil() as usize;
+        assert_ne!(rank, (0.99 * targets as f64).floor() as usize);
+        assert_eq!(spread.targets, targets);
+        assert_eq!(spread.reached as usize, delays.len());
+        assert_eq!(spread.reached, targets - u32::from(skip_one));
+        assert!(delays.len() >= rank);
+        assert_ne!(
+            delays[rank - 1],
+            delays[rank - 2],
+            "ranks must have distinct delays"
+        );
+        assert_eq!(
+            spread.after_99,
+            Some(delays[rank - 1]),
+            "targets {targets}, skip {skip_one}"
+        );
+    }
+}
+
+#[test]
+fn spread_targets_are_candidates_still_awake_at_measurement() {
+    let mut scenario = Scenario::new(29, 200);
+    scenario.asleep = 0.3;
+    scenario.sleep_mean = 5_000;
+    scenario.measure_from = 0;
+    scenario.window = 5_000;
+    scenario.duration = 6_001;
+    scenario.latency = (10, 10);
+    scenario.changes = vec![(1_000, Kind::Join)];
+    let calls = Calls::default();
+    let (report, _) = run(&scenario, |me, boot, ctx| {
+        let mut node = Log::start(me, boot, ctx);
+        node.calls = calls.clone();
+        node
+    })
+    .unwrap();
+    let spread = &report.spreads[0];
+    assert_eq!(spread.at + scenario.window, scenario.duration - 1);
+    let mut awake = vec![false; report.members as usize];
+    awake[..scenario.members as usize].fill(true);
+    let mut candidates = Vec::new();
+    for (me, entry) in calls.borrow().iter() {
+        match entry {
+            Entry::SleepAfter(_) => awake[*me as usize] = false,
+            Entry::Wake(_) => awake[*me as usize] = true,
+            Entry::Originate(change, _, _) => {
+                awake[change.subject as usize] = true;
+                candidates = awake.clone();
+                candidates[change.subject as usize] = false;
+                candidates[change.origin as usize] = false;
+            }
+            _ => {}
+        }
+    }
+    let candidate_count = candidates.iter().filter(|candidate| **candidate).count();
+    let targets = candidates
+        .iter()
+        .zip(&awake)
+        .filter(|(candidate, awake)| **candidate && **awake)
+        .count();
+    assert!(targets > 0 && targets < candidate_count);
+    assert_eq!(
+        spread.targets as usize, targets,
+        "only candidates awake at the measurement are targets"
+    );
+}
+
+#[test]
+fn applied_keeps_the_first_receive_before_a_later_timer() {
+    let mut scenario = Scenario::new(30, 150);
+    scenario.asleep = 0.0;
+    scenario.latency = (1, 100);
+    scenario.measure_from = 0;
+    scenario.window = 500;
+    scenario.duration = 601;
+    scenario.changes = vec![(100, Kind::Remove)];
+    let (report, nodes) = run(&scenario, |me, boot, ctx| {
+        let mut node = Log::start(me, boot, ctx);
+        node.repeat = true;
+        node
+    })
+    .unwrap();
+    let spread = &report.spreads[0];
+    let mut delays = Vec::new();
+    for (me, node) in nodes.iter().enumerate() {
+        if me == spread.change.subject as usize || me == spread.change.origin as usize {
+            continue;
+        }
+        let [Entry::Receive(first), Entry::Timer(again)] = node.entries.as_slice() else {
+            panic!(
+                "target did not apply from both receive and timer: {:?}",
+                node.entries
+            );
+        };
+        assert_eq!(*again, first + 50);
+        assert!(*again < spread.at + scenario.window);
+        delays.push(*first - spread.at);
+    }
+    delays.sort_unstable();
+    assert_eq!(spread.targets as usize, delays.len());
+    assert_eq!(spread.reached, spread.targets);
+    let rank = (0.99 * delays.len() as f64).ceil() as usize;
+    assert_eq!(
+        spread.after_99,
+        Some(delays[rank - 1]),
+        "a later applied call must not replace the first delay"
+    );
+}
+
+#[test]
+fn two_hop_delivery_at_the_window_boundary_is_reached() {
+    struct Hops(Vec<Millis>);
+    impl Node for Hops {
+        type Msg = (u32, Option<Member>);
+        fn size(_: &Self::Msg) -> u32 {
+            1
+        }
+        fn originate(&mut self, change: Change, ctx: &mut Ctx<'_, Self::Msg>) {
+            let targets: Vec<_> = (0..3).filter(|me| *me != ctx.me()).collect();
+            ctx.send(targets[0], (change.id, Some(targets[1])));
+        }
+        fn receive(&mut self, _: Member, (id, next): Self::Msg, ctx: &mut Ctx<'_, Self::Msg>) {
+            self.0.push(ctx.now());
+            ctx.applied(id);
+            if let Some(next) = next {
+                ctx.send(next, (id, None));
+            }
+        }
+        fn timer(&mut self, _: u64, _: &mut Ctx<'_, Self::Msg>) {}
+        fn undelivered(&mut self, _: Member, _: Self::Msg, _: &mut Ctx<'_, Self::Msg>) {}
+    }
+    let mut scenario = Scenario::new(31, 3);
+    scenario.asleep = 0.0;
+    scenario.measure_from = 0;
+    scenario.window = 100;
+    scenario.duration = 201;
+    scenario.latency = (scenario.window / 2, scenario.window / 2);
+    scenario.changes = vec![(100, Kind::Join)];
+    let (report, nodes) = run(&scenario, |_, _, _| Hops(Vec::new())).unwrap();
+    let mut received: Vec<_> = nodes
+        .iter()
+        .flat_map(|node| node.0.iter().copied())
+        .collect();
+    received.sort_unstable();
+    assert_eq!(received, [150, 200]);
+    let spread = &report.spreads[0];
+    assert_eq!(spread.targets, 2);
+    assert_eq!(
+        spread.reached, 2,
+        "the second hop arrives exactly at the window boundary"
+    );
+    assert_eq!(spread.after_99, Some(100));
 }
