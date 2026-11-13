@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 3
+Protocol minor: 4
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -78,11 +78,15 @@ them against these lines. They are independent of the repo's semver tags.
 | `computer_accept` | `computer` | `computer` | Lets a pending or blocked computer connect. `computer` is its name or its id |
 | `computer_block` | `computer` | `computer` | Refuses a computer on this computer only; never sent to the others. `computer_accept` lifts it |
 | `computer_trust` | `computer` | `computer` | Marks an accepted computer trusted: the computers it invites from now on are accepted here without asking |
+| `resign` | `app`, optional `section`, optional `roles` | `record: {id, name, version, roles, section?}` | Re-signs this computer's record with the app's new section: a string of 1 to 4,096 bytes that Radio carries to the fleet's other computers and never reads. A request without `section` removes the app's section. `roles` (at most 8 names, by the computer-name rule) replaces the computer's roles; without it they stay. The app must be registered. A change that changes nothing keeps the record and its version; otherwise the version rises. Answers the record with this app's section |
+| `computer_records` | `app` | `records: [{id, name, version, roles, section?}]` | Every record this computer holds, its own included, by id: each computer's name, the version it last signed, its roles and this app's section, when it has one. A record is kept only when it is signed by the computer it names and newer than the one held |
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
 client reads it as a word. Times are seconds since the Unix epoch.
 
 A join code is one line: `rj1.<fleet id>.<inviter id>.<secret>.<hints>`, where the fleet and inviter ids are 64 lowercase hex characters, the secret is 32 bytes and the hints are a JSON object `{"direct": ["<ip>:<port>", …]}`, both in unpadded base64url. Treat it as a password: pass it on standard input or through the socket, never on a command line, and never log it.
+
+A computer's record is signed by that computer's own key and carries its name, its link id, its roles, the addresses it can be reached at and one section per app (at most 8). Radio checks the signature and the version of every record it receives and carries the sections without reading them, so an app's section is for that app on the other computers to parse. Sections are not secret: every computer in the fleet holds them.
 
 Every read goes through the socket: the daemon is the only process that opens its rooms store. The
 exact field names and types of each op are `radio-client`'s types. `contract/v1/` holds a fixture per

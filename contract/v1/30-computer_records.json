@@ -1,0 +1,21 @@
+{
+  "request": {
+    "v": 1,
+    "op": "computer_records",
+    "app": "lantern"
+  },
+  "response": {
+    "ok": true,
+    "records": [
+      {
+        "id": "<string>",
+        "name": "test-host",
+        "roles": [
+          "hub"
+        ],
+        "section": "{\"level\":\"presence\"}"
+      }
+    ]
+  },
+  "exact": false
+}

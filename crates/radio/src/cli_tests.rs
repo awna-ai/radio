@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 3);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 4);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -881,4 +881,153 @@ fn computer_answers_preserve_fields_and_omit_absent_names() {
     });
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
+}
+
+#[test]
+fn record_commands_match_contract_requests() {
+    for (stem, words) in [
+        (
+            "27-resign",
+            vec![
+                "resign",
+                "--app",
+                "lantern",
+                "--section",
+                r#"{"level":"presence"}"#,
+                "--roles",
+                "hub",
+            ],
+        ),
+        (
+            "30-computer_records",
+            vec!["computer", "records", "--app", "lantern"],
+        ),
+    ] {
+        let parsed = parse(&args(&words)).unwrap().resolve(io::empty()).unwrap();
+        let mut request = serde_json::to_value(parsed).unwrap();
+        request["v"] = 1.into();
+        assert_eq!(request, fleet_fixture(stem)["request"]);
+    }
+}
+
+#[test]
+fn resign_resolves_sections_and_preserves_optional_roles() {
+    for (words, stdin, expected) in [
+        (
+            vec!["resign", "--app", "lantern", "--section-file", "-"],
+            "section\n",
+            serde_json::json!({"op":"resign","app":"lantern","section":"section\n"}),
+        ),
+        (
+            vec!["resign", "--app", "lantern"],
+            "ignored",
+            serde_json::json!({"op":"resign","app":"lantern"}),
+        ),
+        (
+            vec!["resign", "--app", "lantern", "--roles", ""],
+            "",
+            serde_json::json!({"op":"resign","app":"lantern","roles":[]}),
+        ),
+        (
+            vec!["resign", "--app", "lantern", "--roles", "hub, lander,,Hub"],
+            "",
+            serde_json::json!({"op":"resign","app":"lantern","roles":["hub"," lander","","Hub"]}),
+        ),
+    ] {
+        let request = parse(&args(&words))
+            .unwrap()
+            .resolve(Cursor::new(stdin))
+            .unwrap();
+        assert_eq!(serde_json::to_value(request).unwrap(), expected);
+    }
+    let file = BodyFile::new(b"section from file\n");
+    let request = parse(&args(&[
+        "resign",
+        "--app",
+        "lantern",
+        "--section-file",
+        file.0.to_str().unwrap(),
+    ]))
+    .unwrap()
+    .resolve(io::empty())
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        serde_json::json!({"op":"resign","app":"lantern","section":"section from file\n"})
+    );
+}
+
+#[test]
+fn invalid_record_commands_are_usage_errors() {
+    for words in [
+        vec![
+            "resign",
+            "--app",
+            "lantern",
+            "--section",
+            "a",
+            "--section-file",
+            "-",
+        ],
+        vec!["resign"],
+        vec!["resign", "--section", "a"],
+        vec!["computer", "records"],
+        vec!["resign", "--app", "lantern", "--app", "meadow"],
+        vec!["resign", "--app", "lantern", "--roles"],
+        vec!["computer", "records", "--app", "lantern", "extra"],
+    ] {
+        assert_eq!(parse(&args(&words)), Err(()), "{words:?}");
+    }
+}
+
+#[test]
+fn record_answers_preserve_versions_and_omit_absent_sections() {
+    let response = serde_json::json!({
+        "ok": true,
+        "record": {"id":"key", "name":"garden", "version":1700000000000_u64, "roles":["hub"], "section":"a"},
+        "records": [{"id":"key", "name":"garden", "version":1700000000001_u64, "roles":[]}]
+    });
+    let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
+    assert_eq!(serde_json::to_value(typed).unwrap(), response);
+}
+
+#[test]
+fn resign_section_files_share_the_bounded_body_reader_and_errors() {
+    for (bytes, expected) in [
+        (vec![0xff], (2, "radio: the body is not UTF-8")),
+        (
+            vec![b'x'; REQUEST_MAX_BYTES + 1],
+            (1, "radio: the message is empty or too long"),
+        ),
+    ] {
+        let file = BodyFile::new(&bytes);
+        for path in ["-", file.0.to_str().unwrap()] {
+            let command = parse(&args(&[
+                "resign",
+                "--app",
+                "lantern",
+                "--section-file",
+                path,
+            ]))
+            .unwrap();
+            assert_eq!(
+                command.resolve(Cursor::new(&bytes)),
+                Err((expected.0, expected.1.into()))
+            );
+        }
+    }
+    let file = BodyFile::new(b"");
+    let missing = file.0.parent().unwrap().join("missing");
+    let command = parse(&args(&[
+        "resign",
+        "--app",
+        "lantern",
+        "--section-file",
+        missing.to_str().unwrap(),
+    ]))
+    .unwrap();
+    assert_eq!(
+        command.resolve(io::empty()),
+        Err((2, "radio: the body file could not be read".into()))
+    );
 }

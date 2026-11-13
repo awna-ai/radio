@@ -51,6 +51,20 @@ fn recorded_contract_uses_client_types() {
             .insert("v".into(), version);
         assert_eq!(recorded, fixture["request"], "{}", path.display());
         requests += 1;
+        // Partial record fixtures omit the changing version; a real answer must carry it.
+        if fixture["exact"] == false {
+            if let Some(record) = fixture["response"].get_mut("record") {
+                record["version"] = json!(1);
+            }
+            if let Some(records) = fixture["response"]
+                .get_mut("records")
+                .and_then(Value::as_array_mut)
+            {
+                for record in records {
+                    record["version"] = json!(1);
+                }
+            }
+        }
         placeholders(&mut fixture["response"]);
         let _: Response = serde_json::from_value(fixture["response"].take()).unwrap();
     }

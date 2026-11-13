@@ -1,0 +1,13 @@
+{
+  "request": {
+    "v": 1,
+    "op": "resign",
+    "app": "meadow",
+    "section": "x"
+  },
+  "response": {
+    "ok": false,
+    "error": "the app is not registered"
+  },
+  "exact": true
+}

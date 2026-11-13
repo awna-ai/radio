@@ -525,7 +525,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":3},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":4},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -1436,7 +1436,7 @@ fn fleet_ops_need_both_link_and_fleet_paths() {
         } else {
             server.with_fleet_db(fixture.0.join("fleet.db"))
         };
-        let worker = start(server, 8);
+        let worker = start(server, 10);
         for value in [
             serde_json::json!({"v":1,"op":"fleet_init","name":"garden"}),
             serde_json::json!({"v":1,"op":"code_create"}),
@@ -1446,6 +1446,8 @@ fn fleet_ops_need_both_link_and_fleet_paths() {
             serde_json::json!({"v":1,"op":"computer_accept","computer":"meadow"}),
             serde_json::json!({"v":1,"op":"computer_block","computer":"meadow"}),
             serde_json::json!({"v":1,"op":"computer_trust","computer":"meadow"}),
+            serde_json::json!({"v":1,"op":"resign","app":"lantern"}),
+            serde_json::json!({"v":1,"op":"computer_records","app":"lantern"}),
         ] {
             let mut line = serde_json::to_vec(&value).unwrap();
             line.push(b'\n');
@@ -1613,4 +1615,187 @@ fn computers_cross_the_socket() {
     assert!(log.contains("not a computer"));
     assert!(!log.to_ascii_lowercase().contains("meadow"));
     assert!(!log.contains("lantern"));
+}
+
+#[test]
+fn records_cross_the_socket() {
+    use radio_link::{
+        SecretKey,
+        computer_record::{self, ComputerBody},
+        fleet_db::FleetDb,
+        membership,
+    };
+
+    let fixture = Fixture::new();
+    let link = fixture.0.join(".config/radio");
+    let fleet_path = fixture.0.join("fleet.db");
+    let log_path = fixture.0.join("radio.log");
+    let server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(fleet_path.clone())
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    let worker = start(server, 15);
+    let send = |request: &Request| {
+        let mut value = serde_json::to_value(request).unwrap();
+        value["v"] = 1.into();
+        let mut line = serde_json::to_vec(&value).unwrap();
+        line.push(b'\n');
+        raw_value(&fixture.socket(), &line)
+    };
+    let resign = |section: Option<&str>, roles: Option<Vec<String>>| Request::Resign {
+        app: "lantern".into(),
+        section: section.map(String::from),
+        roles,
+    };
+    let records = |app: &str| Request::ComputerRecords { app: app.into() };
+    assert_eq!(
+        send(&Request::Register {
+            app: "lantern".into(),
+            app_version: "1.0".into(),
+            members: vec![],
+        }),
+        serde_json::json!({"ok":true})
+    );
+    for request in [resign(Some("a"), None), records("lantern")] {
+        assert_eq!(
+            send(&request),
+            serde_json::json!({"ok":false,"error":"not in a fleet"})
+        );
+    }
+    let found = send(&Request::FleetInit {
+        name: "garden".into(),
+    });
+    assert_eq!(found["ok"], true);
+    assert_eq!(
+        send(&Request::Resign {
+            app: "meadow".into(),
+            section: Some("a".into()),
+            roles: Some(vec!["lander".into()]),
+        }),
+        serde_json::json!({"ok":false,"error":"the app is not registered"})
+    );
+    let first_request = resign(Some("a"), Some(vec!["lander".into(), "hub".into()]));
+    let first = send(&first_request);
+    let node = radio_link::key::load_or_create(&link).unwrap();
+    assert_eq!(first["ok"], true);
+    assert_eq!(first["record"]["id"], node.public().to_string());
+    assert_eq!(first["record"]["name"], "test-host");
+    assert_eq!(
+        first["record"]["roles"],
+        serde_json::json!(["hub", "lander"])
+    );
+    assert_eq!(first["record"]["section"], "a");
+    let version = first["record"]["version"].as_u64().unwrap();
+    assert_eq!(send(&first_request), first);
+    let second = send(&resign(Some("b"), None));
+    assert_eq!(second["ok"], true);
+    assert!(second["record"]["version"].as_u64().unwrap() > version);
+    assert_eq!(second["record"]["roles"], first["record"]["roles"]);
+    assert_eq!(second["record"]["section"], "b");
+    let cleared = send(&resign(None, None));
+    assert_eq!(cleared["ok"], true);
+    assert!(cleared["record"].get("section").is_none());
+    assert_eq!(
+        send(&records("lantern")),
+        serde_json::json!({"ok":true,"records":[cleared["record"]]})
+    );
+    assert_eq!(
+        send(&records("Meadow")),
+        serde_json::json!({"ok":false,"error":"not an app name"})
+    );
+    let created = send(&Request::CodeCreate {
+        name: None,
+        ttl: None,
+    });
+    assert_eq!(created["ok"], true);
+    let code = radio_link::code::JoinCode::parse(created["code"].as_str().unwrap()).unwrap();
+    let meadow = SecretKey::from_bytes(&[21; 32]);
+    let addrs = ["127.0.0.1:7000".parse().unwrap()];
+    let mut db = FleetDb::open(&fleet_path).unwrap();
+    db.admit(
+        &node,
+        "test-host",
+        &[],
+        &code,
+        &meadow.public(),
+        "meadow",
+        &addrs,
+        &membership::consent(
+            &meadow,
+            &code.fleet,
+            &node.public().to_string(),
+            "meadow",
+            &addrs,
+        ),
+        now().unwrap(),
+    )
+    .unwrap();
+    let section = "meadow section";
+    let record = computer_record::sign(
+        ComputerBody {
+            fleet: code.fleet.clone(),
+            key: meadow.public().to_string(),
+            name: "meadow".into(),
+            version: 1,
+            roles: vec![],
+            addrs: addrs.to_vec(),
+            apps: [("lantern".into(), section.into())].into(),
+        },
+        &meadow,
+    );
+    db.apply_computer(&node.public(), &record).unwrap();
+    let mut expected = vec![
+        cleared["record"].clone(),
+        serde_json::json!({
+            "id":meadow.public().to_string(),"name":"meadow","version":1,"roles":[],"section":section
+        }),
+    ];
+    expected.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    assert_eq!(
+        send(&records("lantern")),
+        serde_json::json!({"ok":true,"records":expected})
+    );
+    for record in &mut expected {
+        record.as_object_mut().unwrap().remove("section");
+    }
+    assert_eq!(
+        send(&records("garden")),
+        serde_json::json!({"ok":true,"records":expected})
+    );
+    assert_eq!(
+        send(&resign(Some("private section"), Some(vec!["Hub".into()]))),
+        serde_json::json!({"ok":false,"error":"not a role"})
+    );
+    worker.join().unwrap();
+    let log = fs::read_to_string(log_path).unwrap();
+    for secret in [
+        "private section",
+        section,
+        "Hub",
+        "hub",
+        "lander",
+        "Meadow",
+        "meadow",
+        "lantern",
+        "test-host",
+        "section=",
+    ] {
+        assert!(!log.contains(secret), "{secret}");
+    }
+    // Single-letter sections occur in fixed phrases; compare the complete logged fields.
+    let fields: Vec<_> = log
+        .lines()
+        .map(|line| line.split_once(" serve failed ").unwrap().1)
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            "op=\"resign\" error=\"not in a fleet\"",
+            "op=\"computer_records\" error=\"not in a fleet\"",
+            "op=\"resign\" error=\"the app is not registered\"",
+            "op=\"computer_records\" error=\"not an app name\"",
+            "op=\"resign\" error=\"not a role\"",
+        ]
+    );
 }

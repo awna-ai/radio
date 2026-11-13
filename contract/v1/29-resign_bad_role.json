@@ -1,0 +1,15 @@
+{
+  "request": {
+    "v": 1,
+    "op": "resign",
+    "app": "lantern",
+    "roles": [
+      "Hub"
+    ]
+  },
+  "response": {
+    "ok": false,
+    "error": "not a role"
+  },
+  "exact": true
+}

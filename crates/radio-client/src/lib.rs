@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 3;
+pub const PROTOCOL_MINOR: u32 = 4;
 
-/// The ops major 1, minor 3 serves, in this order.
+/// The ops major 1, minor 4 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -32,6 +32,8 @@ pub const OPS: &[&str] = &[
     "computer_accept",
     "computer_block",
     "computer_trust",
+    "resign",
+    "computer_records",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -119,6 +121,16 @@ pub enum Request {
     ComputerBlock { computer: String },
     /// Trusts an accepted computer's future invitations.
     ComputerTrust { computer: String },
+    /// Re-signs this computer's record with an app's section and optional roles.
+    Resign {
+        app: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        section: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        roles: Option<Vec<String>>,
+    },
+    /// Lists held computer records with this app's section from each.
+    ComputerRecords { app: String },
 }
 
 /// A member identified by a kind and a name.
@@ -208,6 +220,12 @@ pub struct Response {
     /// The computer accepted, blocked or trusted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub computer: Option<Computer>,
+    /// This computer's re-signed record with the requesting app's section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record: Option<ComputerRecord>,
+    /// Held computer records by id, with the requesting app's sections.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records: Option<Vec<ComputerRecord>>,
 }
 
 /// A room returned by the daemon.
@@ -310,4 +328,20 @@ pub struct Computer {
     pub invited_by: Option<String>,
     /// Whether future invitations from this computer are accepted at once.
     pub trusted: bool,
+}
+
+/// A computer's signed record, with only the requesting app's section.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerRecord {
+    /// The computer's public link id.
+    pub id: String,
+    /// The name the computer signed.
+    pub name: String,
+    /// The version the computer last signed.
+    pub version: u64,
+    /// The computer's roles, in name order.
+    pub roles: Vec<String>,
+    /// The requesting app's section, when the computer holds one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
 }

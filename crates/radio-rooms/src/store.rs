@@ -577,6 +577,17 @@ impl RoomStore {
         Ok(cleaned.len())
     }
 
+    /// Whether the app has registered its member list.
+    pub fn registered(&self, app: &str) -> Result<bool, String> {
+        self.conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM apps WHERE app = ?1)",
+                [app],
+                |row| row.get(0),
+            )
+            .map_err(|_| UNREADABLE.to_owned())
+    }
+
     /// Humans are members; other authors must occur in a registered list.
     pub fn is_member(&self, author: &Author) -> Result<bool, String> {
         let author = clean_author(author)?;

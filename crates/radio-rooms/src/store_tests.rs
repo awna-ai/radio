@@ -2629,3 +2629,13 @@ fn checking_store_versions_never_changes_the_file() {
     assert_eq!(store_is_newer(&fixture.path()), Ok(true));
     assert_eq!(fs::read(fixture.path()).unwrap(), before);
 }
+
+#[test]
+fn registered_tracks_apps_even_without_members() {
+    let fixture = Store::new("registered");
+    let mut store = fixture.open();
+    assert_eq!(store.registered("lantern"), Ok(false));
+    store.register("lantern", "1.0", &[], 1.0).unwrap();
+    assert_eq!(store.registered("lantern"), Ok(true));
+    assert_eq!(store.registered("meadow"), Ok(false));
+}

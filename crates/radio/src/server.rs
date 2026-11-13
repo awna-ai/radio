@@ -331,6 +331,42 @@ impl Server {
             Request::ComputerTrust { computer: target } => {
                 response.computer = Some(computer(self.fleet_db()?.trust(&target)?));
             }
+            Request::Resign {
+                app,
+                section,
+                roles,
+            } => {
+                self.fleet_db()?;
+                if !self.store.registered(&app)? {
+                    return Err("the app is not registered".into());
+                }
+                let dir = self.link_dir.as_deref().ok_or("the link is not set up")?;
+                let node = radio_link::key::load_or_create(dir)?;
+                let host = self.host.clone();
+                let record = self.fleet_db()?.resign(
+                    &node,
+                    &host,
+                    &[],
+                    &app,
+                    section.as_deref(),
+                    roles.as_deref(),
+                    now,
+                )?;
+                response.record = Some(computer_record(record, &app));
+            }
+            Request::ComputerRecords { app } => {
+                if !radio_link::wire::app_name(&app) {
+                    return Err("not an app name".into());
+                }
+                let db = self.fleet_db()?;
+                db.fleet()?.ok_or("not in a fleet")?;
+                response.records = Some(
+                    db.computer_records()?
+                        .into_iter()
+                        .map(|record| computer_record(record, &app))
+                        .collect(),
+                );
+            }
             Request::Register {
                 app,
                 app_version,
@@ -616,6 +652,20 @@ fn computer(row: radio_link::fleet_db::Computer) -> Computer {
         state: row.state.as_str().into(),
         invited_by: row.invited_by,
         trusted: row.trusted,
+    }
+}
+
+fn computer_record(
+    record: radio_link::computer_record::ComputerRecord,
+    app: &str,
+) -> radio_client::ComputerRecord {
+    let body = record.body;
+    radio_client::ComputerRecord {
+        id: body.key,
+        name: body.name,
+        version: body.version,
+        roles: body.roles,
+        section: body.apps.get(app).cloned(),
     }
 }
 

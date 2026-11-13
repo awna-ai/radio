@@ -1,7 +1,7 @@
 use radio_client::{Member, REQUEST_MAX_BYTES, Request};
 use std::{fs::File, io::Read, path::PathBuf};
 
-/// Where a post's body will be read after argument parsing.
+/// Where a post body or app section will be read after argument parsing.
 #[derive(Debug, PartialEq)]
 pub enum BodySource {
     Text(String),
@@ -46,6 +46,13 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         ["code", "create", rest @ ..] => ("code_create", 0, rest, &["--name", "--ttl"]),
         ["code", "list", rest @ ..] => ("code_list", 0, rest, &[]),
         ["code", "revoke", rest @ ..] => ("code_revoke", 1, rest, &[]),
+        ["resign", rest @ ..] => (
+            "resign",
+            0,
+            rest,
+            &["--app", "--section", "--section-file", "--roles"],
+        ),
+        ["computer", "records", rest @ ..] => ("computer_records", 0, rest, &["--app"]),
         ["computer", "list", rest @ ..] => ("computer_list", 0, rest, &[]),
         ["computer", "accept", rest @ ..] => ("computer_accept", 1, rest, &[]),
         ["computer", "block", rest @ ..] => ("computer_block", 1, rest, &[]),
@@ -100,6 +107,28 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         "code_list" => Request::CodeList {},
         "code_revoke" => Request::CodeRevoke {
             id: positionals[0].into(),
+        },
+        "resign" => {
+            body = match (seen.get("--section"), seen.get("--section-file")) {
+                (Some(text), None) => Some(BodySource::Text((*text).into())),
+                (None, Some(path)) => Some(BodySource::File((*path).into())),
+                (None, None) => None,
+                _ => return Err(()),
+            };
+            Request::Resign {
+                app: required("--app")?.into(),
+                section: None,
+                roles: seen.get("--roles").map(|names| {
+                    if names.is_empty() {
+                        Vec::new()
+                    } else {
+                        names.split(',').map(String::from).collect()
+                    }
+                }),
+            }
+        }
+        "computer_records" => Request::ComputerRecords {
+            app: required("--app")?.into(),
         },
         "computer_list" => Request::ComputerList {},
         "computer_accept" => Request::ComputerAccept {
@@ -199,7 +228,7 @@ fn read_body(reader: impl Read) -> Result<String, (i32, String)> {
 }
 
 impl Command {
-    /// Resolves a post body with a bounded read before the socket or HOME is consulted.
+    /// Resolves a post body or app section with a bounded read before the socket or HOME is consulted.
     pub fn resolve(mut self, stdin: impl Read) -> Result<Request, (i32, String)> {
         if let Some(source) = self.body {
             let body = match source {
@@ -213,11 +242,12 @@ impl Command {
             if body.len() > REQUEST_MAX_BYTES {
                 return Err((1, format!("radio: {}", radio_rooms::MESSAGE_INVALID)));
             }
-            if let Request::Post {
-                body: destination, ..
-            } = &mut self.request
-            {
-                *destination = body;
+            match &mut self.request {
+                Request::Post {
+                    body: destination, ..
+                } => *destination = body,
+                Request::Resign { section, .. } => *section = Some(body),
+                _ => {}
             }
         }
         Ok(self.request)

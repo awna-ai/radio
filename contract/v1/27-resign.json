@@ -1,0 +1,23 @@
+{
+  "request": {
+    "v": 1,
+    "op": "resign",
+    "app": "lantern",
+    "section": "{\"level\":\"presence\"}",
+    "roles": [
+      "hub"
+    ]
+  },
+  "response": {
+    "ok": true,
+    "record": {
+      "id": "<string>",
+      "name": "test-host",
+      "roles": [
+        "hub"
+      ],
+      "section": "{\"level\":\"presence\"}"
+    }
+  },
+  "exact": false
+}
