@@ -23,13 +23,20 @@ pub fn frame(data: &[u8]) -> u32 {
             ($kind:ty, $cap:expr) => {{
                 if let Ok(value) = framing::read::<$kind, _>(&mut &data[..], $cap).await {
                     let mut encoded = Vec::new();
-                    framing::write(&mut encoded, &value, $cap)
-                        .await
-                        .expect("a decoded frame writes again");
-                    let decoded = framing::read::<$kind, _>(&mut &encoded[..], $cap)
-                        .await
-                        .expect("a written frame reads again");
-                    assert!(decoded == value);
+                    let length = serde_json::to_vec(&value)
+                        .expect("a decoded frame serializes")
+                        .len();
+                    let written = framing::write(&mut encoded, &value, $cap).await;
+                    if length > $cap {
+                        assert_eq!(written, Err("the frame is too large"));
+                        assert!(encoded.is_empty());
+                    } else {
+                        written.expect("a decoded frame within the cap writes again");
+                        let decoded = framing::read::<$kind, _>(&mut &encoded[..], $cap)
+                            .await
+                            .expect("a written frame reads again");
+                        assert!(decoded == value);
+                    }
                     Some(value)
                 } else {
                     None
@@ -165,6 +172,16 @@ mod tests {
         ] {
             assert!(frame(&framed(json)) >= 1);
         }
+    }
+    #[test]
+    fn a_frame_that_grows_on_rewrite_is_not_a_crash() {
+        let json = r#"{"code":"garden","consent":"","name":"birch","addrs":["[::ffff:a:a]:1","[1:2:3:4:5:6::8]:1"]}"#;
+        let padding = "a".repeat(framing::CONTROL_CAP - json.len());
+        let json = json.replace(r#""consent":"""#, &format!(r#""consent":"{padding}""#));
+        let request: JoinRequest = serde_json::from_str(&json).unwrap();
+        assert!(json.len() <= framing::CONTROL_CAP);
+        assert!(serde_json::to_vec(&request).unwrap().len() > framing::CONTROL_CAP);
+        frame(&framed(json.into_bytes()));
     }
     #[test]
     fn records_checks_each_valid_kind() {

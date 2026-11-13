@@ -296,11 +296,45 @@ fn request(g: &mut Gen) -> Request {
     }
 }
 
+fn frame_body(g: &mut Gen) -> Vec<u8> {
+    match g.below(4) {
+        0 => serde_json::to_vec(&request(g)).unwrap(),
+        1 => serde_json::to_vec(&if g.chance(50) {
+            Answer::Hello { hello: hello(g) }
+        } else {
+            Answer::Ok
+        })
+        .unwrap(),
+        2 => serde_json::to_vec(&JoinRequest {
+            code: text(g, 128),
+            consent: text(g, 128),
+            name: text(g, 64),
+            addrs: addrs(g),
+        })
+        .unwrap(),
+        _ => {
+            let node = key(g);
+            let answer = JoinAnswer {
+                fleet: fleet::found(&node, &name(g)).unwrap().0,
+                computers: vec![],
+                removed: vec![],
+                records: (0..g.below(3)).map(|_| small_computer(g, &node)).collect(),
+            };
+            let bytes = serde_json::to_vec(&answer).unwrap();
+            assert!(bytes.len() <= RECORD_CAP);
+            bytes
+        }
+    }
+}
+
 struct Chunks {
     bytes: Vec<u8>,
     at: usize,
     sizes: Vec<usize>,
     served: usize,
+    pending: Vec<bool>,
+    yielded: bool,
+    pendings: usize,
 }
 impl Chunks {
     fn new(bytes: Vec<u8>, g: &mut Gen) -> Self {
@@ -310,15 +344,25 @@ impl Chunks {
             at: 0,
             sizes: (0..count).map(|_| 1 + g.below(64) as usize).collect(),
             served: 0,
+            pending: (0..1 + g.below(8)).map(|_| g.chance(30)).collect(),
+            yielded: false,
+            pendings: 0,
         }
     }
 }
 impl AsyncRead for Chunks {
     fn poll_read(
         mut self: Pin<&mut Self>,
-        _: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
+        if self.pending[self.at % self.pending.len()] && !self.yielded {
+            self.yielded = true;
+            self.pendings += 1;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        self.yielded = false;
         let n = self.sizes[self.at % self.sizes.len()]
             .min(buf.remaining())
             .min(self.bytes.len() - self.served);
@@ -365,6 +409,8 @@ macro_rules! round_trip {
 #[test]
 fn frame_decoder_is_total_on_any_bytes() {
     let rt = runtime();
+    let mut pendings = 0;
+    let mut decoded = [0; 4];
     run("frame_decoder_is_total_on_any_bytes", 0x301, |g, _| {
         rt.block_on(async {
             let bytes = match g.below(3) {
@@ -375,7 +421,7 @@ fn frame_decoder_is_total_on_any_bytes() {
                 1 => {
                     let cap = *g.pick(&[CONTROL_CAP, RECORD_CAP]);
                     let body = if g.chance(50) {
-                        serde_json::to_vec(&request(g)).unwrap()
+                        frame_body(g)
                     } else {
                         let len = g.below(513) as usize;
                         g.bytes(len)
@@ -398,26 +444,29 @@ fn frame_decoder_is_total_on_any_bytes() {
                     bytes
                 }
                 _ => {
-                    let mut bytes = vec![];
-                    frame::write(&mut bytes, &request(g), CONTROL_CAP)
-                        .await
-                        .unwrap();
-                    let count = 1 + g.below(4) as usize;
-                    mutate(g, &mut bytes, count);
+                    let body = frame_body(g);
+                    let mut bytes = (body.len() as u32).to_be_bytes().to_vec();
+                    bytes.extend(body);
+                    if g.chance(50) {
+                        let count = 1 + g.below(4) as usize;
+                        mutate(g, &mut bytes, count);
+                    }
                     bytes
                 }
             };
             macro_rules! decode {
-                ($ty:ty, $cap:expr) => {{
+                ($ty:ty, $cap:expr, $index:expr) => {{
                     let mut reader = Chunks::new(bytes.clone(), g);
                     let result = tokio::time::timeout(
                         std::time::Duration::from_secs(1),
                         frame::read::<$ty, _>(&mut reader, $cap),
                     )
                     .await;
+                    pendings += reader.pendings;
                     assert!(result.is_ok(), "decoder timed out");
                     match result.unwrap() {
                         Ok(value) => {
+                            decoded[$index] += 1;
                             let length = u32::from_be_bytes(bytes[..4].try_into().unwrap());
                             assert_eq!(bytes.len(), 4 + length as usize, "decoded past its frame");
                             round_trip!(value, $ty, $cap, g);
@@ -426,12 +475,23 @@ fn frame_decoder_is_total_on_any_bytes() {
                     }
                 }};
             }
-            decode!(Request, CONTROL_CAP);
-            decode!(Answer, CONTROL_CAP);
-            decode!(JoinRequest, CONTROL_CAP);
-            decode!(JoinAnswer, RECORD_CAP);
+            decode!(Request, CONTROL_CAP, 0);
+            decode!(Answer, CONTROL_CAP, 1);
+            decode!(JoinRequest, CONTROL_CAP, 2);
+            decode!(JoinAnswer, RECORD_CAP, 3);
         });
     });
+    let (seed, cases) = settings(0x301);
+    assert!(
+        pendings > 0,
+        "frame_decoder_is_total_on_any_bytes seed {seed} case {}: pending polls {pendings}",
+        cases - 1
+    );
+    assert!(
+        decoded.into_iter().all(|count| count > 0),
+        "frame_decoder_is_total_on_any_bytes seed {seed} case {}: decoded types {decoded:?}",
+        cases - 1
+    );
 }
 
 #[test]
@@ -462,6 +522,7 @@ fn over_cap_prefixes_read_only_the_prefix() {
 fn frames_round_trip_in_any_chunking() {
     let rt = runtime();
     let mut sides = [false; 2];
+    let mut exact = [false; 2];
     run("frames_round_trip_in_any_chunking", 0x303, |g, _| {
         rt.block_on(async {
             let value = if g.below(8) == 0 {
@@ -471,7 +532,14 @@ fn frames_round_trip_in_any_chunking() {
                     body: String::new(),
                 };
                 let overhead = serde_json::to_vec(&value).unwrap().len();
-                let size = (CONTROL_CAP as i64 + g.below(33) as i64 - 16) as usize;
+                let size = match g.below(4) {
+                    0 => CONTROL_CAP,
+                    1 => CONTROL_CAP + 1,
+                    _ => (CONTROL_CAP as i64 + g.below(33) as i64 - 16) as usize,
+                };
+                if size == CONTROL_CAP || size == CONTROL_CAP + 1 {
+                    exact[size - CONTROL_CAP] = true;
+                }
                 if let Request::App { body, .. } = &mut value {
                     *body = "a".repeat(size - overhead);
                 }
@@ -502,25 +570,70 @@ fn frames_round_trip_in_any_chunking() {
         "frames_round_trip_in_any_chunking seed {seed} case {}: both cap sides {sides:?}",
         cases - 1
     );
+    assert!(
+        exact.into_iter().all(|hit| hit),
+        "frames_round_trip_in_any_chunking seed {seed} case {}: exact cap edges {exact:?}",
+        cases - 1
+    );
 }
 
 #[test]
 fn computer_records_verify_exactly_when_they_fit() {
     let mut sides = [false; 2];
+    let mut near = [false; 2];
+    let mut exact = [false; 2];
     run(
         "computer_records_verify_exactly_when_they_fit",
         0x304,
         |g, _| {
             let node = key(g);
             let mut body = computer_body(g, &node);
-            if g.chance(50) {
+            if g.chance(25) {
+                body.apps = BTreeMap::from([(app(g), "\u{1}".repeat(SECTION_MAX))]);
+                let target = match g.below(4) {
+                    0 => COMPUTER_RECORD_MAX,
+                    1 => COMPUTER_RECORD_MAX + 1,
+                    _ => COMPUTER_RECORD_MAX - 64 + g.below(129) as usize,
+                };
+                let initial = computer_record::sign(body.clone(), &node);
+                let remaining = target - serde_json::to_vec(&initial).unwrap().len();
+                body.apps.insert(
+                    "lantern-padding".into(),
+                    "\u{1}".repeat((remaining - SECTION_MAX / 2) / 6),
+                );
+                body.apps.insert("lantern-size".into(), "a".into());
+                for _ in 0..4 {
+                    let record = computer_record::sign(body.clone(), &node);
+                    let length = serde_json::to_vec(&record).unwrap().len();
+                    if length == target {
+                        break;
+                    }
+                    let section = body.apps.get_mut("lantern-size").unwrap();
+                    let adjusted = section.len() as isize + target as isize - length as isize;
+                    assert!((1..=SECTION_MAX as isize).contains(&adjusted));
+                    *section = "a".repeat(adjusted as usize);
+                }
+                assert_eq!(
+                    serde_json::to_vec(&computer_record::sign(body.clone(), &node))
+                        .unwrap()
+                        .len(),
+                    target
+                );
+            } else if g.chance(50) {
                 body.apps = (0..3)
                     .map(|i| (format!("lantern{i}"), "\u{1}".repeat(SECTION_MAX)))
                     .collect();
             }
             let record = computer_record::sign(body, &node);
             let bytes = serde_json::to_vec(&record).unwrap();
-            let large = bytes.len() > COMPUTER_RECORD_MAX;
+            let length = bytes.len();
+            let large = length > COMPUTER_RECORD_MAX;
+            if (COMPUTER_RECORD_MAX - 63..=COMPUTER_RECORD_MAX + 64).contains(&length) {
+                near[usize::from(large)] = true;
+            }
+            if length == COMPUTER_RECORD_MAX || length == COMPUTER_RECORD_MAX + 1 {
+                exact[length - COMPUTER_RECORD_MAX] = true;
+            }
             sides[usize::from(large)] = true;
             assert_eq!(
                 record.verify(),
@@ -545,6 +658,13 @@ fn computer_records_verify_exactly_when_they_fit() {
         "computer_records_verify_exactly_when_they_fit seed {seed} case {}: both size outcomes {sides:?}",
         cases - 1
     );
+    for (label, hits) in [("near cap sides", near), ("exact cap edges", exact)] {
+        assert!(
+            hits.into_iter().all(|hit| hit),
+            "computer_records_verify_exactly_when_they_fit seed {seed} case {}: {label} {hits:?}",
+            cases - 1
+        );
+    }
 }
 
 fn changed_signature(signature: &mut String, g: &mut Gen) {
@@ -610,6 +730,16 @@ fn any_change_to_a_signed_record_breaks_it() {
                 }
             }
             assert_ne!(changed.body, record.body);
+            let signing_key = if changed.body.key == node.public().to_string() {
+                &node
+            } else {
+                &other
+            };
+            assert_eq!(
+                computer_record::sign(changed.body.clone(), signing_key).verify(),
+                Ok(()),
+                "changed computer still has valid shape"
+            );
             assert!(changed.verify().is_err(), "computer body change");
             let mut bad = record.clone();
             changed_signature(&mut bad.signature, g);
@@ -701,9 +831,36 @@ fn any_change_to_a_signed_record_breaks_it() {
             changed_signature(&mut bad.signature, g);
             assert!(bad.verify().is_err(), "membership signature change");
             assert!(
-                membership::sign(record.body, &other).verify().is_err(),
+                membership::sign(record.body.clone(), &other)
+                    .verify()
+                    .is_err(),
                 "membership wrong key"
             );
+            let mut body = record.body.clone();
+            if let RecordBody::Introduction {
+                fleet,
+                inviter,
+                name: member_name,
+                addrs,
+                consent,
+                ..
+            } = &mut body
+            {
+                let (agreed_name, agreed_addrs) = if g.chance(50) {
+                    (different(member_name, || name(g)), addrs.clone())
+                } else {
+                    (
+                        member_name.clone(),
+                        different(addrs, || addrs_for_introduction(g)),
+                    )
+                };
+                *consent =
+                    membership::consent(&newcomer_key, fleet, inviter, &agreed_name, &agreed_addrs);
+                assert!(
+                    membership::sign(body, &node).verify().is_err(),
+                    "introduction with another consent"
+                );
+            }
         } else {
             let signer = if i % 5 == 3 {
                 Signer::Founder
@@ -746,6 +903,19 @@ fn any_change_to_a_signed_record_breaks_it() {
                 }
             }
             assert_ne!(changed, record);
+            let signer_id = match changed.signer {
+                Signer::Founder => &changed.body.founder,
+                Signer::Recovery => &changed.body.recovery,
+            };
+            let signing_key = [&node, &recovery, &other]
+                .into_iter()
+                .find(|key| key.public().to_string() == *signer_id)
+                .unwrap();
+            assert_eq!(
+                fleet::sign(changed.body.clone(), changed.signer, signing_key).verify(),
+                Ok(()),
+                "changed fleet still has valid shape"
+            );
             assert!(changed.verify().is_err(), "fleet body or signer change");
             let mut bad = record.clone();
             changed_signature(&mut bad.signature, g);
@@ -758,8 +928,124 @@ fn any_change_to_a_signed_record_breaks_it() {
     });
 }
 
+fn json_tokens(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut tokens = vec![];
+    let mut at = 0;
+    while at < bytes.len() {
+        let start = at;
+        match bytes[at] {
+            b'"' => {
+                at += 1;
+                while bytes[at] != b'"' {
+                    at += if bytes[at] == b'\\' { 2 } else { 1 };
+                }
+                at += 1;
+                if bytes.get(at) != Some(&b':') {
+                    tokens.push((start, at));
+                }
+            }
+            b'0'..=b'9' => {
+                while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+                    at += 1;
+                }
+                tokens.push((start, at));
+            }
+            _ => at += 1,
+        }
+    }
+    tokens
+}
+fn edit_record_json(g: &mut Gen, bytes: &mut Vec<u8>, preserving: bool) {
+    if preserving {
+        match g.below(3) {
+            0 => {
+                let mut edited = vec![];
+                let mut string = false;
+                let mut escaped = false;
+                for &byte in bytes.iter() {
+                    if !string && b"{}[],:".contains(&byte) {
+                        edited.push(*g.pick(b" \n\t"));
+                    }
+                    edited.push(byte);
+                    if byte == b'"' && !escaped {
+                        string = !string;
+                    }
+                    escaped = string && byte == b'\\' && !escaped;
+                }
+                *bytes = edited;
+                return;
+            }
+            1 => {
+                let text = std::str::from_utf8(bytes).unwrap();
+                let split = text.rfind(",\"signature\":").unwrap();
+                let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+                let middle = if value.get("signer").is_some() {
+                    text[..split].rfind(",\"signer\":").unwrap()
+                } else {
+                    split
+                };
+                *bytes = format!(
+                    "{{{}{},{}}}",
+                    &text[split + 1..text.len() - 1],
+                    &text[middle..split],
+                    &text[1..middle]
+                )
+                .into_bytes();
+                return;
+            }
+            _ => {}
+        }
+    }
+    let tokens = json_tokens(bytes);
+    let numbers: Vec<_> = tokens
+        .iter()
+        .copied()
+        .filter(|(start, _)| bytes[*start] != b'"')
+        .collect();
+    if !preserving && g.chance(50) && !numbers.is_empty() {
+        let &(start, end) = g.pick(&numbers);
+        let at = start + g.below((end - start) as u64) as usize;
+        bytes[at] = if bytes[at] == b'9' {
+            b'8'
+        } else {
+            bytes[at] + 1
+        };
+        return;
+    }
+    let mut positions = vec![];
+    for (start, end) in tokens {
+        if bytes[start] != b'"' {
+            continue;
+        }
+        let mut at = start + 1;
+        while at < end - 1 {
+            if bytes[at] == b'\\' {
+                at += if bytes[at + 1] == b'u' { 6 } else { 2 };
+            } else {
+                if bytes[at].is_ascii_alphanumeric() {
+                    positions.push(at);
+                }
+                at += 1;
+            }
+        }
+    }
+    let at = *g.pick(&positions);
+    if preserving {
+        let escaped = if g.chance(50) {
+            format!("\\u00{:02x}", bytes[at])
+        } else {
+            format!("\\u00{:02X}", bytes[at])
+        };
+        bytes.splice(at..at + 1, escaped.bytes());
+    } else {
+        bytes[at] = if bytes[at] == b'a' { b'b' } else { b'a' };
+    }
+}
+
 #[test]
 fn mutated_record_json_never_verifies_as_another_record() {
+    let mut verified_equal = 0;
+    let mut refused = 0;
     run(
         "mutated_record_json_never_verifies_as_another_record",
         0x306,
@@ -771,12 +1057,31 @@ fn mutated_record_json_never_verifies_as_another_record() {
                     let record = $record;
                     assert_eq!(record.verify(), Ok(()));
                     let mut bytes = serde_json::to_vec(&record).unwrap();
-                    let count = 1 + g.below(8) as usize;
-                    mutate(g, &mut bytes, count);
-                    if let Ok(decoded) = serde_json::from_slice::<$ty>(&bytes) {
-                        if decoded.verify().is_ok() {
+                    let edit = g.below(3);
+                    if edit == 0 {
+                        let count = 1 + g.below(8) as usize;
+                        mutate(g, &mut bytes, count);
+                    } else {
+                        edit_record_json(g, &mut bytes, edit == 1);
+                    }
+                    let decoded = serde_json::from_slice::<$ty>(&bytes);
+                    if edit == 1 {
+                        assert!(
+                            decoded.is_ok(),
+                            "meaning-preserving JSON must parse: {bytes:?}"
+                        );
+                        assert_eq!(
+                            decoded.as_ref().unwrap().verify(),
+                            Ok(()),
+                            "meaning-preserving JSON must verify: {bytes:?}"
+                        );
+                    }
+                    match decoded {
+                        Ok(decoded) if decoded.verify().is_ok() => {
                             assert_eq!(decoded, record, "mutated bytes {bytes:?}");
+                            verified_equal += 1;
                         }
+                        _ => refused += 1,
                     }
                 }};
             }
@@ -795,6 +1100,12 @@ fn mutated_record_json_never_verifies_as_another_record() {
             }
         },
     );
+    let (seed, cases) = settings(0x306);
+    assert!(
+        verified_equal > 0 && refused > 0,
+        "mutated_record_json_never_verifies_as_another_record seed {seed} case {}: both verification outcomes [{verified_equal}, {refused}]",
+        cases - 1
+    );
 }
 
 #[test]
@@ -804,7 +1115,7 @@ fn shape_rules_hold_whatever_the_rest_says() {
         let record = small_computer(g, &node);
         assert_eq!(record.verify(), Ok(()));
         let mut body = record.body.clone();
-        let rule = g.below(18);
+        let rule = g.below(20);
         match rule {
             0 => body.version = 0,
             1 => body.version = i64::MAX as u64 + 1,
@@ -852,7 +1163,9 @@ fn shape_rules_hold_whatever_the_rest_says() {
                 }
             }
             16 => body.key = "G".repeat(64),
-            _ => body.fleet = "a".repeat(63),
+            17 => body.fleet = "a".repeat(63),
+            18 => body.fleet = "AB".repeat(32),
+            _ => body.key = node.public().to_string().to_uppercase(),
         }
         assert_eq!(
             computer_record::sign(body, &node).verify(),
@@ -955,7 +1268,8 @@ fn join_codes_parse_only_what_they_encode() {
                 }
             }
         }
-        let code = JoinCode::new(hex64(g), key(g).public(), Hints { direct }).unwrap();
+        let mut code = JoinCode::new(hex64(g), key(g).public(), Hints { direct }).unwrap();
+        code.secret = g.array32();
         let encoded = code.encode();
         assert!(JoinCode::parse(&encoded).unwrap() == code);
         let mut chars: Vec<char> = encoded.chars().collect();
