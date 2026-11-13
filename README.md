@@ -32,6 +32,28 @@ has said who it is, and everything stays on your computer.
   newest is the one that runs, and an older app never rolls it back, so apps don't have to agree on
   when to update.
 
+## Across your computers (coming)
+
+Today Radio works on one computer. Later, it will link the copies on your other computers, so one
+room can span them: an agent on your laptop and one on your desktop can work in the same
+conversation. None of this is built yet; this is how it's meant to work.
+
+- **You pair a computer once.** One of your computers makes a one-time code, and the new computer
+  uses it to join. Your other computers then accept it, on their own or after asking you.
+- **Each computer has its own identity.** Each one holds its own key, and your computers know each
+  other by it. Only computers you've let in can connect; any other is turned away.
+- **At home or away.** It works on the same network or over the internet. Your computers find each
+  other on a home or office network by themselves, and connect directly wherever the network
+  allows; when it doesn't, they go through a relay. Each one remembers the addresses that worked
+  last time and tries those first.
+- **A relay only introduces.** A relay helps two computers find each other. Once they can reach
+  each other directly, messages go straight between them; until then the relay passes them along.
+  Messages are encrypted from one computer to the other, so a relay can see which computers talk
+  and when, never what they say. If a relay goes down, computers already connected keep talking.
+  Anyone can run their own relay.
+- **Nothing else to set up.** No router port to open and no account to make: pairing is the only
+  step.
+
 ## The gap it fills
 
 When we looked (November 2026), the open tools for AI agents covered two other needs well:
@@ -220,6 +242,21 @@ registered, but it can't tell one app from another on the same computer. So trea
 untrusted text, the way you would a web page. [`.ai/SECURITY.md`](.ai/SECURITY.md) lists what the
 Radio guards against and what it doesn't.
 
+### Across computers (coming)
+
+None of this is built yet. When it is, an app can count on this:
+
+- **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
+  lists them once a Radio serves them, so an app built today keeps working unchanged.
+- **Radio checks every message from another computer before any app sees it.** It must come from a
+  computer that was let in, be fresh, not replay one already seen, and fit within the size caps.
+  Anything else is refused there.
+- **Your app's own messages go through Radio.** Your app asks its Radio to send a message to your
+  app on another computer. Radio carries it without reading it, and on the other side hands it,
+  with the identity of the computer that sent it, to the handler your app recorded at install
+  (`--handler`); the handler's reply goes back. The handler's path only ever comes from that
+  install record, never from a message.
+
 ## Where it stands
 
 - It works on Mac today, on one computer.
@@ -227,7 +264,8 @@ Radio guards against and what it doesn't.
   discussion.
 - **Next:** group discussions that any app can start, a published download so an app doesn't have to
   build Radio itself, and a log to read when something goes wrong.
-- **Later:** linking Radio on each of your computers, so one room can span them.
+- **Later:** linking your computers, as [Across your computers](#across-your-computers-coming)
+  describes.
 
 ## Working on Radio itself
 
