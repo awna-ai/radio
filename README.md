@@ -190,8 +190,8 @@ user; `4` installed, but the older rooms were not brought in (keep your store an
 next time).
 
 To remove your app, run `radio uninstall --app <name>`. Radio stays while any other app still
-uses it. When the last app leaves, Radio stops and its launch agent and binaries are removed;
-the person's rooms are kept.
+uses it. When the last app leaves, Radio stops and its launch agent, binaries, socket and lock
+files are removed; the person's rooms and Radio's log are kept.
 
 `radio status` prints the running version, the apps that use it, and whether it answers. It exits
 `1` when nothing is installed.

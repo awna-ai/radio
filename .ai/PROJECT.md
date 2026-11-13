@@ -61,8 +61,10 @@ install logic every app calls with the `radio` binary it bundles (D6, D9):
 6. `--rooms` names an older rooms store to bring in, once per path.
 
 Exit codes and what each case prints are in the README, *For app developers* → *Install it*. `radio uninstall --app
-<name>` removes a client; the last one out stops the daemon and removes the agent, the binaries and
-`install.json`, and keeps the rooms and all other data. `radio status` prints the installed version, the clients and whether the socket answers.
+<name>` removes a client; the last one out stops the daemon and removes the agent, the binaries,
+`install.json`, the socket and both lock files (`radio.sock.lock` only when no daemon still holds it),
+and keeps the rooms, the log and all other data. An uninstall of an app that was never a client
+writes nothing. `radio status` prints the installed version, the clients and whether the socket answers.
 
 Tests never touch the real launch agent: `launchctl` is `/bin/launchctl` only when HOME is the
 account's own home directory; any other HOME needs `RADIO_LAUNCHCTL` naming a stand-in.
