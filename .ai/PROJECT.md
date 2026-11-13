@@ -62,7 +62,8 @@ install logic every app calls with the `radio` binary it bundles (D6, D9):
 
 Exit codes and what each case prints are in the README, *For app developers* → *Install it*. `radio uninstall --app
 <name>` removes a client; the last one out stops the daemon and removes the agent, the binaries,
-`install.json`, the socket and both lock files (`radio.sock.lock` only when no daemon still holds it),
+`install.json`, `install.lock`, and the socket and its lock (only when no daemon still holds that lock,
+and the socket only when it is one),
 and keeps the rooms, the log and all other data. An uninstall of an app that was never a client
 writes nothing. `radio status` prints the installed version, the clients and whether the socket answers.
 
