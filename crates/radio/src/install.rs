@@ -737,7 +737,7 @@ impl Installer<'_> {
                 Installed::Kept { installed } => append(
                     &self.paths.log,
                     "install",
-                    "client-added",
+                    "kept",
                     &[
                         ("installed", Field::Text(installed)),
                         ("app", Field::Text(app)),

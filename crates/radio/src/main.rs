@@ -7,8 +7,12 @@ use std::{
     env,
     io::{self, Write},
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{TryLockError, atomic::Ordering},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+// Stay below the installer’s roughly 4.5 s bootout wait even with a stalled client.
+const STOP_WAIT: Duration = Duration::from_secs(2);
 
 const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio id\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>";
 
@@ -197,7 +201,7 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
     };
     let home = home()?;
     if let Some(host) = host {
-        let log = Log::stderr();
+        let log = Log::stderr(&home.join(".local/state/radio/radio.log"));
         let protocol = format!(
             "{}.{}",
             radio_client::PROTOCOL_MAJOR,
@@ -224,13 +228,26 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
         });
         log.event("serve", "bound", &[("socket", Field::Text("radio.sock"))]);
         let busy = server.busy();
+        let stopping = server.stopping();
         let stop_log = log.clone();
         std::thread::spawn(move || {
             loop {
                 let mut signal = 0;
                 // SAFETY: signals is initialized; signal points to writable storage.
                 if unsafe { libc::sigwait(&signals, &mut signal) } == 0 {
-                    let _guard = busy.lock().unwrap_or_else(|poison| poison.into_inner());
+                    stopping.store(true, Ordering::SeqCst);
+                    let deadline = Instant::now() + STOP_WAIT;
+                    let _guard = loop {
+                        match busy.try_lock() {
+                            Ok(guard) => break Some(guard),
+                            Err(TryLockError::Poisoned(poison)) => break Some(poison.into_inner()),
+                            Err(TryLockError::WouldBlock) => {}
+                        }
+                        if Instant::now() >= deadline {
+                            break None;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    };
                     stop_log.event(
                         "serve",
                         "stop",

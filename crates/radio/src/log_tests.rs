@@ -152,3 +152,89 @@ fn append_writes_one_line_without_truncating() {
     assert_eq!(event, "install installed version=\"1.0.0\"");
     assert!(text.ends_with('\n'));
 }
+
+#[test]
+fn stderr_caps_the_log_inode() {
+    let f = Fixture::new();
+    let file = f.file();
+    file.set_len(LOG_MAX_BYTES + 1).unwrap();
+    let alias = f.0.join("alias");
+    fs::hard_link(f.0.join("log"), &alias).unwrap();
+    let log = Log::stderr_file(file, &alias);
+    log.event("serve", "bound", &[]);
+    let text = f.read();
+    assert_eq!(text.lines().count(), 2);
+    assert!(
+        text.lines()
+            .next()
+            .unwrap()
+            .ends_with("log truncated limit=1048576")
+    );
+    assert!(text.lines().last().unwrap().ends_with("serve bound"));
+}
+
+#[test]
+fn stderr_preserves_another_file_past_the_log_cap() {
+    let f = Fixture::new();
+    let file = f.file();
+    let before = LOG_MAX_BYTES + 1;
+    file.set_len(before).unwrap();
+    fs::write(f.0.join("radio.log"), "kept\n").unwrap();
+    let log = Log::stderr_file(file, &f.0.join("radio.log"));
+    log.event("serve", "bound", &[]);
+    assert!(fs::metadata(f.0.join("log")).unwrap().len() >= before);
+    assert_eq!(fs::read_to_string(f.0.join("radio.log")).unwrap(), "kept\n");
+}
+
+impl Fixture {
+    fn fifo(&self) -> PathBuf {
+        use std::{ffi::CString, os::unix::ffi::OsStrExt};
+        let path = self.0.join("fifo");
+        let name = CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: name is a live NUL-terminated path; mkfifo retains no pointer.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        path
+    }
+}
+
+#[test]
+fn append_writes_nothing_to_a_fifo_with_a_reader() {
+    use std::io::Read;
+    let f = Fixture::new();
+    let path = f.fifo();
+    let mut reader = File::options()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&path)
+        .unwrap();
+    append(&path, "install", "installed", &[]);
+    let mut bytes = [0; 256];
+    let read = reader.read(&mut bytes);
+    assert!(
+        matches!(read, Ok(0))
+            || matches!(read, Err(ref error) if error.kind() == io::ErrorKind::WouldBlock),
+        "append wrote to a FIFO: {read:?}"
+    );
+}
+
+#[test]
+fn append_returns_without_a_fifo_reader() {
+    use std::{sync::mpsc, thread, time::Duration};
+    let f = Fixture::new();
+    let path = f.fifo();
+    let target = path.clone();
+    let (done, completion) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        append(&target, "install", "installed", &[]);
+        done.send(()).unwrap();
+    });
+    let result = completion.recv_timeout(Duration::from_secs(1));
+    // Release a blocking open before asserting, so a failing mutation leaves no worker behind.
+    let _reader = File::options()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .unwrap();
+    worker.join().unwrap();
+    assert!(result.is_ok(), "append blocked without a FIFO reader");
+}

@@ -1,8 +1,11 @@
 use std::{
     fmt::Write as _,
-    fs::File,
+    fs::{self, File},
     io::{self, Seek, SeekFrom, Write},
-    os::{fd::AsFd, unix::fs::OpenOptionsExt},
+    os::{
+        fd::AsFd,
+        unix::fs::{MetadataExt, OpenOptionsExt},
+    },
     path::Path,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -91,12 +94,23 @@ impl Log {
     }
 
     /// Returns a log writing to standard error when it can be cloned.
-    pub fn stderr() -> Self {
+    pub fn stderr(log: &Path) -> Self {
         io::stderr()
             .as_fd()
             .try_clone_to_owned()
-            .map(|fd| Self::to_file(File::from(fd), LOG_MAX_BYTES))
+            .map(|fd| Self::stderr_file(File::from(fd), log))
             .unwrap_or_else(|_| Self::none())
+    }
+
+    pub(crate) fn stderr_file(file: File, log: &Path) -> Self {
+        let same_file = file
+            .metadata()
+            .ok()
+            .zip(fs::metadata(log).ok())
+            .is_some_and(|(fd, path)| {
+                fd.is_file() && fd.dev() == path.dev() && fd.ino() == path.ino()
+            });
+        Self::to_file(file, if same_file { LOG_MAX_BYTES } else { u64::MAX })
     }
 
     /// Returns a log writing to the supplied file with the given size cap.

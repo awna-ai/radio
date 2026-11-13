@@ -384,7 +384,7 @@ fn an_older_build_never_replaces_a_newer_one() {
     assert!(f.paths().clients.join("gardenapp.json").is_file());
     assert_eq!(
         f.last_log_line(),
-        "install client-added installed=\"2.0.0\" app=\"gardenapp\""
+        "install kept installed=\"2.0.0\" app=\"gardenapp\""
     );
 }
 
@@ -1612,13 +1612,13 @@ fn rollback_keeps_the_new_binary_when_it_cannot_stop_the_daemon() {
 }
 
 #[test]
-fn an_equal_build_logs_a_second_client() {
+fn an_equal_build_logs_kept() {
     let f = Fixture::new();
     f.install("1.0.0", "kiteapp");
     f.install("1.0.0", "gardenapp");
     assert_eq!(
         f.last_log_line(),
-        "install client-added installed=\"1.0.0\" app=\"gardenapp\""
+        "install kept installed=\"1.0.0\" app=\"gardenapp\""
     );
 }
 

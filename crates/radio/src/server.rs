@@ -15,7 +15,10 @@ use std::{
         },
     },
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -59,6 +62,7 @@ pub struct Server {
     answer_deadline: Duration,
     log: Log,
     busy: Arc<Mutex<()>>,
+    stopping: Arc<AtomicBool>,
 }
 
 impl Server {
@@ -71,6 +75,11 @@ impl Server {
     /// Returns the mutex held while the server handles a request.
     pub fn busy(&self) -> Arc<Mutex<()>> {
         Arc::clone(&self.busy)
+    }
+
+    /// Returns the flag that prevents queued requests from starting during shutdown.
+    pub fn stopping(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.stopping)
     }
 
     /// Binds `socket` and opens the store, making the home room `<host>` when it is missing.
@@ -126,6 +135,7 @@ impl Server {
             answer_deadline: TIMEOUT,
             log: Log::none(),
             busy: Arc::new(Mutex::new(())),
+            stopping: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -350,6 +360,10 @@ impl Server {
             let incoming = self.listener.incoming().next();
             match incoming {
                 Some(Ok(stream)) => {
+                    if self.stopping.load(Ordering::SeqCst) {
+                        drop(stream);
+                        continue;
+                    }
                     let busy = self.busy();
                     let _guard = busy.lock().unwrap_or_else(|poison| poison.into_inner());
                     self.serve_one(stream);

@@ -1279,3 +1279,35 @@ fn log_successful_hello_and_post_are_quiet() {
     worker.join().unwrap();
     assert_eq!(fs::read_to_string(path).unwrap(), "");
 }
+
+#[test]
+fn log_unanswered_hello_is_the_only_event() {
+    let fixture = Fixture::new();
+    let server = fixture.bind().with_answer_deadline(Duration::ZERO);
+    let path = fixture.0.join("events");
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .unwrap();
+    let worker = start(
+        server.with_log(Log::to_file(file, crate::log::LOG_MAX_BYTES)),
+        1,
+    );
+    let mut client = UnixStream::connect(fixture.socket()).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    client.write_all(b"{\"v\":1,\"op\":\"hello\"}\n").unwrap();
+    let mut answer = String::new();
+    BufReader::new(client).read_to_string(&mut answer).unwrap();
+    worker.join().unwrap();
+    assert!(answer.is_empty());
+    let text = fs::read_to_string(path).unwrap();
+    let events: Vec<_> = text
+        .lines()
+        .map(|line| line.split_once(' ').unwrap().1)
+        .collect();
+    assert_eq!(events, ["serve unanswered op=\"hello\""]);
+}
