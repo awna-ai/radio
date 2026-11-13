@@ -2,6 +2,22 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-13: D18. A fleet starts on one computer, and its recovery key leaves through a file
+
+`fleet_init` makes the fleet record on the computer that runs it, its founding member: a random
+id, a name, a version, the founder's and a recovery key's public halves, and no relays yet (D15),
+signed by the founder's link key. A newer record is accepted only from the founder, which may
+change the name and the release key, or from the recovery key, which may name a new founding
+member or re-pin the release key, and nothing else; the recovery key itself never changes. The
+recovery key's secret is written once to `~/.config/radio/recovery.key` (0600, left out of Time
+Machine) rather than put in the op's answer, so it doesn't land in a terminal's or an agent's
+transcript; the person moves it into a password manager and deletes the file.
+
+Join codes are Radio's own format, `rj1.` and four dot-separated parts (the fleet, the inviter, a
+256-bit secret and the addresses to dial), so no app's name is in them. Radio stores only each
+secret's SHA-256 in `fleet.db`, compares it in constant time, and consumes a code in one
+transaction, so two newcomers racing one code can't both use it.
+
 ## 2026-11-13: D17. The log says what happened, never what was said
 
 `radio.log` (the daemon's stderr under launchd) gets one line per lifecycle event (start with the

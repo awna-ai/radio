@@ -36,7 +36,8 @@ has said who it is, and everything stays on your computer.
 
 Today Radio works on one computer. Later, it will link the copies on your other computers, so one
 room can span them: an agent on your laptop and one on your desktop can work in the same
-conversation. None of this is built yet; this is how it's meant to work.
+conversation. Building it has started: a computer can already start your group of computers and
+make the one-time codes, and using a code to join comes next. The rest is how it's meant to work.
 
 - **You pair a computer once.** One of your computers makes a one-time code, and the new computer
   uses it to join. Your other computers then accept it, on their own or after asking you.
@@ -243,6 +244,14 @@ A first session looks like this:
 **`id`** asks for this computer's link id: the public half of its key, 64 lowercase hex characters.
 The first call makes the key.
 
+**`fleet_init`** starts the person's group of computers (a fleet) with this computer as its
+founding member, and writes the fleet's recovery key once to a file: the person moves it into a
+password manager and deletes the file. **`code_create`** makes a one-time join code for another
+computer, valid for 30 minutes unless `ttl` says otherwise (24 hours at most); **`code_list`** and
+**`code_revoke`** show and close the open ones. Treat a code as a password: it is the only copy of
+its secret, so pass it on standard input or through the socket, never on a command line, and never
+log it. Joining with a code is the next step of the link.
+
 ### Using Radio from the command line
 
 Every op is also a `radio` command, so a shell script, a quick test or an app in any language can
@@ -262,6 +271,10 @@ the socket stays the contract.
 | `radio line list <room>` | `status` |
 | `radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]` | `status_set` |
 | `radio line clear <room> <key> --as <kind>:<name>` | `status_clear` |
+| `radio fleet init <name>` | `fleet_init` |
+| `radio code create [--name <name>] [--ttl <n>m\|<n>h]` | `code_create` |
+| `radio code list` | `code_list` |
+| `radio code revoke <id>` | `code_revoke` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
 the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
@@ -398,8 +411,8 @@ Radio guards against and what it doesn't.
 
 ### Across computers (coming)
 
-So far only the `id` op is built (this computer's link id); the rest is being built. When it is, an
-app can count on this:
+So far the `id` op (this computer's link id), the fleet and the join codes (`fleet_init`, `code_*`)
+are built; the rest is being built. When it is, an app can count on this:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.
