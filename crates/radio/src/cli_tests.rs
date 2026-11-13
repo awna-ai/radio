@@ -997,6 +997,25 @@ fn record_answers_preserve_versions_and_omit_absent_sections() {
 }
 
 #[test]
+fn resign_rejects_empty_section_files_and_stdin() {
+    let file = BodyFile::new(b"");
+    for path in [file.0.to_str().unwrap(), "-"] {
+        let command = parse(&args(&[
+            "resign",
+            "--app",
+            "lantern",
+            "--section-file",
+            path,
+        ]))
+        .unwrap();
+        assert_eq!(
+            command.resolve(io::empty()),
+            Err((2, "radio: the section file is empty".into()))
+        );
+    }
+}
+
+#[test]
 fn resign_section_files_share_the_bounded_body_reader_and_errors() {
     for (bytes, expected) in [
         (vec![0xff], (2, "radio: the body is not UTF-8")),

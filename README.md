@@ -266,7 +266,8 @@ Each computer signs a record about itself: its name, its id, its roles, its addr
 section per app. **`resign`** sets your app's section (text up to 4 KiB, which Radio carries and
 never reads; an empty `section` removes it, and leaving it out keeps it) and, with `roles`, replaces
 the computer's roles (at most 8 names, by the computer-name rule). Your app must be registered
-first. **`computer_records`** reads this computer's record and those of the computers it has
+first; a computer holds at most 8 apps' sections, and the record is signed with the daemon's name
+(its host name, or `radio serve --name`), so that name must follow the computer-name rule too. **`computer_records`** reads this computer's record and those of the computers it has
 accepted, each with your app's section. A record is kept only when the computer it names signed it
 and it is newer than the one held, so what you read for a computer is the newest thing it said that
 reached this computer. Sections are not secret: every computer in the
@@ -299,7 +300,7 @@ the socket stays the contract.
 | `radio computer accept <computer>` | `computer_accept` |
 | `radio computer block <computer>` | `computer_block` |
 | `radio computer trust <computer>` | `computer_trust` |
-| `radio resign --app <app> [--section <text>]` (`--section ""` removes it), or `--section-file <path>` (`-` reads stdin); `--roles <role>,...` (`--roles ""` clears them) | `resign` |
+| `radio resign --app <app> [--section <text>]` (`--section ""` removes it), or `--section-file <path>` (`-` reads stdin; an empty file is refused); `--roles <role>,...` (`--roles ""` clears them) | `resign` |
 | `radio computer records --app <app>` | `computer_records` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is

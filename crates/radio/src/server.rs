@@ -359,7 +359,7 @@ impl Server {
                     return Err("not an app name".into());
                 }
                 self.fleet_db()?.fleet()?.ok_or("not in a fleet")?;
-                let dir = self.link_dir.as_deref().ok_or("the link is not set up")?;
+                let dir = self.link_dir.as_deref().unwrap();
                 let node = radio_link::key::load_or_create(dir)?;
                 response.records = Some(listed_computer_records(
                     self.fleet_db()?,

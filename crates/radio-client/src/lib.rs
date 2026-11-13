@@ -124,12 +124,14 @@ pub enum Request {
     /// Re-signs this computer's record with an app's section and optional roles.
     Resign {
         app: String,
+        /// The app's new section; an empty string removes it, and leaving it out keeps it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         section: Option<String>,
+        /// The computer's new roles; leaving it out keeps them.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         roles: Option<Vec<String>>,
     },
-    /// Lists held computer records with this app's section from each.
+    /// Lists this computer's record and its accepted computers' records with this app's section from each.
     ComputerRecords { app: String },
 }
 
@@ -223,7 +225,7 @@ pub struct Response {
     /// This computer's re-signed record with the requesting app's section.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record: Option<ComputerRecord>,
-    /// Held computer records by id, with the requesting app's sections.
+    /// This computer's record and its accepted computers' records by id, with the requesting app's sections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub records: Option<Vec<ComputerRecord>>,
 }

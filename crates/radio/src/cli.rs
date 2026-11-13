@@ -231,6 +231,8 @@ impl Command {
     /// Resolves a post body or app section with a bounded read before the socket or HOME is consulted.
     pub fn resolve(mut self, stdin: impl Read) -> Result<Request, (i32, String)> {
         if let Some(source) = self.body {
+            let section_file = matches!(self.request, Request::Resign { .. })
+                && matches!(source, BodySource::File(_));
             let body = match source {
                 BodySource::Text(text) => text,
                 BodySource::File(path) if path.as_os_str() == "-" => read_body(stdin)?,
@@ -239,6 +241,9 @@ impl Command {
                         .map_err(|_| (2, "radio: the body file could not be read".into()))?,
                 )?,
             };
+            if section_file && body.is_empty() {
+                return Err((2, "radio: the section file is empty".into()));
+            }
             if body.len() > REQUEST_MAX_BYTES {
                 return Err((1, format!("radio: {}", radio_rooms::MESSAGE_INVALID)));
             }
