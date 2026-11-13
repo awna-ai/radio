@@ -342,6 +342,18 @@ fn two_installs_at_once_queue() {
 }
 
 #[test]
+fn names_file_tracks_removed_and_replaced_paths() {
+    let f = Fixture::new();
+    let path = f.home.join("named-file");
+    let file = fs::File::create(&path).unwrap();
+    assert!(names_file(&path, &file).unwrap());
+    fs::remove_file(&path).unwrap();
+    assert!(!names_file(&path, &file).unwrap());
+    let _replacement = fs::File::create(&path).unwrap();
+    assert!(!names_file(&path, &file).unwrap());
+}
+
+#[test]
 fn a_waiting_installer_never_locks_a_removed_file() {
     let f = Fixture::new();
     let p = f.paths();

@@ -204,12 +204,19 @@ fn racing_binds_leave_one_reachable_server() {
 }
 
 #[test]
-fn lock_file_is_private() {
+fn bind_recreates_a_lock_removed_by_its_previous_owner() {
     let fixture = Fixture::new();
+    fs::create_dir_all(fixture.socket().parent().unwrap()).unwrap();
+    let path = fixture.socket().with_extension("sock.lock");
+    let file = fs::File::create(&path).unwrap();
+    // SAFETY: file is live; flock has no pointer preconditions.
+    assert_eq!(unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) }, 0);
+    fs::remove_file(&path).unwrap();
+    drop(file);
     let _server = fixture.bind();
-    let lock = fixture.socket().with_extension("sock.lock");
+    assert!(path.exists());
     assert_eq!(
-        fs::metadata(lock).unwrap().permissions().mode() & 0o777,
+        fs::metadata(path).unwrap().permissions().mode() & 0o777,
         0o600
     );
 }

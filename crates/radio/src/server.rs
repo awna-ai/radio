@@ -88,25 +88,36 @@ impl Server {
         radio_rooms::private_dir(parent, true).map_err(|_| UNBOUND)?;
         let mut lock_path = socket.as_os_str().to_os_string();
         lock_path.push(".lock");
-        let lock = fs::OpenOptions::new()
+        let lock_path = PathBuf::from(lock_path);
+        let mut options = fs::OpenOptions::new();
+        options
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(lock_path)
-            .map_err(|_| UNBOUND)?;
-        lock.set_permissions(fs::Permissions::from_mode(0o600))
-            .map_err(|_| UNBOUND)?;
-        // SAFETY: the file descriptor is live and flock has no memory preconditions.
-        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            let code = std::io::Error::last_os_error().raw_os_error();
-            if code == Some(libc::EWOULDBLOCK) || code == Some(libc::EAGAIN) {
-                return Err("another Radio serves radio.sock".into());
+            .custom_flags(libc::O_NOFOLLOW);
+        let mut attempts = 0;
+        let lock = loop {
+            let lock = options.open(&lock_path).map_err(|_| UNBOUND)?;
+            lock.set_permissions(fs::Permissions::from_mode(0o600))
+                .map_err(|_| UNBOUND)?;
+            // SAFETY: the file descriptor is live and flock has no memory preconditions.
+            if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+                let code = std::io::Error::last_os_error().raw_os_error();
+                if code == Some(libc::EWOULDBLOCK) || code == Some(libc::EAGAIN) {
+                    return Err("another Radio serves radio.sock".into());
+                }
+                return Err(UNBOUND.into());
             }
-            return Err(UNBOUND.into());
-        }
+            if crate::install::names_file(&lock_path, &lock).map_err(|_| UNBOUND)? {
+                break lock;
+            }
+            attempts += 1;
+            if attempts == 3 {
+                return Err(UNBOUND.into());
+            }
+        };
         match fs::symlink_metadata(socket) {
             Ok(meta) if meta.file_type().is_socket() => {
                 if UnixStream::connect(socket).is_ok() {

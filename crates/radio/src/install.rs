@@ -500,6 +500,16 @@ impl From<String> for Failure {
     }
 }
 
+/// Reports whether the path names the open file.
+pub(crate) fn names_file(path: &Path, file: &fs::File) -> std::io::Result<bool> {
+    let opened = file.metadata()?;
+    match fs::symlink_metadata(path) {
+        Ok(current) => Ok((opened.dev(), opened.ino()) == (current.dev(), current.ino())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 // The file's lifetime is the lock's lifetime, including every early return.
 fn lock(paths: &Paths, timing: Timing) -> Result<fs::File, Failure> {
     radio_rooms::private_dir(&paths.state, true).map_err(|_| Failure::new(1, FILES))?;
@@ -529,14 +539,8 @@ fn lock(paths: &Paths, timing: Timing) -> Result<fs::File, Failure> {
     loop {
         // SAFETY: file is live; flock has no pointer preconditions.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            let opened = file.metadata().map_err(|_| Failure::new(1, FILES))?;
-            match fs::symlink_metadata(&paths.lock) {
-                Ok(current) if (opened.dev(), opened.ino()) == (current.dev(), current.ino()) => {
-                    return Ok(file);
-                }
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => return Err(Failure::new(1, FILES)),
+            if names_file(&paths.lock, &file).map_err(|_| Failure::new(1, FILES))? {
+                return Ok(file);
             }
             drop(file);
             file = open()?;
