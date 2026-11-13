@@ -64,9 +64,9 @@ The project is **Radio**, with no article, in prose as in headings. What uses it
 the umbrella word for whatever an app calls its AI (an assistant, a chatbot, a copilot, a bot, an AI
 session someone works in, a program that does work on its own), and the word the open protocols in
 this space use. The README lists those names the first time it uses the word, so a reader who knows
-only one of them finds it. Code strings and crate descriptions still say "the Radio", among them the client's
-`the Radio did not answer`, which apps may match on; they change in code, with the guide, and the
-docs quote them as the code prints them until then. They changed on 2026-11-13, after `v0.1.0`.
+only one of them finds it. Code strings and crate descriptions said "the Radio" at first, among them the
+client's `the Radio did not answer`, which apps may match on; they changed in code after `v0.1.0`,
+together with the README's developer section, which names the old words.
 
 ## 2026-11-12: D11. Two audiences, two documents
 

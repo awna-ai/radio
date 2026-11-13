@@ -208,4 +208,4 @@ missing objects, and reads ref names.
 - 2026-11-12: one command per op (D16): an entry point and four command-line gaps.
 - 2026-11-12: the link's key and the one endpoint builder are built (`radio-link`), and the `id` op (minor 1)
   answers the key's public half; the endpoint and identity rows name their tests.
-- 2026-11-13: the client's phrases say Radio with no article (D12).
+- 2026-11-12: the client's phrases say Radio with no article (D12).
