@@ -15,14 +15,19 @@ A computer keeps another's record only when that computer signed it, it names a 
 computer's list (pending and blocked ones included) under the name the list has for it, and its
 version is newer than the one held; anything else is dropped, so a replay or an older record changes
 nothing. A version is the signing time in milliseconds, or one more than the last when the clock
-says less, so it keeps rising even after the computer loses its database and joins again. Any
+says less, so a computer that loses its database and joins again starts above its old records
+unless its clock has gone back past them. Any
 accepted computer may carry another's record, since the signature, not the sender, says whose it
 is. A record with addresses replaces the ones held for that computer; one without says nothing
-about them. Removing a computer drops its record, and leaving a fleet drops them all.
+about them. Removing a computer drops its record, re-admitting it under a new name drops the old
+one, and leaving a fleet drops them all.
 
-An app changes its section with the `resign` op, which may also replace the computer's roles; the
-app must be registered, and a change that changes nothing keeps the record and its version.
-`computer_records` reads every record held, each with the asking app's section. A newcomer takes the
+An app changes its section with the `resign` op, which may also replace the computer's roles: an
+empty section removes it, and a request without one leaves it, so changing roles never drops a
+section. The app must be registered, and a change that changes nothing keeps the record and its
+version. `computer_records` reads this computer's record and its accepted computers', each with the
+asking app's section; a pending or blocked computer's record is kept but shown only once it is
+accepted, so an app never acts on a computer the person hasn't let in. A newcomer takes the
 records its inviter holds with the rest of the inviter's view, up to 256 KiB of them; the others
 reach it when their computers next sign. Until the daemon listens (the direct-address step), a
 re-signed record is kept on its own computer and sent from then on.

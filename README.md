@@ -263,12 +263,13 @@ so that the computers it invites are let in here without asking. Each takes a co
 id. Joining with a code, removing a computer and leaving come with the next step of the link.
 
 Each computer signs a record about itself: its name, its id, its roles, its addresses, and one
-section per app. **`resign`** sets your app's section (any text up to 4 KiB, which Radio carries
-and never reads; leave `section` out to remove it) and, with `roles`, replaces the computer's roles
-(at most 8 names, by the computer-name rule). Your app must be registered first. **`computer_records`**
-reads every record this computer holds, its own included, each with your app's section. A record is
-kept only when the computer it names signed it and it is newer than the one held, so what you read
-for a computer is what that computer last said. Sections are not secret: every computer in the
+section per app. **`resign`** sets your app's section (text up to 4 KiB, which Radio carries and
+never reads; an empty `section` removes it, and leaving it out keeps it) and, with `roles`, replaces
+the computer's roles (at most 8 names, by the computer-name rule). Your app must be registered
+first. **`computer_records`** reads this computer's record and those of the computers it has
+accepted, each with your app's section. A record is kept only when the computer it names signed it
+and it is newer than the one held, so what you read for a computer is the newest thing it said that
+reached this computer. Sections are not secret: every computer in the
 fleet holds them. Once Radio listens for other computers, a re-signed record goes to each of them.
 
 ### Using Radio from the command line
@@ -298,7 +299,7 @@ the socket stays the contract.
 | `radio computer accept <computer>` | `computer_accept` |
 | `radio computer block <computer>` | `computer_block` |
 | `radio computer trust <computer>` | `computer_trust` |
-| `radio resign --app <app> [--section <text>]`, or `--section-file <path>` (`-` reads stdin); `--roles <role>,...` (`--roles ""` clears them) | `resign` |
+| `radio resign --app <app> [--section <text>]` (`--section ""` removes it), or `--section-file <path>` (`-` reads stdin); `--roles <role>,...` (`--roles ""` clears them) | `resign` |
 | `radio computer records --app <app>` | `computer_records` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
