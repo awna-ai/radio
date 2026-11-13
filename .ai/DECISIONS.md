@@ -2,6 +2,23 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-12: D15. The first link is direct only, and delivers files into a folder the app gets from Radio
+
+The link between computers is built direct first: each computer binds only local addresses the user
+configured, on one fixed UDP port, and dials only addresses the user configured or a join code
+carried. There is no relay, no address lookup and no port mapping, so it works where the computers
+already reach each other, on one network or over a VPN the user runs. Relays and finding computers
+on a network by themselves come later, unchanged in design, as their own steps.
+
+Its first use is files: an app hands its Radio a file for an app on another of the person's
+computers, and the receiving Radio writes it into a folder that Radio itself made for that app,
+never anywhere else. A send that can't reach its peer fails at once; Radio holds nothing to send
+again, so the sending app keeps what it needs. Handing an app's message to its handler comes after.
+
+The fleet record, members, codes and deliveries live in `fleet.db`, the daemon its one writer, so
+every change is one transaction; `fleet.toml` holds only this computer's own settings. The threat
+model's § *The link* holds the rules and the numbers each step tests.
+
 ## 2026-11-12: D14. Releases are built on a maintainer's Mac, signed ad hoc, and ship inside apps
 
 A tag's release carries one `radio` binary per Mac architecture (arm64 and x86_64), each in a

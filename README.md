@@ -42,7 +42,11 @@ conversation. None of this is built yet; this is how it's meant to work.
   uses it to join. Your other computers then accept it, on their own or after asking you.
 - **Each computer has its own identity.** Each one holds its own key, and your computers know each
   other by it. Only computers you've let in can connect; any other is turned away.
-- **At home or away.** It works on the same network or over the internet. Your computers find each
+- **First, between computers that can already reach each other.** The first version links
+  computers on the same network, or on a private network (a VPN) you already run between them:
+  you tell each computer the other's address once. It sends files from an app on one computer to
+  the same app on another, and nothing else yet.
+- **Later, at home or away.** It will work on the same network or over the internet. Your computers find each
   other on a home or office network by themselves, and connect directly wherever the network
   allows; when it doesn't, they go through a relay. Each one remembers the addresses that worked
   last time and tries those first.
@@ -51,8 +55,8 @@ conversation. None of this is built yet; this is how it's meant to work.
   Messages are encrypted from one computer to the other, so a relay can see which computers talk
   and when, never what they say. If a relay goes down, computers already connected keep talking.
   Anyone can run their own relay.
-- **Nothing else to set up.** No router port to open and no account to make: pairing is the only
-  step.
+- **Later, nothing else to set up.** Once relays are built, there's no router port to open and no
+  account to make: pairing is the only step.
 
 ## The gap it fills
 
@@ -274,7 +278,11 @@ None of this is built yet. When it is, an app can count on this:
 - **Radio checks every message from another computer before any app sees it.** It must come from a
   computer that was let in, be fresh, not replay one already seen, and fit within the size caps.
   Anything else is refused there.
-- **Your app's own messages go through Radio.** Your app asks its Radio to send a message to your
+- **Files first.** The first link carries files: your app asks its Radio to send a file to your app
+  on another of the person's computers. The receiving Radio writes it only into a folder it made for
+  your app when your app asked for one, and says which computer sent it. If the other computer can't
+  be reached, the send fails at once and Radio keeps nothing, so your app tries again later.
+- **Then your app's own messages go through Radio.** Your app asks its Radio to send a message to your
   app on another computer. Radio carries it without reading it, and on the other side hands it,
   with the identity of the computer that sent it, to the handler your app recorded at install
   (`--handler`); the handler's reply goes back. The handler's path only ever comes from that
