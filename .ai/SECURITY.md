@@ -210,6 +210,6 @@ missing objects, and reads ref names.
 - 2026-11-12: the link's key and the one endpoint builder are built (`radio-link`), and the `id` op (minor 1)
   answers the key's public half; the endpoint and identity rows name their tests.
 - 2026-11-12: the client's phrases say Radio with no article (D12).
-- 2026-11-13: the link's wire is built (`radio-link`: admission at the handshake and on each stream, framing, `Hello` and the app message, the caps and deadlines); the endpoint, connection, dial and records rows name their tests; two gaps.
 - 2026-11-13: `radio.log` gets its lines (D17): the operational row says what they hold and never hold; the rotation gap closes with the 1 MiB cap.
 - 2026-11-13: the last uninstall removes the install lock, and the socket and its lock when no daemon holds that lock; both locks are re-checked after they are taken.
+- 2026-11-13: the link's wire is built (`radio-link`: admission at the handshake and on each stream, framing, `Hello` and the app message, the caps and deadlines); the endpoint, connection, dial and records rows name their tests; two gaps.
