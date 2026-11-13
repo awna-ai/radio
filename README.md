@@ -141,7 +141,7 @@ move to a newer tag when you choose.
 
 A tag that has a release on GitHub also carries the binary ready-built, so you don't need Rust:
 `radio-<tag>-macos-arm64.tar.gz` (Apple silicon), `radio-<tag>-macos-x86_64.tar.gz` (Intel) and
-`SHA256SUMS`; `v0.1.0` is the first. Fetch with `curl` (or `gh release download`), check, and
+`SHA256SUMS`, starting with `v0.1.0`. Fetch with `curl` (or `gh release download`), check, and
 unpack:
 
 ```sh
@@ -264,7 +264,8 @@ UTF-8, and Radio applies its own 4 KiB limit.
 
 Exit codes: `0` when the answer is `"ok": true`; `3` when it is `"refused": true`; `1` for any
 other failure, including Radio not running (the phrase is then on stderr, and stdout is empty);
-`2` for a bad argument, with the usage on stderr and nothing sent.
+`2` for a bad argument, with the usage (or what is wrong with the body file) on stderr and nothing
+sent.
 
 Python, with nothing but the standard library (3.7 or newer, so macOS's own `python3` runs it):
 
@@ -386,10 +387,9 @@ None of this is built yet. When it is, an app can count on this:
 ## Where it stands
 
 - It works on Mac today, on one computer.
-- **Built:** rooms, posts, status lines, the shared install and upgrade, and the rules for a group
-  discussion.
-- **Next:** group discussions that any app can start, a published download so an app doesn't have to
-  build Radio itself, and a log to read when something goes wrong.
+- **Built:** rooms, posts, status lines, the shared install and upgrade, the rules for a group
+  discussion, a ready-built download, and a command for every step.
+- **Next:** group discussions that any app can start, and a log to read when something goes wrong.
 - **Later:** linking your computers, as [Across your computers](#across-your-computers-coming)
   describes.
 

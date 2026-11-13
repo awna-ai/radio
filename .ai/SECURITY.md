@@ -112,7 +112,8 @@ token, key or password belongs in the repo; gitleaks runs in `scripts/ci-local.s
 - The op commands (`crates/radio/src/cli.rs`, D16): their arguments and a body file or stdin, from the
   user's own processes, so no new trust. They build one request the socket would take from any client;
   a body is read with a bound (one byte past the 16 KiB request cap), never in full, and the answer is
-  printed as it arrived, never interpreted beyond `ok` and `refused`.
+  printed as it arrived once `radio-client`'s own types accept it (a line they refuse is `the Radio did
+  not answer`); only `ok` and `refused` choose the exit code.
 
 ## External integrations
 
@@ -153,6 +154,9 @@ address lookup). A relay, when it comes, gets its own rows here.
 | Two slow clients ahead of an install's check can get a busy daemon restarted | each client holds the daemon for at most 10 s, and every write is a transaction, so a restart loses no committed write | install delta review, 2026-11-12 | when connections are served concurrently |
 | An earlier import's path on a stalled network volume can hold the install while it checks that path | the open does not block on the file, but a stalled volume can stall the path lookup | install delta review, 2026-11-12 | if a store is ever imported from a network volume |
 | A newer version's folder left with no record (a newer install killed midway) makes every older install refuse | an older copy can't tell a half-installed newer Radio from a working one whose record was lost, and replacing it could leave Radio down | install delta review, 2026-11-12 | if an older app is ever stuck: the newer app's install repairs it |
+| An op command prints the answer line as it arrived, so it is safe for a terminal only because the daemon cleans every free-text field (control and invisible characters become spaces) and JSON escapes the rest | the daemon is the only writer of what it answers, and a same-user impostor on the socket is the boundary above; the worst is a confusing display | command-line review, 2026-11-12 | when an answer carries text the daemon didn't clean, such as link-era data from another computer |
+| `--body-file -` can read up to 8 KiB of stdin past the bound before refusing an over-long body (the standard input buffer), so a caller sharing stdin loses those bytes | it happens only on that refusal, and the bytes kept in memory are still capped | command-line review, 2026-11-12 | if a caller ever needs stdin intact after a refused body |
+| A FIFO, a terminal or a stalled network file named by `--body-file` blocks the command, with no deadline | the path is the user's own argument, and the body is read before connecting, so the daemon is never held | command-line review, 2026-11-12 | if a script ever needs a deadline on its body |
 | `radio.log` is not rotated | the daemon writes only fixed phrases, a few per start | install step, 2026-11-12 | if the log ever grows |
 | `radio-panels` renders member names into its markdown result unfenced, so a name holding a newline could forge a section | the daemon does not call the crate yet, and the rooms store already turns newlines in names into spaces | protocol move, 2026-11-12 | when the daemon renders a result: refuse control characters in names, or fence them |
 | A dissenting member whose name has a character outside the fence label's set (an apostrophe, an accent) stops the result from rendering | a refusal, not an injection: the label check holds; the daemon does not call the crate yet | protocol move, 2026-11-12 | when the daemon renders a result: give each member a safe label |
