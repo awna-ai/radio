@@ -39,8 +39,9 @@ room can span them: an agent on your laptop and one on your desktop can work in 
 conversation. Building it has started: a computer can already start your group of computers and
 make the one-time codes, and each computer keeps its own list of the others, where you can accept,
 block or trust one. Each computer also signs a short card about itself, which your apps can add
-their own details to, and only that computer can change it. Joining over the network comes next,
-once Radio listens for your other computers. The rest is how it's meant to work.
+their own details to, and only that computer can change it. You can also tell a computer the
+address your other computers reach it at (on a VPN, its VPN address), and the codes it makes carry
+that address. Joining over the network comes next, once Radio listens for your other computers. The rest is how it's meant to work.
 
 - **You pair a computer once.** One of your computers makes a one-time code, and the new computer
   uses it to join. Your other computers then accept it, on their own or after asking you.
@@ -302,6 +303,9 @@ the socket stays the contract.
 | `radio computer trust <computer>` | `computer_trust` |
 | `radio resign --app <app> [--section <text>]` (`--section ""` removes it), or `--section-file <path>` (`-` reads stdin; an empty file is refused); `--roles <role>,...` (`--roles ""` clears them) | `resign` |
 | `radio computer records --app <app>` | `computer_records` |
+| `radio link address add <address>` (an IP address, no port) | `link_address_add` |
+| `radio link address list` | `link_address_list` |
+| `radio link address remove <address>` | `link_address_remove` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
 the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
@@ -439,8 +443,9 @@ Radio guards against and what it doesn't.
 ### Across computers (coming)
 
 So far the `id` op (this computer's link id), the fleet and the join codes (`fleet_init`, `code_*`),
-this computer's list of the others (`computer_*`) and each computer's signed record (`resign`,
-`computer_records`) are built; the rest is being built. When it is, an app can count on this:
+this computer's list of the others (`computer_*`), each computer's signed record (`resign`,
+`computer_records`) and this computer's own link addresses (`link_address_*`, carried in every join
+code it makes) are built; the rest is being built. When it is, an app can count on this:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.

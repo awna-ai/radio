@@ -2,6 +2,18 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-13: D22. A computer's own link addresses live in `fleet.db`, on one fixed port
+
+Each computer keeps the addresses its other computers reach it at: at most one IPv4 and one IPv6,
+set by the person (`radio link address add`), never found by Radio. The port is fixed, UDP 7341
+(unassigned in macOS's `/etc/services`), so an address is only an IP and every computer listens
+in the same place. They are kept in `fleet.db`, beside this computer's other own state (the
+`local` row), not in `fleet.toml` as D15 first said: the daemon is that file's one writer, a change
+is one transaction, and a second settings file would add a format and a dependency for two
+values. Leaving a fleet keeps them. A join code carries exactly these addresses; a code made
+before any is set carries none, and the new computer's dial then fails at once with a plain
+sentence instead of waiting.
+
 ## 2026-11-13: D21. The link's decoders are tried with generated inputs on every land, and fuzzed outside it
 
 The frame decoder, the three record checks and the join-code parser take bytes from other
