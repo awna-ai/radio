@@ -362,11 +362,12 @@ running` and `the Radio did not answer`, so an app that also runs with `v0.1.0` 
 
 ### When something goes wrong
 
-Radio writes `~/.local/state/radio/radio.log`, one line per event: when it starts (with its version
-and protocol), binds its socket and stops; when an app installs or upgrades it, or is added or
-removed as a client; and for every answer that isn't `"ok": true`, the op and the phrase. A line
-never holds what an app sent (a body, a title, a member's name), so the log is safe to paste into a
-bug report. For example:
+Radio writes `~/.local/state/radio/radio.log`, one line per event: when it starts (with its version,
+its protocol and the computer's name), binds its socket, fails to start, and stops; when an app
+installs, upgrades or keeps it, or is removed as a client, or an install fails; for every answer
+that isn't `"ok": true`, the op and the phrase; and when an answer couldn't be delivered. A line
+never holds what an app sent (a body, a title, a member's name). It does name the computer, which
+is often its owner's name, so look before you paste a log somewhere public. For example:
 
 ```text
 2026-11-13T03:40:00Z serve start version="0.1.1" protocol="1.1" name="garden-mac"
@@ -376,7 +377,7 @@ bug report. For example:
 2026-11-13T03:52:30Z serve stop signal="TERM"
 ```
 
-The log starts over once it passes 1 MiB. Its lines are for people to read, not part of the
+Successful requests write nothing. The log starts over once it passes 1 MiB. Its lines are for people to read, not part of the
 contract: their words may change in any release.
 
 ### Versions

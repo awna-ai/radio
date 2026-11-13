@@ -5,15 +5,19 @@ The decisions this repo was founded on (2026-11-10). Newer decisions go above th
 ## 2026-11-13: D17. The log says what happened, never what was said
 
 `radio.log` (the daemon's stderr under launchd) gets one line per lifecycle event (start with the
-version and protocol, bind, stop on SIGTERM or SIGINT after the request in hand, an install, an
-upgrade, a client added or removed, a failed install or uninstall) and one per answer that is not ok,
-as its op and fixed phrase. A line is `<UTC time> <source> <event>` and `key=value` fields, each
+version, protocol and the computer's name; bind; a failed start; stop on SIGTERM or SIGINT, after the
+request in hand but never more than 2 seconds, so the installer's stop never times out on a stalled
+client; an install, an upgrade, an install that kept the running version, a client removed, a failed
+install or uninstall) and one per answer that is not ok, as its op and fixed phrase. A line is `<UTC time> <source> <event>` and `key=value` fields, each
 text value escaped onto one line. It never holds a body, a title, a status line, a member's name or
-any other text a client sent, and an op it doesn't know is `unknown`, so a log is safe to share and
-can't be forged into extra lines. Successful requests write nothing, so a busy Radio's log stays
-short; the log starts over past 1 MiB rather than rotating, because launchd holds its file open. The
-installer appends to the log but never creates it, so a refusal before anything is written leaves no
-log; a first install that fails after the log exists keeps it, with the daemon's own lines saying why. The lines are for people: they are not part of the contract and may change in any release.
+any other text a client sent, and an op it doesn't know is `unknown`, so what apps say stays out of
+it and a client can't forge extra lines; the computer's name is the one personal detail. Successful
+requests write nothing (unless the answer couldn't be delivered), so a busy Radio's log stays short;
+the log starts over past 1 MiB rather than rotating, because launchd holds its file open, and only
+when the daemon's stderr is `radio.log` itself. The install creates the log (0600) before it starts
+the daemon; the installer's own lines append and never create it, so a refusal before anything is
+written leaves no log, and a first install that fails after that keeps it, with the daemon's lines
+saying why. The lines are for people: they are not part of the contract and may change in any release.
 
 ## 2026-11-12: D16. Every op is also a command, and the socket stays the contract
 
