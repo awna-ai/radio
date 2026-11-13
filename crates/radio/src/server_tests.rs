@@ -525,7 +525,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":2},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":3},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -1436,12 +1436,16 @@ fn fleet_ops_need_both_link_and_fleet_paths() {
         } else {
             server.with_fleet_db(fixture.0.join("fleet.db"))
         };
-        let worker = start(server, 4);
+        let worker = start(server, 8);
         for value in [
             serde_json::json!({"v":1,"op":"fleet_init","name":"garden"}),
             serde_json::json!({"v":1,"op":"code_create"}),
             serde_json::json!({"v":1,"op":"code_list"}),
             serde_json::json!({"v":1,"op":"code_revoke","id":"0000000000000000"}),
+            serde_json::json!({"v":1,"op":"computer_list"}),
+            serde_json::json!({"v":1,"op":"computer_accept","computer":"meadow"}),
+            serde_json::json!({"v":1,"op":"computer_block","computer":"meadow"}),
+            serde_json::json!({"v":1,"op":"computer_trust","computer":"meadow"}),
         ] {
             let mut line = serde_json::to_vec(&value).unwrap();
             line.push(b'\n');
@@ -1467,4 +1471,132 @@ fn recovery_folder_is_absolute_even_with_a_relative_home() {
         absolute_link_dir(&fixture.0),
         Err("the link folder is not usable")
     );
+}
+
+#[test]
+fn computers_cross_the_socket() {
+    use radio_link::{
+        SecretKey,
+        fleet_db::FleetDb,
+        membership::{self, RecordBody},
+    };
+
+    let fixture = Fixture::new();
+    let link = fixture.0.join(".config/radio");
+    let fleet_path = fixture.0.join("fleet.db");
+    let log_path = fixture.0.join("radio.log");
+    let server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(fleet_path.clone())
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    let worker = start(server, 10);
+    let send = |request: &Request| {
+        let mut value = serde_json::to_value(request).unwrap();
+        value["v"] = 1.into();
+        let mut line = serde_json::to_vec(&value).unwrap();
+        line.push(b'\n');
+        raw_value(&fixture.socket(), &line)
+    };
+    assert_eq!(
+        send(&Request::ComputerList {}),
+        serde_json::json!({"ok":false,"error":"not in a fleet"})
+    );
+    let found = send(&Request::FleetInit {
+        name: "garden".into(),
+    });
+    assert_eq!(found["ok"], true);
+    let created = send(&Request::CodeCreate {
+        name: None,
+        ttl: None,
+    });
+    assert_eq!(created["ok"], true);
+    let code = radio_link::code::JoinCode::parse(created["code"].as_str().unwrap()).unwrap();
+    let node = radio_link::key::load_or_create(&link).unwrap();
+    let meadow = SecretKey::from_bytes(&[21; 32]);
+    let lantern = SecretKey::from_bytes(&[22; 32]);
+    let mut db = FleetDb::open(&fleet_path).unwrap();
+    db.admit(
+        &node,
+        "test-host",
+        &[],
+        &code,
+        &meadow.public(),
+        "meadow",
+        &["127.0.0.1:7000".parse().unwrap()],
+        now().unwrap(),
+    )
+    .unwrap();
+    let introduction = membership::sign(
+        RecordBody::Introduction {
+            fleet: found["fleet"]["id"].as_str().unwrap().into(),
+            inviter: meadow.public().to_string(),
+            counter: 1,
+            newcomer: lantern.public().to_string(),
+            name: "lantern".into(),
+            addrs: vec!["127.0.0.1:7001".parse().unwrap()],
+        },
+        &meadow,
+    );
+    db.apply(&node.public(), &introduction, now().unwrap())
+        .unwrap();
+    let mut lantern_row = serde_json::json!({
+        "id":lantern.public().to_string(), "name":"lantern", "state":"pending",
+        "invited_by":meadow.public().to_string(), "trusted":false
+    });
+    let mut meadow_row = serde_json::json!({
+        "id":meadow.public().to_string(), "name":"meadow", "state":"accepted",
+        "invited_by":node.public().to_string(), "trusted":false
+    });
+    assert_eq!(
+        send(&Request::ComputerList {}),
+        serde_json::json!({"ok":true,"computers":[lantern_row,meadow_row]})
+    );
+    assert_eq!(
+        send(&Request::ComputerTrust {
+            computer: "lantern".into()
+        }),
+        serde_json::json!({"ok":false,"error":"only an accepted computer can be trusted"})
+    );
+    lantern_row["state"] = "accepted".into();
+    assert_eq!(
+        send(&Request::ComputerAccept {
+            computer: "lantern".into()
+        }),
+        serde_json::json!({"ok":true,"computer":lantern_row})
+    );
+    lantern_row["state"] = "blocked".into();
+    assert_eq!(
+        send(&Request::ComputerBlock {
+            computer: "lantern".into()
+        }),
+        serde_json::json!({"ok":true,"computer":lantern_row})
+    );
+    lantern_row["state"] = "accepted".into();
+    assert_eq!(
+        send(&Request::ComputerAccept {
+            computer: lantern.public().to_string()
+        }),
+        serde_json::json!({"ok":true,"computer":lantern_row})
+    );
+    meadow_row["trusted"] = true.into();
+    assert_eq!(
+        send(&Request::ComputerTrust {
+            computer: "meadow".into()
+        }),
+        serde_json::json!({"ok":true,"computer":meadow_row})
+    );
+    // Invalid input must not leak its supplied name into a failure log either.
+    assert_eq!(
+        send(&Request::ComputerBlock {
+            computer: "Meadow".into()
+        }),
+        serde_json::json!({"ok":false,"error":"not a computer"})
+    );
+    worker.join().unwrap();
+    let log = fs::read_to_string(log_path).unwrap();
+    assert!(log.contains("only an accepted computer can be trusted"));
+    assert!(log.contains("not a computer"));
+    assert!(!log.to_ascii_lowercase().contains("meadow"));
+    assert!(!log.contains("lantern"));
 }

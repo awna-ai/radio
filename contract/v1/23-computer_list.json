@@ -1,0 +1,11 @@
+{
+  "request": {
+    "v": 1,
+    "op": "computer_list"
+  },
+  "response": {
+    "ok": true,
+    "computers": []
+  },
+  "exact": true
+}

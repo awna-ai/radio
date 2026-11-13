@@ -46,6 +46,10 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         ["code", "create", rest @ ..] => ("code_create", 0, rest, &["--name", "--ttl"]),
         ["code", "list", rest @ ..] => ("code_list", 0, rest, &[]),
         ["code", "revoke", rest @ ..] => ("code_revoke", 1, rest, &[]),
+        ["computer", "list", rest @ ..] => ("computer_list", 0, rest, &[]),
+        ["computer", "accept", rest @ ..] => ("computer_accept", 1, rest, &[]),
+        ["computer", "block", rest @ ..] => ("computer_block", 1, rest, &[]),
+        ["computer", "trust", rest @ ..] => ("computer_trust", 1, rest, &[]),
         ["register", rest @ ..] => ("register", 0, rest, &["--app", "--app-version", "--member"]),
         ["room", "create", rest @ ..] => ("create", 1, rest, &["--title"]),
         ["rooms", rest @ ..] => ("rooms", 0, rest, &["--after", "--limit"]),
@@ -96,6 +100,16 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         "code_list" => Request::CodeList {},
         "code_revoke" => Request::CodeRevoke {
             id: positionals[0].into(),
+        },
+        "computer_list" => Request::ComputerList {},
+        "computer_accept" => Request::ComputerAccept {
+            computer: positionals[0].into(),
+        },
+        "computer_block" => Request::ComputerBlock {
+            computer: positionals[0].into(),
+        },
+        "computer_trust" => Request::ComputerTrust {
+            computer: positionals[0].into(),
         },
         "register" => Request::Register {
             app: required("--app")?.into(),

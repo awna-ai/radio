@@ -1,6 +1,6 @@
 use crate::log::{Field, Log};
 use radio_client::{
-    Fleet, JoinCodeInfo, Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR, Protocol,
+    Computer, Fleet, JoinCodeInfo, Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR, Protocol,
     REQUEST_MAX_BYTES, Request, Response, Room, StatusLine,
 };
 use radio_rooms::{Author, OWNED, READ_MAX, RoomStore};
@@ -317,6 +317,20 @@ impl Server {
             Request::CodeRevoke { id } => {
                 response.removed = Some(self.fleet_db()?.revoke_code(&id, now)?);
             }
+            Request::ComputerList {} => {
+                let db = self.fleet_db()?;
+                db.fleet()?.ok_or("not in a fleet")?;
+                response.computers = Some(db.computers()?.into_iter().map(computer).collect());
+            }
+            Request::ComputerAccept { computer: target } => {
+                response.computer = Some(computer(self.fleet_db()?.accept(&target)?));
+            }
+            Request::ComputerBlock { computer: target } => {
+                response.computer = Some(computer(self.fleet_db()?.block(&target)?));
+            }
+            Request::ComputerTrust { computer: target } => {
+                response.computer = Some(computer(self.fleet_db()?.trust(&target)?));
+            }
             Request::Register {
                 app,
                 app_version,
@@ -593,6 +607,16 @@ fn peer_uid(stream: &UnixStream) -> Option<u32> {
         )
     };
     (result == 0 && len as usize == std::mem::size_of::<libc::ucred>()).then_some(credentials.uid)
+}
+
+fn computer(row: radio_link::fleet_db::Computer) -> Computer {
+    Computer {
+        id: row.key,
+        name: row.name,
+        state: row.state.as_str().into(),
+        invited_by: row.invited_by,
+        trusted: row.trusted,
+    }
 }
 
 fn author(member: Member) -> Author {

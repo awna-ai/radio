@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 2;
+pub const PROTOCOL_MINOR: u32 = 3;
 
-/// The ops major 1, minor 2 serves, in this order.
+/// The ops major 1, minor 3 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -28,6 +28,10 @@ pub const OPS: &[&str] = &[
     "code_create",
     "code_list",
     "code_revoke",
+    "computer_list",
+    "computer_accept",
+    "computer_block",
+    "computer_trust",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -107,6 +111,14 @@ pub enum Request {
     CodeList {},
     /// Closes an open join code by its identifier.
     CodeRevoke { id: String },
+    /// Lists this computer's view of its fleet's other computers.
+    ComputerList {},
+    /// Lets a pending or blocked computer connect.
+    ComputerAccept { computer: String },
+    /// Refuses a computer on this computer only.
+    ComputerBlock { computer: String },
+    /// Trusts an accepted computer's future invitations.
+    ComputerTrust { computer: String },
 }
 
 /// A member identified by a kind and a name.
@@ -190,6 +202,12 @@ pub struct Response {
     /// The open join codes, oldest first, without their secrets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codes: Option<Vec<JoinCodeInfo>>,
+    /// This computer's view of its fleet's other computers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computers: Option<Vec<Computer>>,
+    /// The computer accepted, blocked or trusted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer: Option<Computer>,
 }
 
 /// A room returned by the daemon.
@@ -275,4 +293,21 @@ pub struct JoinCodeInfo {
     pub expires_at: f64,
     /// The remaining uses of the code.
     pub uses: u32,
+}
+
+/// A computer in this computer's view of its fleet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Computer {
+    /// The computer's public link id.
+    pub id: String,
+    /// The computer's name, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The computer's state as an extensible word.
+    pub state: String,
+    /// The inviter's public link id, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invited_by: Option<String>,
+    /// Whether future invitations from this computer are accepted at once.
+    pub trusted: bool,
 }

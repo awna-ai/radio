@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "computer_trust",
+    "computer": "meadow"
+  },
+  "response": {
+    "ok": false,
+    "error": "no such computer"
+  },
+  "exact": true
+}

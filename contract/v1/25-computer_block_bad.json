@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "computer_block",
+    "computer": "Meadow"
+  },
+  "response": {
+    "ok": false,
+    "error": "not a computer"
+  },
+  "exact": true
+}

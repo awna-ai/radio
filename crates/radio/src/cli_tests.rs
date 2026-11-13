@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 2);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 3);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -823,4 +823,62 @@ fn invalid_fleet_commands_are_usage_errors() {
             "{ttl}"
         );
     }
+}
+
+#[test]
+fn computer_commands_match_contract_requests() {
+    for (stem, words) in [
+        ("23-computer_list", vec!["computer", "list"]),
+        (
+            "24-computer_accept_unknown",
+            vec!["computer", "accept", "meadow"],
+        ),
+        ("25-computer_block_bad", vec!["computer", "block", "Meadow"]),
+        (
+            "26-computer_trust_unknown",
+            vec!["computer", "trust", "meadow"],
+        ),
+    ] {
+        let parsed = parse(&args(&words));
+        assert!(parsed.is_ok(), "{words:?}");
+        let mut request = serde_json::to_value(parsed.unwrap().request).unwrap();
+        request["v"] = 1.into();
+        assert_eq!(request, fleet_fixture(stem)["request"]);
+    }
+}
+
+#[test]
+fn computer_accept_passes_flag_shaped_positionals_to_the_daemon() {
+    assert_eq!(
+        parse(&args(&["computer", "accept", "--name"]))
+            .unwrap()
+            .request,
+        Request::ComputerAccept {
+            computer: "--name".into(),
+        }
+    );
+}
+
+#[test]
+fn invalid_computer_commands_are_usage_errors() {
+    for words in [
+        vec!["computer", "accept"],
+        vec!["computer", "accept", "meadow", "lantern"],
+        vec!["computer", "list", "extra"],
+        vec!["computer", "block"],
+        vec!["computer", "trust"],
+    ] {
+        assert_eq!(parse(&args(&words)), Err(()), "{words:?}");
+    }
+}
+
+#[test]
+fn computer_answers_preserve_fields_and_omit_absent_names() {
+    let response = serde_json::json!({
+        "ok": true,
+        "computers": [{"id":"key", "state":"left", "trusted":false}],
+        "computer": {"id":"key", "name":"meadow", "state":"accepted", "invited_by":"inviter", "trusted":true}
+    });
+    let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
+    assert_eq!(serde_json::to_value(typed).unwrap(), response);
 }

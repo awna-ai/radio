@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 2
+      "minor": 3
     },
     "majors": [
       1
@@ -27,7 +27,11 @@
       "fleet_init",
       "code_create",
       "code_list",
-      "code_revoke"
+      "code_revoke",
+      "computer_list",
+      "computer_accept",
+      "computer_block",
+      "computer_trust"
     ]
   },
   "exact": false
