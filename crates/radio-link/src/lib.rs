@@ -6,6 +6,7 @@ pub mod fleet_db;
 pub mod frame;
 pub mod key;
 pub mod link;
+pub mod membership;
 pub mod sim;
 pub mod wire;
 pub use iroh::{EndpointId, SecretKey};
