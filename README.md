@@ -377,8 +377,9 @@ is often its owner's name, so look before you paste a log somewhere public. For 
 2026-11-13T03:52:30Z serve stop signal="TERM"
 ```
 
-Successful requests write nothing. The log starts over once it passes 1 MiB. Its lines are for people to read, not part of the
-contract: their words may change in any release.
+Successful requests write nothing, unless the answer couldn't be delivered. The log starts over
+once it passes 1 MiB. Its lines are for people to read, not part of the contract: their words may
+change in any release.
 
 ### Versions
 
