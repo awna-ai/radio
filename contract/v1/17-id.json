@@ -1,0 +1,11 @@
+{
+  "request": {
+    "v": 1,
+    "op": "id"
+  },
+  "response": {
+    "ok": true,
+    "id": "<string>"
+  },
+  "exact": false
+}

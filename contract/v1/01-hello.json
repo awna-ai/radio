@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 0
+      "minor": 1
     },
     "majors": [
       1
@@ -22,7 +22,8 @@
       "status_clear",
       "list_rooms",
       "read",
-      "status"
+      "status",
+      "id"
     ]
   },
   "exact": false

@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 0;
+pub const PROTOCOL_MINOR: u32 = 1;
 
-/// The ops major 1, minor 0 serves, in this order.
+/// The ops major 1, minor 1 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -23,6 +23,7 @@ pub const OPS: &[&str] = &[
     "list_rooms",
     "read",
     "status",
+    "id",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -87,6 +88,8 @@ pub enum Request {
     },
     /// Lists live status lines in key order.
     Status { room: String },
+    /// Returns this computer's public link id, creating its key on the first call.
+    Id {},
 }
 
 /// A member identified by a kind and a name.
@@ -149,6 +152,9 @@ pub struct Response {
     /// The live status lines in key order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<Vec<StatusLine>>,
+    /// This computer's public link id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// A room returned by the daemon.

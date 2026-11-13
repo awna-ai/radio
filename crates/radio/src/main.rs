@@ -181,6 +181,7 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
         let db = home.join(".local/state/radio/rooms.db");
         radio::server::Server::bind(&socket, &db, host)
             .map_err(|error| (1, format!("radio: {error}")))?
+            .with_link_dir(home.join(".config/radio"))
             .serve();
         return Ok(());
     }

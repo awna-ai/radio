@@ -23,17 +23,12 @@ one's data (`.ai/DECISIONS.md` D3).
 | `crates/radio-client/` | The client side of the contract: its numbers, its types, one request function | `crates/radio-client/tests/` |
 | `crates/radio-rooms/` | The rooms store (SQLite, the daemon its one writer): rooms, messages, status lines, registered members, the one-time import of an older store | `crates/radio-rooms/src/store_tests.rs` |
 | `crates/radio-panels/` | The deliberation protocol: posts and their blocks, rounds, distances, the result and its rendering; no I/O, not used by the daemon yet | `crates/radio-panels/tests/` (the 66 fixtures, the reference probes, `rename.rs`) |
+| `crates/radio-link/` | The link to other computers: this computer's key (`node.key`) and the one endpoint builder; no dialing or listening yet | `crates/radio-link/src/key_tests.rs`, `crates/radio-link/tests/` (the endpoint, the transport's pins, one builder) |
 | `crates/radio/` | The daemon: `radio serve` binds the socket and serves the ops; `radio install`, `uninstall` and `status` (`src/install.rs`); one command per op (`src/cli.rs`, D16) | `crates/radio/src/` tests, `crates/radio/tests/install.rs` (a stand-in `launchctl` that runs the real daemon), `crates/radio/tests/cli.rs` (each command against its fixture, and the README's Python example, on a real daemon) |
 | `scripts/ci-local.sh` | Every check, run before anything lands on `main` | itself |
 | `scripts/term-check.sh` | Refuses a file, path or commit message that names a private term | `tests/term_check_test.sh` |
 | `scripts/release.sh` | Builds a tag's release (a binary per Mac architecture, a checksum file) and, with `--publish`, uploads it (D14) | `tests/release_test.sh` (stand-ins for the toolchain and `gh`) |
 | `.ai/SECURITY.md` | The threat model | read before touching a trust boundary |
-
-## Layout to come
-
-| Crate | What |
-| --- | --- |
-| `radio-link` | The link to other computers: endpoint, records, admission |
 
 ## Paths on a computer
 
@@ -41,7 +36,7 @@ one's data (`.ai/DECISIONS.md` D3).
 | --- | --- |
 | Socket | `~/.local/state/radio/radio.sock` (folder 0700) |
 | State | `~/.local/state/radio/` (0700): `rooms.db`, `install.json`, `install.lock`, `clients/<app>.json`, `radio.log`, all 0600 |
-| Config | `~/.config/radio/` |
+| Config | `~/.config/radio/` (0700): `node.key`, 0600, made by the first `id` op |
 | Binaries | `~/.local/libexec/radio/<version>/radio` |
 | Launch agent | `~/Library/LaunchAgents/ai.awna.radio.plist` |
 

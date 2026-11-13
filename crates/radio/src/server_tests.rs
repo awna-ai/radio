@@ -512,12 +512,13 @@ fn versions_are_required_and_checked_before_the_op() {
 
 #[test]
 fn hello_names_the_version_and_all_ops() {
+    assert!(radio_client::OPS.contains(&"id"));
     let fixture = Fixture::new();
     let worker = start(fixture.bind(), 1);
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":0},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":1},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -1089,5 +1090,92 @@ fn creating_an_existing_room_over_the_socket_names_the_conflict() {
     assert_eq!(
         serde_json::to_value(response).unwrap(),
         serde_json::json!({"ok":false,"error":"the room already exists"})
+    );
+}
+
+#[test]
+fn id_creates_one_private_key_and_returns_only_its_public_id() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join(".config/radio");
+    let worker = start(fixture.bind().with_link_dir(link.clone()), 2);
+    let first = raw_value(&fixture.socket(), b"{\"v\":1,\"op\":\"id\"}\n");
+    let second = raw_value(&fixture.socket(), b"{\"v\":1,\"op\":\"id\"}\n");
+    worker.join().unwrap();
+    assert_eq!(first, second);
+    assert_eq!(first["ok"], true);
+    let id = first["id"].as_str().unwrap();
+    assert_eq!(id.len(), 64);
+    assert!(
+        id.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    );
+    assert_eq!(
+        fs::metadata(&link).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    let path = link.join("node.key");
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let bytes = fs::read(path).unwrap();
+    assert_eq!(bytes.len(), 32);
+    let secret_hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let line = serde_json::to_string(&first).unwrap();
+    assert!(!line.contains(&secret_hex));
+    let hex_runs: Vec<_> = line
+        .split(|c: char| !c.is_ascii_hexdigit())
+        .filter(|part| part.len() == 64)
+        .collect();
+    assert_eq!(hex_runs, [id]);
+    assert_eq!(first.as_object().unwrap().len(), 2);
+}
+
+#[test]
+fn id_refuses_a_loose_key_without_stopping_rooms_or_repairing_it() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join(".config/radio");
+    fs::create_dir_all(&link).unwrap();
+    let key = link.join("node.key");
+    let bytes = [7; 32];
+    fs::write(&key, bytes).unwrap();
+    fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
+    let worker = start(fixture.bind().with_link_dir(link), 4);
+    fixture.create();
+    let answer = raw_value(&fixture.socket(), b"{\"v\":1,\"op\":\"id\"}\n");
+    let posted = request(&fixture.socket(), &post("hello")).unwrap();
+    let read = request(
+        &fixture.socket(),
+        &Request::Read {
+            room: "garden".into(),
+            since: None,
+            limit: None,
+        },
+    )
+    .unwrap();
+    worker.join().unwrap();
+    assert_eq!(
+        answer,
+        serde_json::json!({"ok":false,"error":"the link key is open to others"})
+    );
+    assert!(fs::read(&key).unwrap() == bytes);
+    assert_eq!(
+        fs::metadata(key).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+    assert!(posted.ok);
+    assert!(read.ok);
+    assert_eq!(read.messages.unwrap()[0].body, "hello");
+}
+
+#[test]
+fn id_without_a_link_folder_reports_not_set_up() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 1);
+    let answer = raw_value(&fixture.socket(), b"{\"v\":1,\"op\":\"id\"}\n");
+    worker.join().unwrap();
+    assert_eq!(
+        answer,
+        serde_json::json!({"ok":false,"error":"the link is not set up"})
     );
 }

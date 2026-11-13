@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 0
+Protocol minor: 1
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -69,6 +69,7 @@ them against these lines. They are independent of the repo's semver tags.
 | `list_rooms` | optional `after`, optional `limit` (1 to 500) | `rooms: [{id, home, title, created, last_seq}]` | The rooms by id, those after `after` when given, at most `limit` (500 by default); page with the last id |
 | `read` | `room`, optional `since`, optional `limit` (1 to 500) | `messages: [{seq, kind, author_host, author, body, sent_at, delivered_at?}]` | The newest `limit` messages (50 by default), or with `since` those numbered after it (500 by default), oldest first |
 | `status` | `room` | `status: [{key, line, set_by, set_at, expires_at?}]` | The room's live status lines |
+| `id` | none | `id` | This computer's link id: the public half of its key, 64 lowercase hex characters. The first call makes the key |
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
 client reads it as a word. Times are seconds since the Unix epoch.

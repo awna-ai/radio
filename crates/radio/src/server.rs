@@ -13,7 +13,7 @@ use std::{
             net::{UnixListener, UnixStream},
         },
     },
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -51,6 +51,7 @@ pub struct Server {
     _lock: fs::File,
     store: RoomStore,
     host: String,
+    link_dir: Option<PathBuf>,
     own_uid: u32,
     request_deadline: Duration,
     answer_deadline: Duration,
@@ -104,10 +105,17 @@ impl Server {
             _lock: lock,
             store,
             host,
+            link_dir: None,
             own_uid,
             request_deadline: TIMEOUT,
             answer_deadline: TIMEOUT,
         })
+    }
+
+    /// Sets the folder holding this computer's link key.
+    pub fn with_link_dir(mut self, dir: PathBuf) -> Self {
+        self.link_dir = Some(dir);
+        self
     }
 
     fn serve_one(&mut self, mut stream: UnixStream) {
@@ -157,6 +165,11 @@ impl Server {
                 });
                 response.majors = Some(SUPPORTED_MAJORS.to_vec());
                 response.ops = Some(OPS.iter().map(|op| (*op).into()).collect());
+            }
+            Request::Id {} => {
+                let dir = self.link_dir.as_deref().ok_or("the link is not set up")?;
+                let key = radio_link::key::load_or_create(dir)?;
+                response.id = Some(radio_link::key::endpoint_id(&key));
             }
             Request::Register {
                 app,

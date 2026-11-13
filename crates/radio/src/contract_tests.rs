@@ -49,7 +49,9 @@ fn replay_major_one_contract() {
         NEXT.fetch_add(1, Ordering::Relaxed)
     )));
     let socket = temp.0.join("radio.sock");
-    let mut server = Server::bind(&socket, &temp.0.join("rooms.db"), "test-host".into()).unwrap();
+    let mut server = Server::bind(&socket, &temp.0.join("rooms.db"), "test-host".into())
+        .unwrap()
+        .with_link_dir(temp.0.join(".config/radio"));
     let connections = fixtures.len();
     let worker = thread::spawn(move || {
         for _ in 0..connections {

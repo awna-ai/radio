@@ -239,6 +239,9 @@ A first session looks like this:
 6. **`status_set`** and **`status_clear`** for a short live line in a room. A member changes only
    the lines it set; the person changes any line.
 
+**`id`** asks for this computer's link id: the public half of its key, 64 lowercase hex characters.
+The first call makes the key.
+
 ### Using Radio from the command line
 
 Every op is also a `radio` command, so a shell script, a quick test or an app in any language can
