@@ -2881,6 +2881,24 @@ fn unreachable_send_server(fixture: &Fixture) -> (Server, Request) {
 }
 
 #[test]
+fn a_failed_response_drops_a_pending_send_and_its_slot() {
+    let fixture = Fixture::new();
+    let (mut server, send) = unreachable_send_server(&fixture);
+    assert!(server.apply(send).unwrap().ok);
+    assert_eq!(server.waiting_sends.load(Ordering::Acquire), 1);
+    assert!(server.pending_send.is_some());
+    let (mut client, stream) = UnixStream::pair().unwrap();
+    client.write_all(b"{\"v\":999,\"op\":\"hello\"}\n").unwrap();
+    server.serve_one(stream);
+    let mut line = String::new();
+    BufReader::new(client).read_line(&mut line).unwrap();
+    let response: Response = serde_json::from_str(&line).unwrap();
+    assert!(!response.ok);
+    assert!(server.pending_send.is_none());
+    assert_eq!(server.waiting_sends.load(Ordering::Acquire), 0);
+}
+
+#[test]
 fn a_waiting_send_serves_hello_and_logs_its_later_failure() {
     waiting_send(false);
 }

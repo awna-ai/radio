@@ -61,7 +61,7 @@ pub struct Server {
     host: String,
     link_dir: Option<PathBuf>,
     clients_dir: Option<PathBuf>,
-    pending_send: Option<radio_link::node::PendingSend>,
+    pending_send: Option<Waiting>,
     waiting_sends: Arc<AtomicUsize>,
     send_cap: usize,
     fleet_db_path: Option<PathBuf>,
@@ -320,7 +320,7 @@ impl Server {
         let uid = peer_uid(&stream);
         let wrong_uid = uid != Some(self.own_uid);
         let mut op = "unknown".to_owned();
-        let response = if wrong_uid {
+        let mut response = if wrong_uid {
             failure(REFUSED.into())
         } else {
             let result = read_request(&stream, accepted, self.request_deadline)
@@ -340,24 +340,36 @@ impl Server {
                 });
             result.unwrap_or_else(failure)
         };
-        if response.ok
-            && let Some(pending) = self.pending_send.take()
-        {
+        let pending = self.pending_send.take();
+        if let Some(waiting) = pending.filter(|_| response.ok) {
             let log = self.log.clone();
             let deadline = self.answer_deadline;
-            let waiting = self.waiting_sends.clone();
-            std::thread::spawn(move || {
-                let _waiting = WaitingSend(waiting);
-                let response = match pending.wait() {
-                    Ok(size) => Response {
-                        size: Some(size),
-                        ..success()
-                    },
-                    Err(error) => failure(error.into()),
-                };
-                answer(&mut stream, &response, &op, wrong_uid, uid, &log, deadline);
+            let worker_op = op.clone();
+            let spawned = stream.try_clone().and_then(|mut stream| {
+                std::thread::Builder::new().spawn(move || {
+                    let Waiting { pending, _slot } = waiting;
+                    let response = match pending.wait() {
+                        Ok(size) => Response {
+                            size: Some(size),
+                            ..success()
+                        },
+                        Err(error) => failure(error.into()),
+                    };
+                    answer(
+                        &mut stream,
+                        &response,
+                        &worker_op,
+                        wrong_uid,
+                        uid,
+                        &log,
+                        deadline,
+                    );
+                })
             });
-            return;
+            if spawned.is_ok() {
+                return;
+            }
+            response = failure("the send could not be started".into());
         }
         answer(
             &mut stream,
@@ -461,7 +473,11 @@ impl Server {
                     Path::new(&file),
                 )?;
                 self.waiting_sends.fetch_add(1, Ordering::AcqRel);
-                self.pending_send = Some(pending);
+                let slot = WaitingSend(self.waiting_sends.clone());
+                self.pending_send = Some(Waiting {
+                    pending,
+                    _slot: slot,
+                });
             }
             Request::DeliveryFolderSet { app, folder } => {
                 drop(self.fleet_db()?);
@@ -993,6 +1009,11 @@ fn member(author: Author) -> Member {
 }
 
 // The serial dispatcher reserves a slot before handing the answer to its thread.
+struct Waiting {
+    pending: radio_link::node::PendingSend,
+    _slot: WaitingSend,
+}
+
 struct WaitingSend(Arc<AtomicUsize>);
 impl Drop for WaitingSend {
     fn drop(&mut self) {

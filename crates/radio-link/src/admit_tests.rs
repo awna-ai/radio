@@ -52,6 +52,31 @@ fn debug_hides_membership() {
 }
 
 #[test]
+fn delivery_space_includes_reservations_in_other_folders() {
+    let path = std::env::temp_dir().join(format!("radio-gate-space-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&path);
+    let mut db = FleetDb::open(&path.join("fleet.db")).unwrap();
+    db.set_delivery_folder("notes", &path.join("inbox"))
+        .unwrap();
+    let folder = db.delivery_folder("notes").unwrap().unwrap();
+    let dir = crate::delivery::open_folder(&folder).unwrap();
+    let available = crate::delivery::available(&dir).unwrap();
+    let gate = Gate::new(Arc::new(Book(Standing::Accepted)), Limits::default());
+    // A reservation in a different folder exhausts this volume's available space.
+    gate.files
+        .lock()
+        .unwrap()
+        .folders
+        .insert((folder.dev, folder.ino.wrapping_add(1)), (1, available));
+    assert_eq!(
+        gate.reserve_delivery(iroh::SecretKey::generate().public(), &folder, "one.txt", 1)
+            .err(),
+        Some(crate::wire::SPACE)
+    );
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
 fn delivery_reservations_bound_keys_slots_and_folder_bytes_and_drop_releases_them() {
     let path = std::env::temp_dir().join(format!("radio-gate-files-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);

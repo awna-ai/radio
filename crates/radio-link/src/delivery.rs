@@ -62,7 +62,7 @@ pub fn write(
     }
     let dir = prepare(folder, name)?;
     let (entries, bytes) = scan(&dir)?;
-    fits(entries, bytes, 0, 0, 0, available(&dir)?)?;
+    fits(entries, bytes, 0, 0, 0, 0, available(&dir)?)?;
     write_open(&dir, name, body)
 }
 
@@ -208,15 +208,26 @@ pub fn make_folder(path: &Path) -> Result<crate::fleet_db::DeliveryFolder, &'sta
         )
     };
     if raw < 0 {
+        // SAFETY: parent is live and last names the directory just created.
+        unsafe { libc::unlinkat(parent.as_raw_fd(), last.as_ptr(), libc::AT_REMOVEDIR) };
         return Err("the folder could not be made");
     }
     // SAFETY: openat returned an owned descriptor.
     let dir = unsafe { OwnedFd::from_raw_fd(raw) };
     // SAFETY: dir is live and mode is valid.
     if unsafe { libc::fchmod(dir.as_raw_fd(), 0o700) } != 0 {
+        // SAFETY: parent is live and last names the directory just created.
+        unsafe { libc::unlinkat(parent.as_raw_fd(), last.as_ptr(), libc::AT_REMOVEDIR) };
         return Err("the folder could not be made");
     }
-    let stat = folder_stat(&dir).map_err(|_| "the folder could not be made")?;
+    let stat = match folder_stat(&dir) {
+        Ok(stat) => stat,
+        Err(_) => {
+            // SAFETY: parent is live and last names the directory just created.
+            unsafe { libc::unlinkat(parent.as_raw_fd(), last.as_ptr(), libc::AT_REMOVEDIR) };
+            return Err("the folder could not be made");
+        }
+    };
     Ok(crate::fleet_db::DeliveryFolder {
         path: PathBuf::from(std::ffi::OsStr::from_bytes(bytes)),
         dev: stat.st_dev as u64,
@@ -313,11 +324,12 @@ fn entries(
         if name.to_bytes() == b"." || name.to_bytes() == b".." {
             continue;
         }
+        // The app may delete an entry between readdir and fstatat, even in a strict scan.
         if let Some(stat) = entry_stat(dir, name) {
             if !visit(name, &stat) {
                 break;
             }
-        } else if strict {
+        } else if strict && std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOENT) {
             return Err(crate::wire::FOLDER);
         }
     }
@@ -356,6 +368,7 @@ pub fn fits(
     bytes: u64,
     reserved_files: usize,
     reserved_bytes: u64,
+    reserved_all: u64,
     size: u64,
     available: u64,
 ) -> Result<(), &'static str> {
@@ -364,7 +377,7 @@ pub fn fits(
     {
         return Err(crate::wire::FULL);
     }
-    if size.saturating_add(reserved_bytes) > available {
+    if size.saturating_add(reserved_all) > available.saturating_sub(crate::wire::FREE_FLOOR) {
         return Err(crate::wire::SPACE);
     }
     Ok(())

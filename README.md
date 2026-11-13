@@ -299,6 +299,7 @@ On the sending computer, **`send`** takes the other computer's name or id, the a
 regular file up to 64 MiB, and the name it should land as (no slash, not starting with a dot), and
 answers with `size` once the file is written there. The other computer must be on and reachable now:
 Radio keeps nothing to resend, so on `the computer could not be reached` your app tries again later.
+If Radio cannot start the thread that waits for the send, it answers `the send could not be started`.
 The file lands under its name with mode 0600, never over a file already there (`a file with that
 name is already there`) and never through a link; a computer whose app set no folder answers `that
 app takes no files on that computer`. **`deliveries`** lists what arrived for your app (which

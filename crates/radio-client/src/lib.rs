@@ -156,6 +156,7 @@ pub enum Request {
     /// Leaves this computer's fleet.
     Leave {},
     /// Sends a regular file to this app on one computer of the fleet.
+    /// If the answer thread cannot start, the daemon answers `the send could not be started`.
     Send {
         app: String,
         computer: String,

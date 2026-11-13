@@ -11,6 +11,7 @@ pub const FULL: &str = "full";
 pub const SPACE: &str = "space";
 pub const FOLDER_FILES: usize = 64;
 pub const FOLDER_BYTES: u64 = 1 << 30;
+pub const FREE_FLOOR: u64 = 256 << 20;
 pub const FILE_CAP: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

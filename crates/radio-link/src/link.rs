@@ -432,7 +432,7 @@ async fn serve_stream(
 
 async fn receive_file(
     connection: &Connection,
-    gate: &Gate,
+    gate: &Arc<Gate>,
     local: &Local,
     events: mpsc::Sender<Event>,
     stream: (&mut SendStream, &mut RecvStream),
@@ -446,14 +446,24 @@ async fn receive_file(
         connection.close(REFUSED.into(), &[]);
         return Ok(());
     }
-    let folder = gate.admission.delivery_folder(&app);
-    let reservation = if !crate::delivery::installed(local.clients.as_deref(), &app) {
-        Err(wire::NO_FOLDER)
-    } else if let Some(folder) = folder {
-        gate.reserve_delivery(from, &folder, &name, size)
-    } else {
-        Err(wire::NO_FOLDER)
-    };
+    let reservation = timeout_at(deadline, {
+        let gate = gate.clone();
+        let clients = local.clients.clone();
+        let app = app.clone();
+        let name = name.clone();
+        tokio::task::spawn_blocking(move || {
+            if !crate::delivery::installed(clients.as_deref(), &app) {
+                Err(wire::NO_FOLDER)
+            } else if let Some(folder) = gate.admission.delivery_folder(&app) {
+                gate.reserve_delivery(from, &folder, &name, size)
+            } else {
+                Err(wire::NO_FOLDER)
+            }
+        })
+    })
+    .await
+    .map_err(|_| BAD_BODY)?
+    .map_err(|_| BAD_BODY)?;
     let (dir, reservation) = match reservation {
         Ok(reservation) => reservation,
         Err(reason) => {

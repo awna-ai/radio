@@ -175,7 +175,19 @@ impl Gate {
         let available = crate::delivery::available(&dir)?;
         let id = (folder.dev, folder.ino);
         let (reserved, reserved_bytes) = files.folders.get(&id).copied().unwrap_or_default();
-        crate::delivery::fits(entries, bytes, reserved, reserved_bytes, size, available)?;
+        let reserved_all = files
+            .folders
+            .values()
+            .fold(0u64, |total, (_, bytes)| total.saturating_add(*bytes));
+        crate::delivery::fits(
+            entries,
+            bytes,
+            reserved,
+            reserved_bytes,
+            reserved_all,
+            size,
+            available,
+        )?;
         files.keys.insert(key);
         files
             .folders

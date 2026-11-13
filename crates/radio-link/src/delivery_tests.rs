@@ -209,16 +209,31 @@ fn delivery_partial_has_random_hex_name() {
     .unwrap();
 }
 #[test]
-fn delivery_caps_count_entries_bytes_and_reservations() {
-    assert_eq!(fits(64, 0, 0, 0, 0, u64::MAX), Err(crate::wire::FULL));
-    assert_eq!(fits(0, 1 << 30, 0, 0, 1, u64::MAX), Err(crate::wire::FULL));
-    assert_eq!(fits(63, 0, 1, 0, 1, u64::MAX), Err(crate::wire::FULL));
+fn delivery_keeps_a_free_space_floor() {
+    assert_eq!(fits(0, 0, 0, 0, 0, 7, (256 << 20) + 7), Ok(()));
     assert_eq!(
-        fits(0, 0, 1, (1 << 30) - 1, 2, u64::MAX),
+        fits(0, 0, 0, 0, 0, 8, (256 << 20) + 7),
+        Err(crate::wire::SPACE)
+    );
+}
+
+#[test]
+fn delivery_caps_count_entries_bytes_and_reservations() {
+    assert_eq!(fits(64, 0, 0, 0, 0, 0, u64::MAX), Err(crate::wire::FULL));
+    assert_eq!(
+        fits(0, 1 << 30, 0, 0, 0, 1, u64::MAX),
         Err(crate::wire::FULL)
     );
-    assert_eq!(fits(0, 0, 1, 5, 6, 10), Err(crate::wire::SPACE));
-    assert_eq!(fits(0, 0, 1, 5, 5, 10), Ok(()));
+    assert_eq!(fits(63, 0, 1, 0, 0, 1, u64::MAX), Err(crate::wire::FULL));
+    assert_eq!(
+        fits(0, 0, 1, (1 << 30) - 1, (1 << 30) - 1, 2, u64::MAX),
+        Err(crate::wire::FULL)
+    );
+    assert_eq!(
+        fits(0, 0, 1, 5, 5, 6, (256 << 20) + 10),
+        Err(crate::wire::SPACE)
+    );
+    assert_eq!(fits(0, 0, 1, 5, 5, 5, (256 << 20) + 10), Ok(()));
     let folder = Folder::new();
     for i in 0..64 {
         fs::write(folder.0.join(format!("entry-{i}")), []).unwrap();
@@ -239,7 +254,7 @@ fn delivery_scan_counts_sparse_bytes() {
     let (count, bytes) = scan(&dir).unwrap();
     assert_eq!((count, bytes), (1, 1 << 30));
     assert_eq!(
-        fits(count, bytes, 0, 0, 1, u64::MAX),
+        fits(count, bytes, 0, 0, 0, 1, u64::MAX),
         Err(crate::wire::FULL)
     );
 }
