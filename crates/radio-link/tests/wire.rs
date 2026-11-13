@@ -94,7 +94,7 @@ async fn hello_and_app_preserve_authenticated_sender_and_opaque_body() {
     assert_eq!(answer.sha, SHA);
     assert_eq!(answer.fleet, FLEET);
     assert_eq!(answer.arch, std::env::consts::ARCH);
-    assert_eq!((answer.protocol.major, answer.protocol.minor), (1, 1));
+    assert_eq!((answer.protocol.major, answer.protocol.minor), (1, 2));
     match bounded(events.recv()).await.unwrap() {
         Event::Hello {
             from,

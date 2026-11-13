@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const LINK_MAJOR: u32 = 1;
-pub const LINK_MINOR: u32 = 1;
+pub const LINK_MINOR: u32 = 2;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,6 +26,9 @@ impl std::fmt::Debug for JoinRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Computer {
+        record: crate::computer_record::ComputerRecord,
+    },
     Record {
         record: crate::membership::SignedRecord,
     },

@@ -163,7 +163,7 @@ fn record_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 1);
+    assert_eq!(LINK_MINOR, 2);
 }
 
 #[test]
@@ -210,4 +210,30 @@ fn join_request_debug_hides_code_and_consent() {
     assert!(!debug.contains(&consent));
     assert!(debug.contains("garden"));
     assert!(debug.contains("<hidden>"));
+}
+
+#[test]
+fn computer_request_round_trips_and_refuses_unknown_fields() {
+    let key = crate::SecretKey::generate();
+    let record = crate::computer_record::sign(
+        crate::computer_record::ComputerBody {
+            fleet: "a".repeat(64),
+            key: key.public().to_string(),
+            version: 1,
+            name: "garden".into(),
+            roles: vec!["hub".into()],
+            addrs: vec![],
+            apps: [("lantern".into(), "opaque".into())].into(),
+        },
+        &key,
+    );
+    let request = Request::Computer { record };
+    let mut value = serde_json::to_value(&request).unwrap();
+    assert_eq!(
+        serde_json::from_value::<Request>(value.clone()).unwrap(),
+        request
+    );
+    value["extra"] = json!(true);
+    assert!(serde_json::from_value::<Request>(value).is_err());
+    assert_eq!(LINK_MINOR, 2);
 }

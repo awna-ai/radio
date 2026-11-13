@@ -1,5 +1,8 @@
 use super::*;
 use crate::admit::Admission;
+use crate::computer_record::{
+    self, APPS_MAX, ComputerBody, ComputerRecord, ROLES_MAX, SECTION_MAX,
+};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -73,7 +76,7 @@ fn opens_private_schema_and_reopens_data() {
 }
 #[test]
 fn refuses_newer_and_negative_schema_versions() {
-    for version in [3, -1] {
+    for version in [4, -1] {
         let temp = Temp::new();
         let db = temp.open();
         db.conn
@@ -82,7 +85,7 @@ fn refuses_newer_and_negative_schema_versions() {
         drop(db);
         assert_eq!(
             FleetDb::open(&temp.path()).err(),
-            Some(if version == 3 {
+            Some(if version == 4 {
                 "fleet.db is newer than this build"
             } else {
                 "fleet.db could not be read"
@@ -418,14 +421,14 @@ fn revoking_an_unswept_expired_code_returns_false() {
 }
 
 #[test]
-fn schema_two_has_every_table_and_found_local() {
+fn schema_three_has_every_table_and_found_local() {
     let temp = Temp::new();
     let (db, _) = temp.found();
     assert_eq!(
         db.conn
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
     for table in [
         "fleet",
@@ -435,6 +438,7 @@ fn schema_two_has_every_table_and_found_local() {
         "tombstones",
         "held",
         "records",
+        "computer_records",
     ] {
         assert_eq!(
             db.conn
@@ -488,7 +492,7 @@ fn migrates_version_one_with_and_without_fleet() {
             db.conn
                 .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            2
+            3
         );
         assert_eq!(
             db.conn
@@ -1003,6 +1007,7 @@ fn answer(node: &iroh::SecretKey) -> (JoinCode, JoinAnswer) {
             },
         ],
         removed: vec![iroh::SecretKey::generate().public().to_string()],
+        records: vec![],
     };
     (code, answer)
 }
@@ -2238,4 +2243,498 @@ fn joining_refuses_more_than_the_computer_limit() {
     for table in ["fleet", "computers", "local", "tombstones"] {
         assert_eq!(count(&db, table), 0);
     }
+}
+
+fn computer_record(
+    db: &FleetDb,
+    key: &iroh::SecretKey,
+    name: &str,
+    version: u64,
+) -> ComputerRecord {
+    computer_record::sign(
+        ComputerBody {
+            fleet: db.fleet().unwrap().unwrap().body.id,
+            key: key.public().to_string(),
+            version,
+            name: name.into(),
+            roles: vec![],
+            addrs: vec![],
+            apps: Default::default(),
+        },
+        key,
+    )
+}
+
+#[test]
+fn computer_records_require_the_computers_signature_and_a_newer_version() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = iroh::SecretKey::generate();
+    computer(
+        &db,
+        &peer.public(),
+        "birch",
+        State::Accepted,
+        Some(&node.public()),
+        &addr(),
+    );
+    let first = computer_record(&db, &peer, "birch", 5);
+    let forged = computer_record::sign(first.body.clone(), &iroh::SecretKey::generate());
+    assert_eq!(
+        db.apply_computer(&node.public(), &forged),
+        Err("the computer record's signature does not verify")
+    );
+    assert!(db.computer_records().unwrap().is_empty());
+    db.apply_computer(&node.public(), &first).unwrap();
+    for version in [3, 5] {
+        let older = computer_record(&db, &peer, "birch", version);
+        assert_eq!(
+            db.apply_computer(&node.public(), &older),
+            Err("the computer record is not newer")
+        );
+        assert_eq!(db.own_record(&peer.public()).unwrap(), Some(first.clone()));
+    }
+    let newer = computer_record(&db, &peer, "birch", 6);
+    db.apply_computer(&node.public(), &newer).unwrap();
+    assert_eq!(db.computer_records().unwrap(), vec![newer]);
+}
+
+#[test]
+fn computer_record_refusals_leave_no_records() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = iroh::SecretKey::generate();
+    computer(&db, &peer.public(), "birch", State::Accepted, None, &addr());
+    let base = computer_record(&db, &peer, "birch", 1);
+    let mut wrong_fleet = base.body.clone();
+    wrong_fleet.fleet = "ab".repeat(32);
+    let own = computer_record(&db, &node, "garden", 1);
+    let unknown = computer_record(&db, &iroh::SecretKey::generate(), "cedar", 1);
+    let mut wrong_name = base.body.clone();
+    wrong_name.name = "cedar".into();
+    for (record, phrase) in [
+        (
+            computer_record::sign(wrong_fleet, &peer),
+            "the record is for another fleet",
+        ),
+        (own, "the record is this computer's own"),
+        (unknown, "no such computer"),
+        (
+            computer_record::sign(wrong_name, &peer),
+            "the record's name is not the computer's",
+        ),
+    ] {
+        assert_eq!(db.apply_computer(&node.public(), &record), Err(phrase));
+        assert!(db.computer_records().unwrap().is_empty());
+    }
+    tombstone(&db, &peer.public(), &node.public());
+    assert_eq!(
+        db.apply_computer(&node.public(), &base),
+        Err("the computer was removed")
+    );
+    let empty_temp = Temp::new();
+    let mut empty = empty_temp.open();
+    assert_eq!(
+        empty.apply_computer(&node.public(), &base),
+        Err("not in a fleet")
+    );
+}
+
+#[test]
+fn pending_and_blocked_computers_keep_records_and_addresses() {
+    for state in [State::Pending, State::Blocked] {
+        let temp = Temp::new();
+        let (mut db, node) = temp.found();
+        let peer = iroh::SecretKey::generate();
+        computer(&db, &peer.public(), "birch", state, None, &addr());
+        let mut body = computer_record(&db, &peer, "birch", 1).body;
+        body.addrs = vec!["127.0.0.1:7001".parse().unwrap()];
+        let first = computer_record::sign(body.clone(), &peer);
+        db.apply_computer(&node.public(), &first).unwrap();
+        assert_eq!(db.computers().unwrap()[0].addrs, body.addrs);
+        body.version = 2;
+        body.addrs.clear();
+        let second = computer_record::sign(body, &peer);
+        db.apply_computer(&node.public(), &second).unwrap();
+        assert_eq!(db.computers().unwrap()[0].addrs, first.body.addrs);
+        assert_eq!(db.own_record(&peer.public()).unwrap(), Some(second));
+    }
+}
+
+#[test]
+fn resign_versions_only_changes_and_keeps_omitted_roles_and_addresses() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let roles = vec!["lander".into(), "hub".into(), "hub".into()];
+    let first = db
+        .resign(
+            &node,
+            "garden",
+            &addr(),
+            "lantern",
+            Some("one"),
+            Some(&roles),
+            10.125,
+        )
+        .unwrap();
+    assert_eq!(first.body.version, 10125);
+    assert_eq!(first.body.roles, ["hub", "lander"]);
+    assert_eq!(first.verify(), Ok(()));
+    assert_eq!(db.own_record(&node.public()).unwrap(), Some(first.clone()));
+    let second = db
+        .resign(&node, "garden", &[], "lantern", Some("two"), None, 10.125)
+        .unwrap();
+    assert_eq!(second.body.version, 10126);
+    assert_eq!(second.body.roles, first.body.roles);
+    assert_eq!(second.body.addrs, first.body.addrs);
+    let writes = db.conn.total_changes();
+    assert_eq!(
+        db.resign(&node, "garden", &[], "lantern", Some("two"), None, 99.0),
+        Ok(second.clone())
+    );
+    assert_eq!(db.conn.total_changes(), writes);
+    assert_eq!(db.computer_records().unwrap(), vec![second]);
+    let removed = db
+        .resign(&node, "garden", &[], "lantern", None, None, 10.125)
+        .unwrap();
+    assert_eq!(removed.body.version, 10127);
+    assert!(removed.body.apps.is_empty());
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    assert_eq!(
+        db.resign(&node, "garden", &[], "lantern", None, None, 0.0)
+            .unwrap()
+            .body
+            .version,
+        1
+    );
+}
+
+#[test]
+fn resign_refuses_invalid_inputs_and_limits_without_writing() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let node = iroh::SecretKey::generate();
+    assert_eq!(
+        db.resign(&node, "garden", &[], "lantern", Some("one"), None, 10.0)
+            .err(),
+        Some("not in a fleet")
+    );
+    db.found(&node, "garden", &temp.link()).unwrap();
+    let large = "x".repeat(SECTION_MAX + 1);
+    let bad_roles = vec!["Hub".into()];
+    let many_roles: Vec<_> = (0..=ROLES_MAX).map(|i| format!("role{i}")).collect();
+    for (name, app, section, roles, phrase) in [
+        ("garden", "Lantern", Some("one"), None, "not an app name"),
+        ("garden", "lantern", Some(""), None, "not a section"),
+        (
+            "garden",
+            "lantern",
+            Some(large.as_str()),
+            None,
+            "the section is too large",
+        ),
+        (
+            "garden",
+            "lantern",
+            Some("one"),
+            Some(bad_roles.as_slice()),
+            "not a role",
+        ),
+        (
+            "garden",
+            "lantern",
+            Some("one"),
+            Some(many_roles.as_slice()),
+            "too many roles",
+        ),
+        (
+            "Garden",
+            "lantern",
+            Some("one"),
+            None,
+            "not a computer name",
+        ),
+    ] {
+        assert_eq!(
+            db.resign(&node, name, &[], app, section, roles, 10.0).err(),
+            Some(phrase)
+        );
+        assert!(db.computer_records().unwrap().is_empty());
+    }
+    for i in 0..APPS_MAX {
+        db.resign(
+            &node,
+            "garden",
+            &[],
+            &format!("app{i}"),
+            Some("one"),
+            None,
+            10.0,
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        db.resign(&node, "garden", &[], "harbor", Some("one"), None, 10.0)
+            .err(),
+        Some("too many app sections")
+    );
+    db.forget().unwrap();
+    db.found(&node, "garden", &temp.0.join("fresh")).unwrap();
+    let escaped = "\u{1}".repeat(SECTION_MAX);
+    db.resign(&node, "garden", &[], "lantern", Some(&escaped), None, 10.0)
+        .unwrap();
+    assert_eq!(
+        db.resign(&node, "garden", &[], "harbor", Some(&escaped), None, 10.0)
+            .err(),
+        Some("the computer record is too large")
+    );
+}
+
+#[test]
+fn removals_and_forgetting_drop_computer_records() {
+    for received in [false, true] {
+        let temp = Temp::new();
+        let (mut db, node) = temp.found();
+        let peer = iroh::SecretKey::generate();
+        admit_new(&mut db, &node, &peer, "birch", 10.0);
+        let record = computer_record(&db, &peer, "birch", 1);
+        db.apply_computer(&node.public(), &record).unwrap();
+        if received {
+            let removal = removal(&db, &node, &peer.public(), 2);
+            let observer = iroh::SecretKey::generate().public();
+            db.apply(&observer, "cedar", &removal, 11.0).unwrap();
+        } else {
+            db.remove(&node, "birch", 11.0).unwrap();
+        }
+        assert!(db.computer_records().unwrap().is_empty());
+        db.resign(&node, "lantern", &[], "harbor", Some("one"), None, 12.0)
+            .unwrap();
+        db.forget().unwrap();
+        assert!(db.computer_records().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn migrates_schema_two_preserving_rows() {
+    let temp = Temp::new();
+    key::private_folder(&temp.0).unwrap();
+    let conn = Connection::open(temp.path()).unwrap();
+    conn.execute_batch(SCHEMA_1).unwrap();
+    conn.execute_batch(SCHEMA_2).unwrap();
+    conn.pragma_update(None, "user_version", 2).unwrap();
+    let node = iroh::SecretKey::generate();
+    let record = fleet::found(&node, "garden").unwrap().0;
+    conn.execute(
+        "INSERT INTO fleet VALUES (1, ?1)",
+        [serde_json::to_string(&record).unwrap()],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO local VALUES (1, 7, NULL)", [])
+        .unwrap();
+    let peer = iroh::SecretKey::generate().public();
+    let old = FleetDb { conn };
+    computer(
+        &old,
+        &peer,
+        "birch",
+        State::Accepted,
+        Some(&node.public()),
+        &addr(),
+    );
+    drop(old);
+    let db = temp.open();
+    assert_eq!(
+        db.conn
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+    assert_eq!(db.fleet().unwrap(), Some(record));
+    assert_eq!(db.computers().unwrap()[0].key, peer.to_string());
+    assert_eq!(
+        db.conn
+            .query_row("SELECT next_counter FROM local", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        7
+    );
+    assert!(db.computer_records().unwrap().is_empty());
+}
+
+#[test]
+fn join_record_budget_keeps_the_inviter_and_a_prefix() {
+    assert_eq!(JOIN_RECORDS_MAX, 256 * 1024);
+    assert_eq!(
+        select_records([
+            ("inviter", 1024),
+            ("birch", 100 * 1024),
+            ("cedar", 100 * 1024),
+            ("harbor", 100 * 1024)
+        ]),
+        ["inviter", "birch", "cedar"]
+    );
+    assert_eq!(
+        select_records([("inviter", 1024), ("birch", JOIN_RECORDS_MAX), ("cedar", 1)]),
+        ["inviter"]
+    );
+    assert_eq!(select_records([("inviter", JOIN_RECORDS_MAX)]), ["inviter"]);
+}
+
+#[test]
+fn admitting_carries_records_and_joining_stores_them() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let own = db
+        .resign(&node, "lantern", &addr(), "harbor", Some("one"), None, 10.0)
+        .unwrap();
+    let peer = iroh::SecretKey::generate();
+    admit_new(&mut db, &node, &peer, "birch", 10.0);
+    let peer_record = computer_record(&db, &peer, "birch", 1);
+    db.apply_computer(&node.public(), &peer_record).unwrap();
+    let newcomer = iroh::SecretKey::generate();
+    let (code, _) = mint(&mut db, &node, 11.0);
+    let (answer, _) = db
+        .admit(
+            &node,
+            "lantern",
+            &addr(),
+            &code,
+            &newcomer.public(),
+            "cedar",
+            &addr(),
+            &membership::consent(
+                &newcomer,
+                &code.fleet,
+                &node.public().to_string(),
+                "cedar",
+                &addr(),
+            ),
+            11.0,
+        )
+        .unwrap();
+    assert_eq!(answer.records, [own.clone(), peer_record.clone()]);
+    let joined_temp = Temp::new();
+    let mut joined = joined_temp.open();
+    joined
+        .joined(&newcomer.public(), &code, &answer, 11.0)
+        .unwrap();
+    assert_eq!(joined.own_record(&node.public()).unwrap(), Some(own));
+    assert_eq!(
+        joined.own_record(&peer.public()).unwrap(),
+        Some(peer_record)
+    );
+}
+
+#[test]
+fn joining_refuses_invalid_computer_records_atomically() {
+    let inviter = iroh::SecretKey::generate();
+    let newcomer = iroh::SecretKey::generate();
+    let (code, mut base) = answer(&inviter);
+    let temp = Temp::new();
+    let source = temp.open();
+    source
+        .conn
+        .execute(
+            "INSERT INTO fleet VALUES (1, ?1)",
+            [serde_json::to_string(&base.fleet).unwrap()],
+        )
+        .unwrap();
+    let valid = computer_record(&source, &inviter, "lantern", 1);
+    base.records = vec![valid.clone()];
+    let mut invalid = Vec::new();
+    let mut a = base.clone();
+    a.records = vec![computer_record(
+        &source,
+        &iroh::SecretKey::generate(),
+        "cedar",
+        1,
+    )];
+    invalid.push(a);
+    let mut a = base.clone();
+    let mut body = valid.body.clone();
+    body.name = "cedar".into();
+    a.records = vec![computer_record::sign(body, &inviter)];
+    invalid.push(a);
+    let mut a = base.clone();
+    a.records = vec![computer_record::sign(valid.body.clone(), &newcomer)];
+    invalid.push(a);
+    let mut a = base.clone();
+    a.records.push(valid.clone());
+    invalid.push(a);
+    let mut a = base.clone();
+    let mut body = valid.body.clone();
+    body.fleet = "ab".repeat(32);
+    a.records = vec![computer_record::sign(body, &inviter)];
+    invalid.push(a);
+    let mut a = base;
+    a.records = vec![computer_record(&source, &newcomer, "cedar", 1)];
+    invalid.push(a);
+    for answer in invalid {
+        let temp = Temp::new();
+        let mut db = temp.open();
+        assert_eq!(
+            db.joined(&newcomer.public(), &code, &answer, 10.0),
+            Err("the join answer is not valid")
+        );
+        assert!(db.fleet().unwrap().is_none());
+        assert!(db.computers().unwrap().is_empty());
+        assert!(db.computer_records().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn damaged_computer_records_are_read_errors() {
+    for malformed in [true, false] {
+        let temp = Temp::new();
+        let (mut db, node) = temp.found();
+        let mut record = db
+            .resign(&node, "garden", &[], "lantern", Some("one"), None, 10.0)
+            .unwrap();
+        record.signature = "00".repeat(64);
+        let text = if malformed {
+            "{".into()
+        } else {
+            serde_json::to_string(&record).unwrap()
+        };
+        db.conn
+            .execute("UPDATE computer_records SET record = ?1", [text])
+            .unwrap();
+        assert_eq!(
+            db.own_record(&node.public()),
+            Err("fleet.db could not be read")
+        );
+        assert_eq!(db.computer_records(), Err("fleet.db could not be read"));
+    }
+}
+
+#[test]
+fn computer_records_are_listed_by_key() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let own = db
+        .resign(&node, "garden", &[], "lantern", Some("one"), None, 10.0)
+        .unwrap();
+    let peer = iroh::SecretKey::generate();
+    computer(&db, &peer.public(), "birch", State::Accepted, None, &[]);
+    let peer_record = computer_record(&db, &peer, "birch", 1);
+    db.apply_computer(&node.public(), &peer_record).unwrap();
+    let mut expected = vec![own, peer_record];
+    expected.sort_by(|a, b| a.body.key.cmp(&b.body.key));
+    assert_eq!(db.computer_records().unwrap(), expected);
+}
+
+#[test]
+fn rejoining_never_returns_the_newcomers_own_stored_record() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let own = db
+        .resign(&node, "lantern", &[], "harbor", Some("one"), None, 10.0)
+        .unwrap();
+    let newcomer = iroh::SecretKey::generate();
+    admit_new(&mut db, &node, &newcomer, "birch", 10.0);
+    let record = computer_record(&db, &newcomer, "birch", 1);
+    db.apply_computer(&node.public(), &record).unwrap();
+    let (answer, _) = admit_new(&mut db, &node, &newcomer, "birch", 11.0);
+    assert_eq!(answer.records, vec![own]);
+    assert_eq!(db.own_record(&newcomer.public()).unwrap(), Some(record));
 }

@@ -1,6 +1,7 @@
 use crate::{
     admit::Standing,
     code::{Hints, JoinCode},
+    computer_record::{self, APPS_MAX, ComputerBody, ComputerRecord, ROLES_MAX, SECTION_MAX},
     fleet::{self, FleetRecord},
     key,
     membership::{self, COMPUTERS_MAX, JoinAnswer, Known, REMOVED_MAX, RecordBody, SignedRecord},
@@ -10,7 +11,7 @@ use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, Transaction, TransactionBehavior, params,
 };
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs::{self, OpenOptions},
     io::Write,
     net::SocketAddr,
@@ -20,7 +21,8 @@ use std::{
 };
 
 pub const DB_FILE: &str = "fleet.db";
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
+pub const JOIN_RECORDS_MAX: usize = 256 * 1024;
 pub const CODES_MAX: usize = 64;
 pub const TTL_DEFAULT: u64 = 30 * 60;
 pub const TTL_MIN: u64 = 60;
@@ -79,6 +81,14 @@ CREATE TABLE records (
     kind TEXT NOT NULL CHECK (kind IN ('introduction', 'removal')),
     at REAL NOT NULL,
     PRIMARY KEY (signer, counter)
+) STRICT;
+";
+
+const SCHEMA_3: &str = "
+CREATE TABLE computer_records (
+    key TEXT PRIMARY KEY CHECK (length(key) = 64),
+    version INTEGER NOT NULL CHECK (version >= 1),
+    record TEXT NOT NULL
 ) STRICT;
 ";
 
@@ -283,6 +293,161 @@ impl FleetDb {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn resign(
+        &mut self,
+        node: &iroh::SecretKey,
+        own_name: &str,
+        own_addrs: &[SocketAddr],
+        app: &str,
+        section: Option<&str>,
+        roles: Option<&[String]>,
+        now: f64,
+    ) -> Result<ComputerRecord, &'static str> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        let fleet = load_fleet(&tx)?.ok_or("not in a fleet")?;
+        if !wire::app_name(app) {
+            return Err("not an app name");
+        }
+        if let Some(section) = section {
+            if section.is_empty() {
+                return Err("not a section");
+            }
+            if section.len() > SECTION_MAX {
+                return Err("the section is too large");
+            }
+        }
+        let roles = roles.map(|roles| {
+            let mut roles = roles.to_vec();
+            roles.sort();
+            roles.dedup();
+            roles
+        });
+        if let Some(roles) = &roles {
+            if !roles.iter().all(|role| computer_record::valid_role(role)) {
+                return Err("not a role");
+            }
+            if roles.len() > ROLES_MAX {
+                return Err("too many roles");
+            }
+        }
+        if !wire::member_name(own_name) {
+            return Err("not a computer name");
+        }
+        let own = node.public().to_string();
+        let stored = load_computer_record(&tx, &own)?;
+        let mut body = stored
+            .as_ref()
+            .map(|record| record.body.clone())
+            .unwrap_or(ComputerBody {
+                fleet: fleet.body.id,
+                key: own,
+                version: 0,
+                name: String::new(),
+                roles: vec![],
+                addrs: vec![],
+                apps: BTreeMap::new(),
+            });
+        body.name = own_name.into();
+        if !own_addrs.is_empty() {
+            body.addrs = own_addrs.to_vec();
+        }
+        if let Some(roles) = roles {
+            body.roles = roles;
+        }
+        if let Some(section) = section {
+            body.apps.insert(app.into(), section.into());
+        } else {
+            body.apps.remove(app);
+        }
+        if body.apps.len() > APPS_MAX {
+            return Err("too many app sections");
+        }
+        if let Some(stored) = &stored
+            && stored.body == body
+        {
+            return Ok(stored.clone());
+        }
+        body.version = body
+            .version
+            .saturating_add(1)
+            .max((now * 1000.0).floor() as u64)
+            .max(1);
+        let record = computer_record::sign(body, node);
+        record.verify()?;
+        store_computer_record(&tx, &record)?;
+        tx.commit().map_err(|_| WRITE)?;
+        Ok(record)
+    }
+
+    pub fn own_record(
+        &self,
+        node: &iroh::EndpointId,
+    ) -> Result<Option<ComputerRecord>, &'static str> {
+        load_computer_record(&self.conn, &node.to_string())
+    }
+
+    pub fn computer_records(&self) -> Result<Vec<ComputerRecord>, &'static str> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT record FROM computer_records ORDER BY key")
+            .map_err(|_| READ)?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+            .map_err(|_| READ)?;
+        rows.into_iter()
+            .map(|text| parse_computer_record(&text))
+            .collect()
+    }
+
+    pub fn apply_computer(
+        &mut self,
+        node: &iroh::EndpointId,
+        record: &ComputerRecord,
+    ) -> Result<(), &'static str> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        record.verify()?;
+        let fleet = load_fleet(&tx)?.ok_or("not in a fleet")?;
+        let body = &record.body;
+        if body.fleet != fleet.body.id {
+            return Err("the record is for another fleet");
+        }
+        if body.key == node.to_string() {
+            return Err("the record is this computer's own");
+        }
+        if tombstoned(&tx, &body.key)? {
+            return Err("the computer was removed");
+        }
+        let computer = find_computer(&tx, &body.key)?.ok_or("no such computer")?;
+        if computer.name.as_deref() != Some(&body.name) {
+            return Err("the record's name is not the computer's");
+        }
+        if load_computer_record(&tx, &body.key)?
+            .is_some_and(|stored| stored.body.version >= body.version)
+        {
+            return Err("the computer record is not newer");
+        }
+        store_computer_record(&tx, record)?;
+        if !body.addrs.is_empty() {
+            tx.execute(
+                "UPDATE computers SET addrs = ?2 WHERE key = ?1",
+                params![
+                    body.key,
+                    serde_json::to_string(&body.addrs).map_err(|_| WRITE)?
+                ],
+            )
+            .map_err(|_| WRITE)?;
+        }
+        tx.commit().map_err(|_| WRITE)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn admit(
         &mut self,
         node: &iroh::SecretKey,
@@ -395,12 +560,23 @@ impl FleetDb {
         if computers.len() > COMPUTERS_MAX || removed.len() > REMOVED_MAX {
             return Err("the fleet is too large to join");
         }
+        let mut others: Vec<_> = computers.iter().skip(1).collect();
+        others.sort_by(|a, b| a.key.cmp(&b.key));
+        let mut records = Vec::new();
+        for computer in computers.first().into_iter().chain(others) {
+            if let Some(record) = load_computer_record(&tx, &computer.key)? {
+                let size = serde_json::to_vec(&record).map_err(|_| READ)?.len();
+                records.push((record, size));
+            }
+        }
+        let records = select_records(records);
         tx.commit().map_err(|_| WRITE)?;
         Ok((
             JoinAnswer {
                 fleet,
                 computers,
                 removed,
+                records,
             },
             introduction,
         ))
@@ -449,6 +625,21 @@ impl FleetDb {
                 return Err(INVALID);
             }
         }
+        let mut record_keys = HashSet::new();
+        for record in &answer.records {
+            let body = &record.body;
+            if record.verify().is_err()
+                || body.fleet != answer.fleet.body.id
+                || body.key == own
+                || !record_keys.insert(&body.key)
+                || !answer
+                    .computers
+                    .iter()
+                    .any(|computer| computer.key == body.key && computer.name == body.name)
+            {
+                return Err(INVALID);
+            }
+        }
         tx.execute(
             "INSERT INTO fleet VALUES (1, ?1)",
             [serde_json::to_string(&answer.fleet).map_err(|_| WRITE)?],
@@ -459,6 +650,9 @@ impl FleetDb {
         }
         for key in &answer.removed {
             store_tombstone(&tx, key, None, &inviter, now)?;
+        }
+        for record in &answer.records {
+            store_computer_record(&tx, record)?;
         }
         tx.execute("INSERT INTO local VALUES (1, 1, ?1)", [inviter])
             .map_err(|_| WRITE)?;
@@ -766,6 +960,47 @@ impl FleetDb {
     }
 }
 
+fn parse_computer_record(text: &str) -> Result<ComputerRecord, &'static str> {
+    let record: ComputerRecord = serde_json::from_str(text).map_err(|_| READ)?;
+    record.verify().map_err(|_| READ)?;
+    Ok(record)
+}
+fn load_computer_record(
+    conn: &Connection,
+    key: &str,
+) -> Result<Option<ComputerRecord>, &'static str> {
+    let text: Option<String> = conn
+        .query_row(
+            "SELECT record FROM computer_records WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| READ)?;
+    text.map(|text| parse_computer_record(&text)).transpose()
+}
+fn store_computer_record(conn: &Connection, record: &ComputerRecord) -> Result<(), &'static str> {
+    conn.execute(
+        "INSERT INTO computer_records (key, version, record) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET version = excluded.version, record = excluded.record",
+        params![record.body.key, i64::try_from(record.body.version).map_err(|_| WRITE)?, serde_json::to_string(record).map_err(|_| WRITE)?]
+    ).map_err(|_| WRITE)?;
+    Ok(())
+}
+fn select_records<T>(records: impl IntoIterator<Item = (T, usize)>) -> Vec<T> {
+    let mut remaining = JOIN_RECORDS_MAX;
+    records
+        .into_iter()
+        .take_while(|(_, size)| {
+            if *size > remaining {
+                return false;
+            }
+            remaining -= size;
+            true
+        })
+        .map(|(record, _)| record)
+        .collect()
+}
+
 fn load_fleet(conn: &Connection) -> Result<Option<FleetRecord>, &'static str> {
     let text: Option<String> = conn
         .query_row("SELECT record FROM fleet WHERE one = 1", [], |row| {
@@ -992,10 +1227,12 @@ fn apply_removal(
 fn delete_computer(tx: &Transaction<'_>, key: &str) -> Result<(), &'static str> {
     tx.execute("DELETE FROM computers WHERE key = ?1", [key])
         .map_err(|_| WRITE)?;
+    tx.execute("DELETE FROM computer_records WHERE key = ?1", [key])
+        .map_err(|_| WRITE)?;
     Ok(())
 }
 fn clear_fleet(tx: &Transaction<'_>) -> Result<(), &'static str> {
-    tx.execute_batch("DELETE FROM local; DELETE FROM computers; DELETE FROM tombstones; DELETE FROM held; DELETE FROM records; DELETE FROM codes; DELETE FROM fleet;").map_err(|_| WRITE)
+    tx.execute_batch("DELETE FROM computer_records; DELETE FROM local; DELETE FROM computers; DELETE FROM tombstones; DELETE FROM held; DELETE FROM records; DELETE FROM codes; DELETE FROM fleet;").map_err(|_| WRITE)
 }
 
 fn resolve(conn: &Connection, target: &str) -> Result<Computer, &'static str> {
@@ -1143,9 +1380,7 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
         0 => {
             tx.execute_batch(SCHEMA_1).map_err(|_| WRITE)?;
             tx.execute_batch(SCHEMA_2).map_err(|_| WRITE)?;
-            tx.pragma_update(None, "user_version", SCHEMA_VERSION)
-                .map_err(|_| WRITE)?;
-            tx.commit().map_err(|_| WRITE)
+            tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?;
         }
         1 => {
             tx.execute_batch(SCHEMA_2).map_err(|_| WRITE)?;
@@ -1154,14 +1389,16 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
                 [],
             )
             .map_err(|_| WRITE)?;
-            tx.pragma_update(None, "user_version", SCHEMA_VERSION)
-                .map_err(|_| WRITE)?;
-            tx.commit().map_err(|_| WRITE)
+            tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?;
         }
-        SCHEMA_VERSION => Ok(()),
-        value if value > SCHEMA_VERSION => Err("fleet.db is newer than this build"),
-        _ => Err(READ),
+        2 => tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?,
+        SCHEMA_VERSION => return Ok(()),
+        value if value > SCHEMA_VERSION => return Err("fleet.db is newer than this build"),
+        _ => return Err(READ),
     }
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)
+        .map_err(|_| WRITE)?;
+    tx.commit().map_err(|_| WRITE)
 }
 
 #[cfg(test)]

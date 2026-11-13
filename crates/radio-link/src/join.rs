@@ -6,6 +6,7 @@ use tokio::time::{Instant, timeout, timeout_at};
 use crate::{
     SecretKey,
     code::JoinCode,
+    computer_record::ComputerRecord,
     fleet_db::{Applied, Computer, FleetDb, Recipient},
     frame::{self, CONTROL_CAP, RECORD_CAP},
     link::{Link, REFUSED},
@@ -214,4 +215,31 @@ pub async fn leave(
     db.lock().map_err(|_| READ)?.forget()?;
     link.close_all();
     Ok(delivered)
+}
+
+pub async fn publish(link: &Link, db: &Mutex<FleetDb>, record: &ComputerRecord) -> usize {
+    let recipients = match db.lock() {
+        Ok(db) => db.recipients(&link.id()),
+        Err(_) => Err(READ),
+    };
+    let Ok(recipients) = recipients else { return 0 };
+    let mut delivered = 0;
+    for (key, addrs) in recipients {
+        if let Ok(peer) = link.dial(key, &addrs).await
+            && peer.send_computer(record).await.is_ok()
+        {
+            delivered += 1;
+        }
+    }
+    delivered
+}
+
+pub fn apply_computer(
+    link: &Link,
+    db: &Mutex<FleetDb>,
+    record: &ComputerRecord,
+) -> Result<(), &'static str> {
+    db.lock()
+        .map_err(|_| READ)?
+        .apply_computer(&link.id(), record)
 }

@@ -5,6 +5,7 @@ use radio_link::{
     EndpointId, SecretKey,
     admit::{Admission, Limits, Standing},
     code::{Hints, JoinCode},
+    computer_record::{self, ComputerRecord},
     endpoint::{ALPN, JOIN_ALPN},
     fleet_db::{Computer as Row, FleetDb, State},
     frame::{self, CONTROL_CAP, RECORD_CAP},
@@ -101,6 +102,10 @@ async fn computer_key(name: &str, limits: Limits, key: SecretKey) -> Computer {
                     }
                     Some(Event::Record { record, .. }) => {
                         let _ = join::apply(&receiver_link, &receiver_db, &record, now());
+                        applied_events.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Some(Event::Computer { record, .. }) => {
+                        let _ = join::apply_computer(&receiver_link, &receiver_db, &record);
                         applied_events.fetch_add(1, Ordering::SeqCst);
                     }
                     Some(_) => {},
@@ -787,5 +792,160 @@ async fn joining_with_another_links_key_is_refused() {
     );
     assert!(b.db.lock().unwrap().fleet().unwrap().is_none());
     assert_eq!(a.db.lock().unwrap().codes(now()).unwrap().len(), 1);
+    stop(&[&a, &b]).await;
+}
+
+fn resign(computer: &Computer, section: &str) -> ComputerRecord {
+    computer
+        .db
+        .lock()
+        .unwrap()
+        .resign(
+            &computer.key,
+            computer.link.name(),
+            &computer.link.addrs(),
+            "lantern",
+            Some(section),
+            Some(&["hub".into()]),
+            now(),
+        )
+        .unwrap()
+}
+async fn holds(computer: &Computer, record: &ComputerRecord) {
+    bounded(async {
+        loop {
+            if computer
+                .db
+                .lock()
+                .unwrap()
+                .computer_records()
+                .unwrap()
+                .contains(record)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+}
+async fn accepted_trio() -> (Computer, Computer, Computer) {
+    let (a, b, c) = trio().await;
+    for (computer, other) in [(&a, &b), (&a, &c), (&b, &a), (&b, &c), (&c, &a), (&c, &b)] {
+        accept(computer, other);
+    }
+    (a, b, c)
+}
+#[tokio::test]
+async fn a_resigned_record_reaches_the_others() {
+    let (a, b, c) = accepted_trio().await;
+    let first = resign(&a, "{\"x\":1}");
+    assert_eq!(bounded(join::publish(&a.link, &a.db, &first)).await, 2);
+    holds(&b, &first).await;
+    holds(&c, &first).await;
+    let second = resign(&a, "{\"x\":2}");
+    assert!(second.body.version > first.body.version);
+    assert_eq!(bounded(join::publish(&a.link, &a.db, &second)).await, 2);
+    holds(&b, &second).await;
+    holds(&c, &second).await;
+    stop(&[&a, &b, &c]).await;
+}
+#[tokio::test]
+async fn an_older_computer_record_changes_nothing() {
+    let (a, b, c) = accepted_trio().await;
+    let first = resign(&a, "first");
+    assert_eq!(bounded(join::publish(&a.link, &a.db, &first)).await, 2);
+    holds(&b, &first).await;
+    holds(&c, &first).await;
+    let second = resign(&a, "second");
+    assert_eq!(bounded(join::publish(&a.link, &a.db, &second)).await, 2);
+    holds(&b, &second).await;
+    holds(&c, &second).await;
+    bounded(async {
+        while b.applied.load(Ordering::SeqCst) < 3 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    let before = b.applied.load(Ordering::SeqCst);
+    let peer = bounded(c.link.dial(b.link.id(), &b.link.addrs()))
+        .await
+        .unwrap();
+    assert_eq!(bounded(peer.send_computer(&first)).await, Ok(()));
+    bounded(async {
+        while b.applied.load(Ordering::SeqCst) == before {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert_eq!(
+        b.db.lock().unwrap().own_record(&a.link.id()).unwrap(),
+        Some(second)
+    );
+    stop(&[&a, &b, &c]).await;
+}
+#[tokio::test]
+async fn a_forged_computer_record_is_never_served() {
+    let (a, b, c) = accepted_trio().await;
+    let first = resign(&a, "first");
+    assert_eq!(bounded(join::publish(&a.link, &a.db, &first)).await, 2);
+    holds(&b, &first).await;
+    let mut body = first.body.clone();
+    body.version += 1;
+    body.apps.insert("lantern".into(), "forged".into());
+    let forged = computer_record::sign(body, &c.key);
+    bounded(async {
+        while b.applied.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    let before = b.applied.load(Ordering::SeqCst);
+    let peer = bounded(c.link.dial(b.link.id(), &b.link.addrs()))
+        .await
+        .unwrap();
+    assert!(bounded(peer.send_computer(&forged)).await.is_err());
+    assert_eq!(b.applied.load(Ordering::SeqCst), before);
+    assert_eq!(
+        b.db.lock().unwrap().own_record(&a.link.id()).unwrap(),
+        Some(first)
+    );
+    stop(&[&a, &b, &c]).await;
+}
+#[tokio::test]
+async fn a_newcomer_takes_the_records_its_inviter_holds() {
+    let a = computer("garden", Limits::default()).await;
+    let b = computer("birch", Limits::default()).await;
+    found(&a);
+    let record = resign(&a, "opaque");
+    enter(&a, &b).await;
+    assert_eq!(
+        b.db.lock().unwrap().own_record(&a.link.id()).unwrap(),
+        Some(record)
+    );
+    stop(&[&a, &b]).await;
+}
+#[tokio::test]
+async fn a_computer_record_from_a_stranger_is_refused() {
+    let a = computer("garden", Limits::default()).await;
+    let b = computer("birch", Limits::default()).await;
+    found(&a);
+    enter(&a, &b).await;
+    let record = resign(&b, "opaque");
+    let raw = raw_bind(raw_book(&a), Limits::default()).await;
+    let before = a.applied.load(Ordering::SeqCst);
+    let connection = raw.connect(&a.link, ALPN).await;
+    if let Ok((mut send, _)) = bounded(connection.open_bi()).await {
+        let _ = bounded(frame::write(
+            &mut send,
+            &Request::Computer { record },
+            CONTROL_CAP,
+        ))
+        .await;
+        let _ = send.finish();
+    }
+    closed(&connection, REFUSED).await;
+    assert_eq!(a.applied.load(Ordering::SeqCst), before);
+    bounded(raw.close()).await;
     stop(&[&a, &b]).await;
 }

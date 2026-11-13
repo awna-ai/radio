@@ -1,6 +1,7 @@
 use crate::{
     EndpointId, SecretKey,
     admit::{Admission, Gate, Limits, Standing},
+    computer_record::ComputerRecord,
     endpoint::{self, ALPN, JOIN_ALPN},
     frame::{self, CONTROL_CAP},
     membership::SignedRecord,
@@ -30,6 +31,10 @@ pub struct Local {
 
 #[derive(Debug)]
 pub enum Event {
+    Computer {
+        from: EndpointId,
+        record: ComputerRecord,
+    },
     Record {
         from: EndpointId,
         record: SignedRecord,
@@ -343,6 +348,24 @@ async fn serve_stream(
                 frame::write(&mut send, &Answer::Ok, CONTROL_CAP).await?;
                 send.finish().map_err(|_| UNANSWERED)?;
             }
+            Request::Computer { record } => {
+                if record.verify().is_err() {
+                    return Err(UNANSWERED);
+                }
+                let permit = events.reserve().await.map_err(|_| UNANSWERED)?;
+                if gate.admission.standing(&from) != Standing::Accepted
+                    || connection.close_reason().is_some()
+                {
+                    if connection.close_reason().is_none() {
+                        connection.close(REFUSED.into(), &[]);
+                    }
+                    drop(permit);
+                    return Ok(());
+                }
+                permit.send(Event::Computer { from, record });
+                frame::write(&mut send, &Answer::Ok, CONTROL_CAP).await?;
+                send.finish().map_err(|_| UNANSWERED)?;
+            }
         }
         Ok(())
     })
@@ -403,6 +426,18 @@ impl Peer {
     pub async fn send_record(&self, record: &SignedRecord) -> Result<(), &'static str> {
         match self
             .request(&Request::Record {
+                record: record.clone(),
+            })
+            .await?
+        {
+            Answer::Ok => Ok(()),
+            _ => Err(UNANSWERED),
+        }
+    }
+
+    pub async fn send_computer(&self, record: &ComputerRecord) -> Result<(), &'static str> {
+        match self
+            .request(&Request::Computer {
                 record: record.clone(),
             })
             .await?

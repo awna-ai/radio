@@ -1,4 +1,4 @@
-use crate::fleet::FleetRecord;
+use crate::{computer_record::ComputerRecord, fleet::FleetRecord};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
@@ -47,6 +47,8 @@ pub struct JoinAnswer {
     pub fleet: FleetRecord,
     pub computers: Vec<Known>,
     pub removed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub records: Vec<ComputerRecord>,
 }
 
 #[derive(Serialize)]
