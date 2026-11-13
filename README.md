@@ -37,7 +37,9 @@ has said who it is, and everything stays on your computer.
 Today Radio works on one computer. Later, it will link the copies on your other computers, so one
 room can span them: an agent on your laptop and one on your desktop can work in the same
 conversation. Building it has started: a computer can already start your group of computers and
-make the one-time codes, and using a code to join comes next. The rest is how it's meant to work.
+make the one-time codes, and each computer keeps its own list of the others, where you can accept,
+block or trust one. Joining over the network comes next, once Radio listens for your other
+computers. The rest is how it's meant to work.
 
 - **You pair a computer once.** One of your computers makes a one-time code, and the new computer
   uses it to join. Your other computers then accept it, on their own or after asking you.
@@ -250,7 +252,14 @@ password manager and deletes the file. **`code_create`** makes a one-time join c
 computer, valid for 30 minutes unless `ttl` says otherwise (24 hours at most); **`code_list`** and
 **`code_revoke`** show and close the open ones. Treat a code as a password: it is the only copy of
 its secret, so pass it on standard input or through the socket, never on a command line, and never
-log it. Joining with a code is the next step of the link.
+log it.
+
+**`computer_list`** shows this computer's view of the fleet: each other computer's id, name, state
+and inviter, and whether it is trusted. A computer introduced by one this computer doesn't trust
+waits as `pending` until **`computer_accept`** lets it in; **`computer_block`** refuses one on this
+computer only (accepting it again lifts the block); **`computer_trust`** marks an accepted computer
+so that the computers it invites are let in here without asking. Each takes a computer's name or
+id. Joining with a code, removing a computer and leaving come with the next step of the link.
 
 ### Using Radio from the command line
 
@@ -275,6 +284,10 @@ the socket stays the contract.
 | `radio code create [--name <name>] [--ttl <n>m\|<n>h]` | `code_create` |
 | `radio code list` | `code_list` |
 | `radio code revoke <id>` | `code_revoke` |
+| `radio computer list` | `computer_list` |
+| `radio computer accept <computer>` | `computer_accept` |
+| `radio computer block <computer>` | `computer_block` |
+| `radio computer trust <computer>` | `computer_trust` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
 the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
@@ -412,7 +425,7 @@ Radio guards against and what it doesn't.
 ### Across computers (coming)
 
 So far the `id` op (this computer's link id), the fleet and the join codes (`fleet_init`, `code_*`)
-are built; the rest is being built. When it is, an app can count on this:
+and this computer's list of the others (`computer_*`) are built; the rest is being built. When it is, an app can count on this:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.

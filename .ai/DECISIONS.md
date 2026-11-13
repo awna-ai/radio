@@ -2,6 +2,32 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-13: D19. Computers join through one inviter, and each keeps its own list
+
+A fleet's other computers are *computers* in Radio's code, ops and docs, not *members*, since a
+member is already a room's author (D8). A newcomer dials the inviter its code names, on the join
+ALPN, at the code's addresses, and sends the code, its name and its own addresses; the inviter
+checks them, consumes the code and adds the newcomer in one transaction, answers with its own view
+(the fleet record, the computers it has accepted, the keys removed), and sends every accepted
+computer a signed introduction. The newcomer takes that view whole: joining through a computer is
+joining what that computer knows.
+
+Each computer keeps its own list. An introduction from a computer this one trusts adds the
+newcomer as accepted; from any other it waits as pending until the person accepts it here. A block
+is this computer's alone and is never sent; accepting the computer lifts it. A removal, signed by
+the removed computer's inviter or the founding member, and a leave, signed by the leaving computer,
+are tombstones that win over an introduction of the same key whichever arrives first: a removal
+that arrives before its introduction is held (at most 64 per signer and 1,024 in all) until the
+introduction shows its signer was the inviter. Introductions and removals carry their signer's
+counter, so a repeated one is dropped, and a computer makes, and accepts from each other computer,
+at most 3 introductions in 24 hours. Nothing lifts a tombstone: a removed computer comes back only
+with a new key. A record a computer missed while it was off is not sent again.
+
+All of this is built in `radio-link` and proven between computers on loopback. The daemon starts
+no endpoint until the direct-address step, so its socket gains only the ops that need none (list,
+accept, block, trust); joining, removing and leaving become ops in that step, when Radio first
+listens.
+
 ## 2026-11-13: D18. A fleet starts on one computer, and its recovery key leaves through a file
 
 `fleet_init` makes the fleet record on the computer that runs it, its founding member: a random
