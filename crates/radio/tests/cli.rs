@@ -3,7 +3,6 @@ use std::{
     ffi::OsStr,
     fs,
     io::{BufRead, BufReader, Write},
-    os::fd::{FromRawFd, OwnedFd},
     os::unix::{ffi::OsStrExt, fs::PermissionsExt, net::UnixListener},
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
@@ -64,16 +63,7 @@ fn non_utf8_arguments_print_usage_and_send_nothing() {
 
 #[test]
 fn stderr_write_errors_preserve_the_usage_exit_code() {
-    let mut descriptors = [-1; 2];
-    // SAFETY: descriptors has room for both file descriptors returned by pipe.
-    assert_eq!(unsafe { libc::pipe(descriptors.as_mut_ptr()) }, 0);
-    // SAFETY: pipe succeeded and each descriptor is owned exactly once here.
-    let (reader, writer) = unsafe {
-        (
-            OwnedFd::from_raw_fd(descriptors[0]),
-            OwnedFd::from_raw_fd(descriptors[1]),
-        )
-    };
+    let (reader, writer) = std::io::pipe().unwrap();
     drop(reader);
     let output = Command::new(env!("CARGO_BIN_EXE_radio"))
         .arg("unknown")

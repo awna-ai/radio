@@ -55,6 +55,9 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         return Err(());
     }
     let (positionals, flags) = rest.split_at(positional_count);
+    if positionals.iter().any(|value| allowed.contains(value)) {
+        return Err(());
+    }
     let (pairs, remainder) = flags.as_chunks::<2>();
     if !remainder.is_empty() {
         return Err(());
