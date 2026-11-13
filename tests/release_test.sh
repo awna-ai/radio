@@ -443,6 +443,11 @@ new_case 13
 origin tag
 export GH_REPO=other/repo
 expect 0 'release: published v0.1.0 to example-org/example-repo (3 files, read back)' v0.1.0 --publish
+grep -F -x -A 1 'Signed ad hoc, not notarised. Ship it inside your app, whose signature and notarisation cover it; see' "$tmp/notes.md" |
+    grep -F -x -q '*For app developers* in the README.' || fail 'notes README pointer differs'
+if grep -F -q -e 'docs/' -e 'app-developers.md' "$tmp/notes.md"; then
+    fail 'notes name the removed guide'
+fi
 if [ -f "$tmp/calls/gh" ]; then
     [ ! -f "$tmp/calls/git-remote" ] || fail 'used ls-remote'
     grep -F -q "release create v0.1.0 -R example-org/example-repo --draft --verify-tag --title radio v0.1.0 --notes-file " "$tmp/calls/gh" || fail 'create options differ'

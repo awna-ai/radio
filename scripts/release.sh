@@ -217,7 +217,7 @@ The \`radio\` daemon for macOS, built from $tag ($commit).
 - \`SHA256SUMS\`: check a download with \`shasum -a 256 -c SHA256SUMS --ignore-missing\`
 
 Signed ad hoc, not notarised. Ship it inside your app, whose signature and notarisation cover it; see
-\`docs/app-developers.md\`.
+*For app developers* in the README.
 NOTES
 (cd "$work/dist" && shasum -a 256 -c SHA256SUMS) > /dev/null 2>&1 || fail "$tag changed before upload"
 gh release create "$tag" -R "$repo" --draft --verify-tag --title "radio $tag" --notes-file "$work/notes.md" \
