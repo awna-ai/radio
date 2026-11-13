@@ -519,13 +519,20 @@ fn versions_are_required_and_checked_before_the_op() {
 
 #[test]
 fn hello_names_the_version_and_all_ops() {
-    assert!(radio_client::OPS.contains(&"id"));
+    for op in [
+        "id",
+        "link_address_add",
+        "link_address_list",
+        "link_address_remove",
+    ] {
+        assert!(radio_client::OPS.contains(&op));
+    }
     let fixture = Fixture::new();
     let worker = start(fixture.bind(), 1);
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":4},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":5},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -1940,4 +1947,157 @@ fn listed_records_in_process_follow_local_acceptance() {
     assert_eq!(db.computer_record(&peer.public()).unwrap(), Some(record));
     db.accept("cedar").unwrap();
     assert_eq!(list(&db), expected);
+}
+
+#[test]
+fn link_addresses_work_without_a_fleet_and_codes_carry_them() {
+    let fixture = Fixture::new();
+    let server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    let worker = start(server, 13);
+    let send = |op| request(&fixture.socket(), &op).unwrap();
+    let list = send(Request::LinkAddressList {});
+    assert!(list.ok);
+    assert_eq!(list.port, Some(7341));
+    assert_eq!(list.addresses, Some(vec![]));
+    assert!(
+        send(Request::FleetInit {
+            name: "garden".into()
+        })
+        .ok
+    );
+    let code = send(Request::CodeCreate {
+        name: None,
+        ttl: None,
+    });
+    assert!(code.ok);
+    assert!(
+        radio_link::code::JoinCode::parse(code.code.as_deref().unwrap())
+            .unwrap()
+            .hints
+            .direct
+            .is_empty()
+    );
+    let added = send(Request::LinkAddressAdd {
+        address: "127.0.0.1".into(),
+    });
+    assert!(added.ok);
+    assert_eq!(added.port, Some(7341));
+    assert_eq!(added.addresses, Some(vec!["127.0.0.1".into()]));
+    let code = send(Request::CodeCreate {
+        name: None,
+        ttl: None,
+    });
+    assert!(code.ok);
+    assert_eq!(
+        radio_link::code::JoinCode::parse(code.code.as_deref().unwrap())
+            .unwrap()
+            .hints
+            .direct,
+        vec!["127.0.0.1:7341".parse::<std::net::SocketAddr>().unwrap()]
+    );
+    for address in ["10.0.0.2:7341", "garden.local", "fe80::1"] {
+        assert_eq!(
+            send(Request::LinkAddressAdd {
+                address: address.into()
+            })
+            .error
+            .as_deref(),
+            Some("not a link address")
+        );
+    }
+    assert_eq!(
+        send(Request::LinkAddressAdd {
+            address: "10.0.0.2".into()
+        })
+        .error
+        .as_deref(),
+        Some(radio_link::fleet_db::FAMILY_TAKEN)
+    );
+    for removed in [true, false] {
+        let response = send(Request::LinkAddressRemove {
+            address: "127.0.0.1".into(),
+        });
+        assert!(response.ok);
+        assert_eq!(response.port, Some(7341));
+        assert_eq!(response.removed, Some(removed));
+        assert_eq!(response.addresses, Some(vec![]));
+    }
+    for address in ["10.0.0.2:7341", "garden.local"] {
+        assert_eq!(
+            send(Request::LinkAddressRemove {
+                address: address.into()
+            })
+            .error
+            .as_deref(),
+            Some("not a link address")
+        );
+    }
+    worker.join().unwrap();
+}
+
+#[test]
+fn all_link_address_ops_work_before_founding_and_after_forgetting() {
+    for forgotten in [false, true] {
+        let fixture = Fixture::new();
+        let mut server = fixture
+            .bind()
+            .with_link_dir(fixture.0.join("link"))
+            .with_fleet_db(fixture.0.join("fleet.db"));
+        if forgotten {
+            let dir = fixture.0.join("link");
+            server
+                .fleet_db()
+                .unwrap()
+                .found(&radio_link::SecretKey::generate(), "garden", &dir)
+                .unwrap();
+            server.fleet_db().unwrap().forget().unwrap();
+        }
+        let worker = start(server, 3);
+        for op in [
+            Request::LinkAddressAdd {
+                address: "127.0.0.1".into(),
+            },
+            Request::LinkAddressList {},
+            Request::LinkAddressRemove {
+                address: "127.0.0.1".into(),
+            },
+        ] {
+            let response = request(&fixture.socket(), &op).unwrap();
+            assert!(response.ok);
+            assert_eq!(response.port, Some(7341));
+            assert_eq!(
+                response.addresses,
+                Some(if response.removed.is_some() {
+                    vec![]
+                } else {
+                    vec!["127.0.0.1".into()]
+                })
+            );
+        }
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn link_address_ops_require_link_setup_first() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 3);
+    for op in [
+        Request::LinkAddressAdd {
+            address: "garden.local".into(),
+        },
+        Request::LinkAddressList {},
+        Request::LinkAddressRemove {
+            address: "garden.local".into(),
+        },
+    ] {
+        assert_eq!(
+            request(&fixture.socket(), &op).unwrap().error.as_deref(),
+            Some("the link is not set up")
+        );
+    }
+    worker.join().unwrap();
 }

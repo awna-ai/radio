@@ -1,0 +1,15 @@
+{
+  "request": {
+    "v": 1,
+    "op": "link_address_add",
+    "address": "127.0.0.1"
+  },
+  "response": {
+    "ok": true,
+    "port": 7341,
+    "addresses": [
+      "127.0.0.1"
+    ]
+  },
+  "exact": true
+}

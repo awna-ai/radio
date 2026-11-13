@@ -57,6 +57,9 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         ["computer", "accept", rest @ ..] => ("computer_accept", 1, rest, &[]),
         ["computer", "block", rest @ ..] => ("computer_block", 1, rest, &[]),
         ["computer", "trust", rest @ ..] => ("computer_trust", 1, rest, &[]),
+        ["link", "address", "add", rest @ ..] => ("link_address_add", 1, rest, &[]),
+        ["link", "address", "list", rest @ ..] => ("link_address_list", 0, rest, &[]),
+        ["link", "address", "remove", rest @ ..] => ("link_address_remove", 1, rest, &[]),
         ["register", rest @ ..] => ("register", 0, rest, &["--app", "--app-version", "--member"]),
         ["room", "create", rest @ ..] => ("create", 1, rest, &["--title"]),
         ["rooms", rest @ ..] => ("rooms", 0, rest, &["--after", "--limit"]),
@@ -139,6 +142,13 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         },
         "computer_trust" => Request::ComputerTrust {
             computer: positionals[0].into(),
+        },
+        "link_address_add" => Request::LinkAddressAdd {
+            address: positionals[0].into(),
+        },
+        "link_address_list" => Request::LinkAddressList {},
+        "link_address_remove" => Request::LinkAddressRemove {
+            address: positionals[0].into(),
         },
         "register" => Request::Register {
             app: required("--app")?.into(),

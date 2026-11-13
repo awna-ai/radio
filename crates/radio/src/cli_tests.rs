@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 4);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 5);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1054,4 +1054,39 @@ fn resign_section_files_share_the_bounded_body_reader_and_errors() {
         command.resolve(io::empty()),
         Err((2, "radio: the body file could not be read".into()))
     );
+}
+
+#[test]
+fn link_address_commands_preserve_requests() {
+    for (words, expected) in [
+        (
+            vec!["link", "address", "add", "127.0.0.1"],
+            Request::LinkAddressAdd {
+                address: "127.0.0.1".into(),
+            },
+        ),
+        (vec!["link", "address", "list"], Request::LinkAddressList {}),
+        (
+            vec!["link", "address", "remove", "::ffff:10.0.0.2"],
+            Request::LinkAddressRemove {
+                address: "::ffff:10.0.0.2".into(),
+            },
+        ),
+    ] {
+        assert_eq!(parse(&args(&words)).unwrap().request, expected);
+    }
+}
+
+#[test]
+fn link_address_commands_refuse_bad_usage() {
+    for words in [
+        vec!["link", "address", "add"],
+        vec!["link", "address", "list", "extra"],
+        vec!["link", "address", "remove", "a", "b"],
+        vec!["link", "address", "add", "127.0.0.1", "--unknown", "x"],
+        vec!["link", "address", "list", "--unknown", "x"],
+        vec!["link", "address", "remove", "127.0.0.1", "--unknown", "x"],
+    ] {
+        assert!(parse(&args(&words)).is_err(), "{words:?}");
+    }
 }

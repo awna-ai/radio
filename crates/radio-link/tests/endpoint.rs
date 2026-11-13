@@ -28,7 +28,6 @@ fn gate() -> Arc<Gate> {
 async fn refuses_unconfigured_and_nonlocal_addresses() {
     let mut refused = Vec::new();
     for addrs in [
-        vec![],
         vec!["0.0.0.0:0".parse().unwrap()],
         vec!["[::]:0".parse().unwrap()],
         vec!["224.0.0.1:0".parse().unwrap()],
@@ -131,4 +130,14 @@ async fn binds_both_families_on_one_fixed_port() {
     sockets.sort();
     assert_eq!(sockets, addrs);
     endpoint.close().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn bind_without_addresses_names_the_missing_setting() {
+    assert_eq!(
+        endpoint::bind(SecretKey::generate(), &[], gate())
+            .await
+            .err(),
+        Some(endpoint::NO_OWN_ADDRESS)
+    );
 }

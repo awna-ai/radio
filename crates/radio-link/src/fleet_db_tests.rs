@@ -76,7 +76,7 @@ fn opens_private_schema_and_reopens_data() {
 }
 #[test]
 fn refuses_newer_and_negative_schema_versions() {
-    for version in [4, -1] {
+    for version in [5, -1] {
         let temp = Temp::new();
         let db = temp.open();
         db.conn
@@ -85,7 +85,7 @@ fn refuses_newer_and_negative_schema_versions() {
         drop(db);
         assert_eq!(
             FleetDb::open(&temp.path()).err(),
-            Some(if version == 4 {
+            Some(if version == 5 {
                 "fleet.db is newer than this build"
             } else {
                 "fleet.db could not be read"
@@ -421,14 +421,14 @@ fn revoking_an_unswept_expired_code_returns_false() {
 }
 
 #[test]
-fn schema_three_has_every_table_and_found_local() {
+fn schema_four_has_every_table_and_found_local() {
     let temp = Temp::new();
     let (db, _) = temp.found();
     assert_eq!(
         db.conn
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     for table in [
         "fleet",
@@ -439,6 +439,7 @@ fn schema_three_has_every_table_and_found_local() {
         "held",
         "records",
         "computer_records",
+        "link_addresses",
     ] {
         assert_eq!(
             db.conn
@@ -492,7 +493,7 @@ fn migrates_version_one_with_and_without_fleet() {
             db.conn
                 .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            3
+            4
         );
         assert_eq!(
             db.conn
@@ -2564,7 +2565,7 @@ fn migrates_schema_two_preserving_rows() {
         db.conn
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     assert_eq!(db.fleet().unwrap(), Some(record));
     assert_eq!(db.computers().unwrap()[0].key, peer.to_string());
@@ -2808,4 +2809,123 @@ fn readmitting_under_a_new_name_drops_the_old_computer_record() {
     let record = computer_record(&db, &other, "birch", 1);
     db.apply_computer(&node.public(), &record).unwrap();
     assert_eq!(db.computer_records().unwrap(), vec![record]);
+}
+
+#[test]
+fn own_link_addresses_are_canonical_ordered_and_persist_without_a_fleet() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let v4: std::net::IpAddr = "10.0.0.2".parse().unwrap();
+    let v6 = "fd00::2".parse().unwrap();
+    assert!(db.link_addresses().unwrap().is_empty());
+    assert_eq!(db.add_link_address(v4).unwrap(), vec![v4]);
+    assert_eq!(db.add_link_address(v4).unwrap(), vec![v4]);
+    assert_eq!(
+        db.conn
+            .query_row("SELECT COUNT(*) FROM link_addresses", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.add_link_address("10.0.0.3".parse().unwrap()),
+        Err(FAMILY_TAKEN)
+    );
+    assert_eq!(db.link_addresses().unwrap(), vec![v4]);
+    assert_eq!(db.add_link_address(v6).unwrap(), vec![v4, v6]);
+    assert_eq!(
+        db.direct_addrs().unwrap(),
+        vec![
+            "10.0.0.2:7341".parse::<SocketAddr>().unwrap(),
+            "[fd00::2]:7341".parse().unwrap()
+        ]
+    );
+    assert!(db.remove_link_address(v4).unwrap());
+    let mapped = "::ffff:10.0.0.9".parse().unwrap();
+    let canonical = "10.0.0.9".parse().unwrap();
+    assert_eq!(db.add_link_address(mapped).unwrap(), vec![canonical, v6]);
+    assert_eq!(db.add_link_address(canonical).unwrap(), vec![canonical, v6]);
+    assert!(db.remove_link_address(canonical).unwrap());
+    assert!(!db.remove_link_address(canonical).unwrap());
+    db.add_link_address(mapped).unwrap();
+    assert!(db.remove_link_address(mapped).unwrap());
+    let node = iroh::SecretKey::generate();
+    db.found(&node, "garden", &temp.link()).unwrap();
+    db.forget().unwrap();
+    assert_eq!(db.link_addresses().unwrap(), vec![v6]);
+    drop(db);
+    assert_eq!(temp.open().link_addresses().unwrap(), vec![v6]);
+}
+
+#[test]
+fn own_link_addresses_refuse_unusable_and_scoped_ips() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    for address in [
+        "0.0.0.0",
+        "::",
+        "224.0.0.1",
+        "255.255.255.255",
+        "ff02::1",
+        "fe80::1",
+        "febf::1",
+    ] {
+        let ip = address.parse().unwrap();
+        assert_eq!(db.add_link_address(ip), Err(NOT_LINK_ADDRESS), "{address}");
+        assert!(!db.remove_link_address(ip).unwrap());
+        assert!(db.link_addresses().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn own_link_addresses_report_damaged_rows() {
+    let temp = Temp::new();
+    let db = temp.open();
+    db.conn
+        .execute("INSERT INTO link_addresses VALUES ('garden.local', 4)", [])
+        .unwrap();
+    assert_eq!(db.link_addresses(), Err(READ));
+    assert_eq!(db.direct_addrs(), Err(READ));
+}
+
+#[test]
+fn migrates_schema_three_preserving_fleet_and_computers() {
+    let temp = Temp::new();
+    key::private_folder(&temp.0).unwrap();
+    let conn = Connection::open(temp.path()).unwrap();
+    for schema in [SCHEMA_1, SCHEMA_2, SCHEMA_3] {
+        conn.execute_batch(schema).unwrap();
+    }
+    conn.pragma_update(None, "user_version", 3).unwrap();
+    let node = iroh::SecretKey::generate();
+    let record = fleet::found(&node, "garden").unwrap().0;
+    conn.execute(
+        "INSERT INTO fleet VALUES (1, ?1)",
+        [serde_json::to_string(&record).unwrap()],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO local VALUES (1, 7, NULL)", [])
+        .unwrap();
+    let peer = iroh::SecretKey::generate().public();
+    let old = FleetDb { conn };
+    computer(
+        &old,
+        &peer,
+        "birch",
+        State::Accepted,
+        Some(&node.public()),
+        &addr(),
+    );
+    drop(old);
+    let mut db = temp.open();
+    assert_eq!(
+        db.conn
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        4
+    );
+    assert_eq!(db.fleet().unwrap(), Some(record));
+    assert_eq!(db.computers().unwrap()[0].key, peer.to_string());
+    let ip = "10.0.0.2".parse().unwrap();
+    assert_eq!(db.add_link_address(ip).unwrap(), vec![ip]);
 }

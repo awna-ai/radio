@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 4;
+pub const PROTOCOL_MINOR: u32 = 5;
 
-/// The ops major 1, minor 4 serves, in this order.
+/// The ops major 1, minor 5 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -34,6 +34,9 @@ pub const OPS: &[&str] = &[
     "computer_trust",
     "resign",
     "computer_records",
+    "link_address_add",
+    "link_address_list",
+    "link_address_remove",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -133,6 +136,12 @@ pub enum Request {
     },
     /// Lists this computer's record and its accepted computers' records with this app's section from each.
     ComputerRecords { app: String },
+    /// Adds one of this computer's link addresses: an IP address, at most one per family.
+    LinkAddressAdd { address: String },
+    /// Lists this computer's link addresses and the fixed port.
+    LinkAddressList {},
+    /// Removes one of this computer's link addresses.
+    LinkAddressRemove { address: String },
 }
 
 /// A member identified by a kind and a name.
@@ -228,6 +237,12 @@ pub struct Response {
     /// This computer's record and its accepted computers' records by id, with the requesting app's sections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub records: Option<Vec<ComputerRecord>>,
+    /// The fixed UDP port the link uses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// This computer's link addresses, IPv4 first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addresses: Option<Vec<String>>,
 }
 
 /// A room returned by the daemon.
@@ -346,4 +361,53 @@ pub struct ComputerRecord {
     /// The requesting app's section, when the computer holds one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub section: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_address_contract_round_trips() {
+        assert_eq!(PROTOCOL_MINOR, 5);
+        assert_eq!(
+            &OPS[20..],
+            &[
+                "link_address_add",
+                "link_address_list",
+                "link_address_remove"
+            ]
+        );
+        for request in [
+            Request::LinkAddressAdd {
+                address: "127.0.0.1".into(),
+            },
+            Request::LinkAddressList {},
+            Request::LinkAddressRemove {
+                address: "127.0.0.1".into(),
+            },
+        ] {
+            let value = serde_json::to_value(&request).unwrap();
+            assert_eq!(
+                serde_json::from_value::<Request>(value.clone()).unwrap(),
+                request
+            );
+            let mut unknown = value;
+            unknown["extra"] = true.into();
+            assert!(serde_json::from_value::<Request>(unknown).is_err());
+        }
+        let value = serde_json::json!({"ok":true,"port":7341,"addresses":[],"removed":false});
+        let response: Response = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(response.port, Some(7341));
+        assert_eq!(response.addresses, Some(vec![]));
+        assert_eq!(serde_json::to_value(response).unwrap(), value);
+        assert_eq!(
+            serde_json::to_value(Response {
+                ok: true,
+                ..Default::default()
+            })
+            .unwrap(),
+            serde_json::json!({"ok":true})
+        );
+    }
 }

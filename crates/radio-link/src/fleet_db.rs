@@ -2,6 +2,7 @@ use crate::{
     admit::Standing,
     code::{Hints, JoinCode},
     computer_record::{self, APPS_MAX, ComputerBody, ComputerRecord, ROLES_MAX, SECTION_MAX},
+    endpoint,
     fleet::{self, FleetRecord},
     key,
     membership::{self, COMPUTERS_MAX, JoinAnswer, Known, REMOVED_MAX, RecordBody, SignedRecord},
@@ -14,20 +15,23 @@ use std::{
     collections::{BTreeMap, HashSet},
     fs::{self, OpenOptions},
     io::Write,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 pub const DB_FILE: &str = "fleet.db";
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 pub const JOIN_RECORDS_MAX: usize = 256 * 1024;
 pub const CODES_MAX: usize = 64;
 pub const TTL_DEFAULT: u64 = 30 * 60;
 pub const TTL_MIN: u64 = 60;
 pub const TTL_MAX: u64 = 24 * 60 * 60;
 pub const RECOVERY_FILE: &str = "recovery.key";
+pub const NOT_LINK_ADDRESS: &str = "not a link address";
+pub const FAMILY_TAKEN: &str =
+    "this computer already has a link address of that family; remove it first";
 const READ: &str = "fleet.db could not be read";
 const WRITE: &str = "fleet.db could not be written";
 const OPEN: &str = "fleet.db could not be opened";
@@ -89,6 +93,13 @@ CREATE TABLE computer_records (
     key TEXT PRIMARY KEY CHECK (length(key) = 64),
     version INTEGER NOT NULL CHECK (version >= 1),
     record TEXT NOT NULL
+) STRICT;
+";
+
+const SCHEMA_4: &str = "
+CREATE TABLE link_addresses (
+    ip TEXT PRIMARY KEY,
+    family INTEGER NOT NULL UNIQUE CHECK (family IN (4, 6))
 ) STRICT;
 ";
 
@@ -186,6 +197,77 @@ impl FleetDb {
             .map_err(|_| WRITE)?;
         migrate(&mut conn)?;
         Ok(Self { conn })
+    }
+
+    pub fn link_addresses(&self) -> Result<Vec<IpAddr>, &'static str> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT ip FROM link_addresses ORDER BY family")
+            .map_err(|_| READ)?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+            .map_err(|_| READ)?;
+        rows.into_iter()
+            .map(|ip| {
+                ip.parse::<IpAddr>()
+                    .map(|ip| ip.to_canonical())
+                    .map_err(|_| READ)
+            })
+            .collect()
+    }
+
+    pub fn add_link_address(&mut self, ip: IpAddr) -> Result<Vec<IpAddr>, &'static str> {
+        let ip = ip.to_canonical();
+        if !endpoint::link_ip(&ip) {
+            return Err(NOT_LINK_ADDRESS);
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        let family = if ip.is_ipv4() { 4 } else { 6 };
+        let stored: Option<String> = tx
+            .query_row(
+                "SELECT ip FROM link_addresses WHERE family = ?1",
+                [family],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| READ)?;
+        let ip = ip.to_string();
+        match stored {
+            Some(stored) if stored != ip => return Err(FAMILY_TAKEN),
+            Some(_) => {}
+            None => {
+                tx.execute(
+                    "INSERT INTO link_addresses (ip, family) VALUES (?1, ?2)",
+                    params![ip, family],
+                )
+                .map_err(|_| WRITE)?;
+            }
+        }
+        tx.commit().map_err(|_| WRITE)?;
+        self.link_addresses()
+    }
+
+    pub fn remove_link_address(&mut self, ip: IpAddr) -> Result<bool, &'static str> {
+        let ip = ip.to_canonical();
+        if !endpoint::link_ip(&ip) {
+            return Ok(false);
+        }
+        self.conn
+            .execute("DELETE FROM link_addresses WHERE ip = ?1", [ip.to_string()])
+            .map(|rows| rows != 0)
+            .map_err(|_| WRITE)
+    }
+
+    pub fn direct_addrs(&self) -> Result<Vec<SocketAddr>, &'static str> {
+        Ok(self
+            .link_addresses()?
+            .into_iter()
+            .map(|ip| SocketAddr::new(ip, endpoint::PORT))
+            .collect())
     }
 
     pub fn fleet(&self) -> Result<Option<FleetRecord>, &'static str> {
@@ -1398,10 +1480,12 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
             tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?;
         }
         2 => tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?,
+        3 => {}
         SCHEMA_VERSION => return Ok(()),
         value if value > SCHEMA_VERSION => return Err("fleet.db is newer than this build"),
         _ => return Err(READ),
     }
+    tx.execute_batch(SCHEMA_4).map_err(|_| WRITE)?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|_| WRITE)?;
     tx.commit().map_err(|_| WRITE)

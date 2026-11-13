@@ -172,6 +172,9 @@ impl Link {
         if self.gate.admission.standing(&peer) != Standing::Accepted {
             return Err("the computer is not let in");
         }
+        if addrs.is_empty() {
+            return Err(endpoint::NO_ADDRESS);
+        }
         let addrs = endpoint::usable(addrs)?;
         let addr = EndpointAddr::from_parts(peer, addrs.into_iter().map(TransportAddr::Ip));
         let connection = timeout(self.gate.limits.dial, self.endpoint.connect(addr, ALPN))
@@ -191,6 +194,9 @@ impl Link {
     ) -> Result<Connection, &'static str> {
         if self.gate.admission.standing(&peer) == Standing::Refused {
             return Err("the computer is not let in");
+        }
+        if addrs.is_empty() {
+            return Err(endpoint::NO_ADDRESS);
         }
         let addrs = endpoint::usable(addrs)?;
         let addr = EndpointAddr::from_parts(peer, addrs.into_iter().map(TransportAddr::Ip));

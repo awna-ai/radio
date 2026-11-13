@@ -9,6 +9,9 @@ use crate::admit::{Gate, Hooks};
 
 pub const ALPN: &[u8] = b"radio/1";
 pub const JOIN_ALPN: &[u8] = b"radio-join/1";
+pub const PORT: u16 = 7341;
+pub const NO_OWN_ADDRESS: &str = "this computer has no link address";
+pub const NO_ADDRESS: &str = "no address is known for that computer";
 pub const STREAMS: u32 = 16;
 const ADDRESS: &str = "the link address is not usable";
 
@@ -17,7 +20,7 @@ pub(crate) fn usable(addrs: &[SocketAddr]) -> Result<Vec<SocketAddr>, &'static s
     let mut ipv4 = false;
     let mut ipv6 = false;
     let Some(first) = addrs.first() else {
-        return Err(ADDRESS);
+        return Err(NO_OWN_ADDRESS);
     };
     for addr in addrs {
         let ip = addr.ip().to_canonical();
@@ -36,6 +39,11 @@ pub(crate) fn usable(addrs: &[SocketAddr]) -> Result<Vec<SocketAddr>, &'static s
 pub(crate) fn usable_ip(ip: &IpAddr) -> bool {
     let ip = ip.to_canonical();
     !ip.is_unspecified() && !ip.is_multicast() && !matches!(ip, IpAddr::V4(ip) if ip.is_broadcast())
+}
+
+pub fn link_ip(ip: &IpAddr) -> bool {
+    let ip = ip.to_canonical();
+    usable_ip(&ip) && !matches!(ip, IpAddr::V6(ip) if ip.segments()[0] & 0xffc0 == 0xfe80)
 }
 
 pub async fn bind(
@@ -66,4 +74,34 @@ pub async fn bind(
         .bind()
         .await
         .map_err(|_| "the link port could not be bound")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_addresses_need_no_interface_scope() {
+        for address in [
+            "127.0.0.1",
+            "10.0.0.2",
+            "100.64.0.7",
+            "::1",
+            "fd00::2",
+            "::ffff:10.0.0.2",
+        ] {
+            assert!(link_ip(&address.parse().unwrap()), "{address}");
+        }
+        for address in [
+            "0.0.0.0",
+            "::",
+            "224.0.0.1",
+            "255.255.255.255",
+            "ff02::1",
+            "fe80::1",
+            "febf::1",
+        ] {
+            assert!(!link_ip(&address.parse().unwrap()), "{address}");
+        }
+    }
 }

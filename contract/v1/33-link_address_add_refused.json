@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "link_address_add",
+    "address": "0.0.0.0"
+  },
+  "response": {
+    "ok": false,
+    "error": "not a link address"
+  },
+  "exact": true
+}

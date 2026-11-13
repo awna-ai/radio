@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 4
+Protocol minor: 5
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -80,11 +80,14 @@ them against these lines. They are independent of the repo's semver tags.
 | `computer_trust` | `computer` | `computer` | Marks an accepted computer trusted: the computers it invites from now on are accepted here without asking |
 | `resign` | `app`, optional `section`, optional `roles` | `record: {id, name, version, roles, section?}` | Re-signs this computer's record with the app's new section: a string of up to 4,096 bytes that Radio carries to the fleet's other computers and never reads. An empty `section` removes the app's section; without `section` it stays. `roles` (at most 8 names, by the computer-name rule) replaces the computer's roles; without it they stay. The app must be registered; a computer holds at most 8 apps' sections (`too many app sections`), and the whole record must fit 48 KiB as JSON (`the computer record is too large`). The record's name is the daemon's name (its host name, or `radio serve --name`), which must follow the computer-name rule (`not a computer name`). A change that changes nothing keeps the record and its version; otherwise the version rises. Answers the record with this app's section |
 | `computer_records` | `app` | `records: [{id, name, version, roles, section?}]` | This computer's record and those of the computers it has accepted, by id: each one's name, the newest version this computer holds, its roles and this app's section, when it has one. A record is kept only when it is signed by the computer it names and newer than the one held; a pending or blocked computer's record is kept but not listed until it is accepted |
+| `link_address_add` | `address` | `port`, `addresses` | Adds one of this computer's link addresses, the address its other computers reach it at (on a VPN, its VPN address). `address` is an IP address with no port: IPv4 or IPv6, never unspecified, multicast, broadcast or IPv6 link-local, and an IPv4-mapped IPv6 address is kept as IPv4. At most one of each family: a second is refused until the first is removed; adding one already there changes nothing. Works with or without a fleet, and leaving a fleet keeps them. `port` is the link's one fixed UDP port (7341); `addresses` is the list after the change, IPv4 first |
+| `link_address_list` | none | `port`, `addresses` | This computer's link addresses and the fixed port |
+| `link_address_remove` | `address` | `removed`, `port`, `addresses` | Removes one of this computer's link addresses; `removed` says whether it was there |
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
 client reads it as a word. Times are seconds since the Unix epoch.
 
-A join code is one line: `rj1.<fleet id>.<inviter id>.<secret>.<hints>`, where the fleet and inviter ids are 64 lowercase hex characters, the secret is 32 bytes and the hints are a JSON object `{"direct": ["<ip>:<port>", …]}`, both in unpadded base64url. Treat it as a password: pass it on standard input or through the socket, never on a command line, and never log it.
+A join code is one line: `rj1.<fleet id>.<inviter id>.<secret>.<hints>`, where the fleet and inviter ids are 64 lowercase hex characters, the secret is 32 bytes and the hints are a JSON object `{"direct": ["<ip>:<port>", …]}` listing exactly the inviting computer's link addresses on the fixed port when the code was made (none when it had none), both in unpadded base64url. Treat it as a password: pass it on standard input or through the socket, never on a command line, and never log it.
 
 A computer's record is signed by that computer's own key and carries its name, its link id, its roles, the addresses it can be reached at and one section per app (at most 8). Radio checks the signature and the version of every record it receives and carries the sections without reading them, so an app's section is for that app on the other computers to parse. Sections are not secret: every computer in the fleet holds them.
 

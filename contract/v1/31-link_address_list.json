@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "link_address_list"
+  },
+  "response": {
+    "ok": true,
+    "port": 7341,
+    "addresses": []
+  },
+  "exact": true
+}

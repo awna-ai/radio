@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 4
+      "minor": 5
     },
     "majors": [
       1
@@ -33,7 +33,10 @@
       "computer_block",
       "computer_trust",
       "resign",
-      "computer_records"
+      "computer_records",
+      "link_address_add",
+      "link_address_list",
+      "link_address_remove"
     ]
   },
   "exact": false

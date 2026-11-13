@@ -1,0 +1,14 @@
+{
+  "request": {
+    "v": 1,
+    "op": "link_address_remove",
+    "address": "127.0.0.1"
+  },
+  "response": {
+    "ok": true,
+    "port": 7341,
+    "removed": true,
+    "addresses": []
+  },
+  "exact": true
+}

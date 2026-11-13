@@ -855,3 +855,23 @@ async fn join_rechecks_the_code_before_handing_out_the_connection() {
     bounded(a.close()).await;
     bounded(b.close()).await;
 }
+
+#[tokio::test]
+async fn dials_without_addresses_fail_at_once() {
+    let (a, b, book, _) = pair(Limits::default()).await;
+    let start = Instant::now();
+    assert_eq!(
+        a.dial(b.id(), &[]).await.err(),
+        Some(radio_link::endpoint::NO_ADDRESS)
+    );
+    assert!(start.elapsed() < Duration::from_millis(200));
+    book.set(b.id(), Standing::Unknown);
+    let start = Instant::now();
+    assert_eq!(
+        a.dial_join(b.id(), &[]).await.err(),
+        Some(radio_link::endpoint::NO_ADDRESS)
+    );
+    assert!(start.elapsed() < Duration::from_millis(200));
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}

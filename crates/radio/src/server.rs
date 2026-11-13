@@ -7,6 +7,7 @@ use radio_rooms::{Author, OWNED, READ_MAX, RoomStore};
 use std::{
     fs,
     io::{Read, Write},
+    net::IpAddr,
     os::{
         fd::AsRawFd,
         unix::{
@@ -288,13 +289,12 @@ impl Server {
                 self.fleet_db()?;
                 let dir = self.link_dir.as_deref().unwrap();
                 let node = radio_link::key::load_or_create(dir)?;
-                let (code, row) = self.fleet_db()?.create_code(
-                    &node,
-                    name.as_deref(),
-                    ttl,
-                    radio_link::code::Hints::default(),
-                    now,
-                )?;
+                let hints = radio_link::code::Hints {
+                    direct: self.fleet_db()?.direct_addrs()?,
+                };
+                let (code, row) =
+                    self.fleet_db()?
+                        .create_code(&node, name.as_deref(), ttl, hints, now)?;
                 response.code = Some(code.encode());
                 response.code_id = Some(row.id);
                 response.expires_at = Some(row.expires_at);
@@ -366,6 +366,43 @@ impl Server {
                     &node.public().to_string(),
                     &app,
                 )?);
+            }
+            Request::LinkAddressAdd { address } => {
+                let db = self.fleet_db()?;
+                let ip = address
+                    .parse::<IpAddr>()
+                    .map_err(|_| radio_link::fleet_db::NOT_LINK_ADDRESS)?;
+                response.addresses = Some(
+                    db.add_link_address(ip)?
+                        .into_iter()
+                        .map(|ip| ip.to_string())
+                        .collect(),
+                );
+                response.port = Some(radio_link::endpoint::PORT);
+            }
+            Request::LinkAddressList {} => {
+                response.addresses = Some(
+                    self.fleet_db()?
+                        .link_addresses()?
+                        .into_iter()
+                        .map(|ip| ip.to_string())
+                        .collect(),
+                );
+                response.port = Some(radio_link::endpoint::PORT);
+            }
+            Request::LinkAddressRemove { address } => {
+                let db = self.fleet_db()?;
+                let ip = address
+                    .parse::<IpAddr>()
+                    .map_err(|_| radio_link::fleet_db::NOT_LINK_ADDRESS)?;
+                response.removed = Some(db.remove_link_address(ip)?);
+                response.addresses = Some(
+                    db.link_addresses()?
+                        .into_iter()
+                        .map(|ip| ip.to_string())
+                        .collect(),
+                );
+                response.port = Some(radio_link::endpoint::PORT);
             }
             Request::Register {
                 app,

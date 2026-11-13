@@ -17,7 +17,7 @@ use std::{
 #[path = "support/contract_match.rs"]
 mod contract_match;
 
-const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio id\n       radio fleet init <name>\n       radio code create [--name <name>] [--ttl <n>m|<n>h]\n       radio code list\n       radio code revoke <id>\n       radio computer list\n       radio computer accept <computer>\n       radio computer block <computer>\n       radio computer trust <computer>\n       radio resign --app <app> [--section <text> | --section-file <path|->] [--roles <role>,...]\n       radio computer records --app <app>\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>\n";
+const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio id\n       radio fleet init <name>\n       radio code create [--name <name>] [--ttl <n>m|<n>h]\n       radio code list\n       radio code revoke <id>\n       radio computer list\n       radio computer accept <computer>\n       radio computer block <computer>\n       radio computer trust <computer>\n       radio resign --app <app> [--section <text> | --section-file <path|->] [--roles <role>,...]\n       radio computer records --app <app>\n       radio link address add <address>\n       radio link address list\n       radio link address remove <address>\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>\n";
 
 #[test]
 fn invalid_arguments_and_names_print_only_usage() {
@@ -839,4 +839,27 @@ fn readme_python_example_runs() {
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert_eq!(output.stdout, b"1 ada The first draft is ready.\n");
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn link_address_commands_print_the_fixed_port() {
+    let daemon = Daemon::start();
+    for args in [
+        vec!["link", "address", "add", "127.0.0.1"],
+        vec!["link", "address", "list"],
+    ] {
+        let output = daemon.home.run(&args);
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        assert!(output.stderr.is_empty());
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains("\"port\":7341")
+        );
+        let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            answer,
+            serde_json::json!({"ok":true,"port":7341,"addresses":["127.0.0.1"]})
+        );
+    }
 }
