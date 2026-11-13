@@ -1,8 +1,10 @@
 use serde_json::Value;
 use std::{
+    ffi::OsStr,
     fs,
     io::{BufRead, BufReader, Write},
-    os::unix::{fs::PermissionsExt, net::UnixListener},
+    os::fd::{FromRawFd, OwnedFd},
+    os::unix::{ffi::OsStrExt, fs::PermissionsExt, net::UnixListener},
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     sync::{
@@ -37,6 +39,49 @@ fn invalid_arguments_and_names_print_only_usage() {
         assert!(output.stdout.is_empty());
         assert_eq!(output.stderr, USAGE.as_bytes());
     }
+}
+
+#[test]
+fn non_utf8_arguments_print_usage_and_send_nothing() {
+    let server = StandIn::start(r#"{"ok":true}"#);
+    let invalid = OsStr::from_bytes(&[0xff]);
+    for args in [
+        vec![
+            OsStr::new("post"),
+            OsStr::new("garden"),
+            OsStr::new("--as"),
+            OsStr::new("helper:a"),
+            OsStr::new("--body"),
+            invalid,
+        ],
+        vec![invalid],
+    ] {
+        let output = server.home.command(&[]).args(args).output().unwrap();
+        assert_usage(output);
+        server.assert_no_connection();
+    }
+}
+
+#[test]
+fn stderr_write_errors_preserve_the_usage_exit_code() {
+    let mut descriptors = [-1; 2];
+    // SAFETY: descriptors has room for both file descriptors returned by pipe.
+    assert_eq!(unsafe { libc::pipe(descriptors.as_mut_ptr()) }, 0);
+    // SAFETY: pipe succeeded and each descriptor is owned exactly once here.
+    let (reader, writer) = unsafe {
+        (
+            OwnedFd::from_raw_fd(descriptors[0]),
+            OwnedFd::from_raw_fd(descriptors[1]),
+        )
+    };
+    drop(reader);
+    let output = Command::new(env!("CARGO_BIN_EXE_radio"))
+        .arg("unknown")
+        .stderr(Stdio::from(writer))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
 }
 
 #[test]
@@ -235,6 +280,7 @@ impl StandIn {
                 }
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
                         stream
                             .set_read_timeout(Some(Duration::from_secs(5)))
                             .unwrap();
@@ -278,8 +324,59 @@ impl StandIn {
 impl Drop for StandIn {
     fn drop(&mut self) {
         let _ = self.stop.send(());
-        self.worker.take().unwrap().join().unwrap();
+        let result = self.worker.take().unwrap().join();
+        if !thread::panicking() {
+            result.unwrap();
+        }
     }
+}
+
+#[test]
+fn stand_in_waits_for_a_slow_request() {
+    use std::os::unix::net::UnixStream;
+    let server = StandIn::start(r#"{"ok":true}"#);
+    let mut stream = UnixStream::connect(radio_client::socket_path(&server.home.0)).unwrap();
+    thread::sleep(Duration::from_millis(100));
+    stream.write_all(b"{\"v\":1,\"op\":\"hello\"}\n").unwrap();
+    let mut answer = String::new();
+    BufReader::new(stream).read_line(&mut answer).unwrap();
+    assert_eq!(answer, "{\"ok\":true}\n");
+    assert_eq!(server.request(), serde_json::json!({"v": 1, "op": "hello"}));
+}
+
+#[test]
+fn stand_in_drop_handles_a_worker_panic_during_unwind() {
+    fn failed_worker() -> StandIn {
+        let (_, requests) = mpsc::channel();
+        let (stop, _) = mpsc::channel();
+        StandIn {
+            home: Home::new(),
+            requests,
+            stop,
+            worker: Some(thread::spawn(|| panic!("worker failed"))),
+        }
+    }
+    if std::env::var_os("RADIO_TEST_UNWIND").is_some() {
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _server = failed_worker();
+                panic!("outer failure");
+            })
+            .is_err()
+        );
+        return;
+    }
+    assert!(std::panic::catch_unwind(|| drop(failed_worker())).is_err());
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "stand_in_drop_handles_a_worker_panic_during_unwind",
+            "--test-threads=2",
+        ])
+        .env("RADIO_TEST_UNWIND", "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
 }
 
 fn fixture_commands() -> Vec<(usize, Vec<&'static str>)> {
@@ -445,6 +542,7 @@ fn commands_replay_the_contract_against_a_real_daemon() {
 fn daemon_answer_bytes_and_exit_codes_are_preserved() {
     for (answer, code) in [
         (r#"{"ok":true,  "later":{"b":1,"a":2}}"#, 0),
+        (r#"{"ok":true,"refused":true}"#, 0),
         (r#"{"ok":false,"error":"x","refused":true}"#, 3),
         (r#"{"ok":false,"error":"x"}"#, 1),
     ] {
@@ -596,8 +694,76 @@ fn a_body_larger_than_a_request_sends_nothing() {
 }
 
 #[test]
+fn an_unbounded_body_file_is_rejected_within_five_seconds() {
+    let server = StandIn::start(r#"{"ok":true}"#);
+    let mut child = server
+        .home
+        .command(&[
+            "post",
+            "garden",
+            "--as",
+            "helper:juniper",
+            "--body-file",
+            "/dev/zero",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("body-file read did not finish within 5 seconds");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(output.stderr, b"radio: the message is empty or too long\n");
+    server.assert_no_connection();
+}
+
+#[test]
+fn body_file_errors_send_nothing() {
+    let server = StandIn::start(r#"{"ok":true}"#);
+    let invalid = server.home.0.join("invalid-body");
+    fs::write(&invalid, [0xff]).unwrap();
+    for (path, stderr) in [
+        (
+            server.home.0.join("missing-body"),
+            "radio: the body file could not be read\n",
+        ),
+        (invalid, "radio: the body is not UTF-8\n"),
+    ] {
+        let output = server.home.run(&[
+            "post",
+            "garden",
+            "--as",
+            "helper:juniper",
+            "--body-file",
+            path.to_str().unwrap(),
+        ]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.stderr, stderr.as_bytes());
+        server.assert_no_connection();
+    }
+}
+
+#[test]
 fn readme_python_example_runs() {
-    let available = Command::new("python3").arg("--version").output();
+    let binary_folder = Path::new(env!("CARGO_BIN_EXE_radio")).parent().unwrap();
+    let python_path = format!("{}:/usr/bin:/bin", binary_folder.display());
+    let available = Command::new("python3")
+        .arg("--version")
+        .env("PATH", &python_path)
+        .output();
     if matches!(&available, Err(error) if error.kind() == std::io::ErrorKind::NotFound) {
         assert_ne!(
             std::env::var("RADIO_STRICT").as_deref(),
@@ -627,11 +793,10 @@ fn readme_python_example_runs() {
         .0;
     let script = daemon.home.0.join("example.py");
     fs::write(&script, python).unwrap();
-    let binary_folder = Path::new(env!("CARGO_BIN_EXE_radio")).parent().unwrap();
     let output = Command::new("python3")
         .arg(script)
         .env("HOME", &daemon.home.0)
-        .env("PATH", format!("{}:/usr/bin:/bin", binary_folder.display()))
+        .env("PATH", &python_path)
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{output:?}");

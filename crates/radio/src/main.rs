@@ -231,8 +231,12 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
 }
 
 fn main() {
-    if let Err((code, message)) = run(&env::args().skip(1).collect::<Vec<_>>()) {
-        eprintln!("{message}");
+    let args = env::args_os()
+        .skip(1)
+        .map(|arg| arg.into_string().map_err(|_| (2, USAGE.into())))
+        .collect::<Result<Vec<_>, _>>();
+    if let Err((code, message)) = args.and_then(|args| run(&args)) {
+        let _ = writeln!(io::stderr(), "{message}");
         std::process::exit(code);
     }
 }

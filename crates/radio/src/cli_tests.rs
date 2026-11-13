@@ -2,7 +2,8 @@ use super::{BodySource, Command, parse};
 use radio_client::{Member, REQUEST_MAX_BYTES, Request};
 use std::{
     fs,
-    io::{self, Cursor, Read},
+    io::{self, Cursor, Read, Write},
+    os::unix::fs::PermissionsExt,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -30,6 +31,32 @@ fn post() -> Request {
 fn valid_commands_preserve_requests_and_body_sources() {
     let cases = vec![
         (vec!["hello"], Request::Hello {}, None),
+        (
+            vec!["room", "create", "--garden", "--title", "Garden"],
+            Request::CreateRoom {
+                room: "--garden".into(),
+                title: "Garden".into(),
+            },
+            None,
+        ),
+        (
+            vec!["read", "--garden"],
+            Request::Read {
+                room: "--garden".into(),
+                since: None,
+                limit: None,
+            },
+            None,
+        ),
+        (
+            vec!["line", "clear", "garden", "--k", "--as", "human:sam"],
+            Request::StatusClear {
+                room: "garden".into(),
+                key: "--k".into(),
+                author: member("human", "sam"),
+            },
+            None,
+        ),
         (
             vec!["register", "--app", "lantern", "--app-version", "1.0.0"],
             Request::Register {
@@ -314,7 +341,6 @@ fn invalid_commands_are_usage_errors() {
         &["line", "drop", "garden"],
         &["hello", "extra"],
         &["room", "create"],
-        &["room", "create", "--garden", "--title", "Garden"],
         &["room", "create", "garden", "extra", "--title", "Garden"],
         &["room", "create", "garden", "--title"],
         &["room", "create", "garden", "--unknown", "Garden"],
@@ -386,7 +412,6 @@ fn invalid_commands_are_usage_errors() {
             "hello",
         ],
         &["read"],
-        &["read", "--garden"],
         &["read", "garden", "extra"],
         &["line", "list"],
         &["line", "set", "garden", "mood"],
@@ -494,6 +519,27 @@ fn invalid_commands_are_usage_errors() {
     }
 }
 
+#[test]
+fn body_files_have_a_fresh_private_directory_and_remove_it_on_drop() {
+    let file = BodyFile::new(b"body");
+    let directory = file.0.parent().unwrap().to_path_buf();
+    assert!(
+        directory
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("rd-body-")
+    );
+    assert_eq!(
+        fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(fs::read(&file.0).unwrap(), b"body");
+    drop(file);
+    assert!(!directory.exists());
+}
+
 struct BodyFile(PathBuf);
 
 impl BodyFile {
@@ -504,14 +550,23 @@ impl BodyFile {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::write(&path, bytes).unwrap();
-        Self(path)
+        fs::create_dir(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        let file = path.join("body");
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&file)
+            .unwrap()
+            .write_all(bytes)
+            .unwrap();
+        Self(file)
     }
 }
 
 impl Drop for BodyFile {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        let _ = fs::remove_dir_all(self.0.parent().unwrap());
     }
 }
 
@@ -578,9 +633,9 @@ fn invalid_body_files_report_read_and_encoding_errors() {
         Err((2, "radio: the body is not UTF-8".into()))
     );
     let missing = BodyFile::new(b"");
-    fs::remove_file(&missing.0).unwrap();
+    let missing_path = missing.0.parent().unwrap().join("missing");
     assert_eq!(
-        resolve(BodySource::File(missing.0.clone()), io::empty()),
+        resolve(BodySource::File(missing_path), io::empty()),
         Err((2, "radio: the body file could not be read".into()))
     );
     struct FailingReader;
