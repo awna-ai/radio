@@ -51,6 +51,7 @@ pub async fn bind(
             QuicTransportConfig::builder()
                 .max_concurrent_bidi_streams(STREAMS.into())
                 .max_concurrent_uni_streams(0u32.into())
+                .datagram_receive_buffer_size(None)
                 .build(),
         )
         .hooks(Hooks(gate))

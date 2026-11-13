@@ -48,6 +48,7 @@ fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path, hostile: &Path)
                     ".hooks(",
                     "max_concurrent_uni_streams(0",
                     "JOIN_ALPN",
+                    ".datagram_receive_buffer_size(None)",
                 ] {
                     assert!(
                         source.contains(required),

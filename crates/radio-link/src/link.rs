@@ -257,10 +257,17 @@ async fn serve_stream(
                         name: local.name,
                     },
                 };
-                events
-                    .send(Event::Hello { from, hello })
-                    .await
-                    .map_err(|_| UNANSWERED)?;
+                let permit = events.reserve().await.map_err(|_| UNANSWERED)?;
+                if gate.admission.standing(&from) != Standing::Accepted
+                    || connection.close_reason().is_some()
+                {
+                    if connection.close_reason().is_none() {
+                        connection.close(REFUSED.into(), &[]);
+                    }
+                    drop(permit);
+                    return Ok(());
+                }
+                permit.send(Event::Hello { from, hello });
                 frame::write(&mut send, &answer, CONTROL_CAP).await?;
                 send.finish().map_err(|_| UNANSWERED)?;
             }
@@ -268,10 +275,17 @@ async fn serve_stream(
                 if !wire::valid_app(&to, &app, &id) {
                     return Err(UNANSWERED);
                 }
-                events
-                    .send(Event::App { from, app, body })
-                    .await
-                    .map_err(|_| UNANSWERED)?;
+                let permit = events.reserve().await.map_err(|_| UNANSWERED)?;
+                if gate.admission.standing(&from) != Standing::Accepted
+                    || connection.close_reason().is_some()
+                {
+                    if connection.close_reason().is_none() {
+                        connection.close(REFUSED.into(), &[]);
+                    }
+                    drop(permit);
+                    return Ok(());
+                }
+                permit.send(Event::App { from, app, body });
                 frame::write(&mut send, &Answer::Ok, CONTROL_CAP).await?;
                 send.finish().map_err(|_| UNANSWERED)?;
             }

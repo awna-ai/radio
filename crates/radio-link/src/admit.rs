@@ -7,7 +7,7 @@ use std::{
 use iroh::{
     EndpointAddr, EndpointId,
     endpoint::{
-        AfterHandshakeOutcome, BeforeConnectOutcome, Connection, EndpointHooks,
+        AfterHandshakeOutcome, BeforeConnectOutcome, Connection, EndpointHooks, Side,
         WeakConnectionHandle,
     },
 };
@@ -26,6 +26,7 @@ pub enum Standing {
     Unknown,
 }
 
+/// Never call `close_key` while holding a lock used by `standing` or `join_open`; apply the change, release the lock, then close the key.
 pub trait Admission: Send + Sync + 'static {
     fn standing(&self, key: &EndpointId) -> Standing;
     fn join_open(&self) -> bool;
@@ -96,6 +97,7 @@ impl Gate {
         })
     }
 
+    /// Never call while holding a lock used by your `standing` or `join_open`; apply the change, release the lock, then close the key.
     pub fn close_key(&self, key: &EndpointId) {
         let mut live = self.live.lock().unwrap();
         live.retain(|entry| {
@@ -133,7 +135,12 @@ impl EndpointHooks for Gate {
         let standing = self.admission.standing(&key);
         let join = match conn.alpn() {
             ALPN if standing == Standing::Accepted => false,
-            JOIN_ALPN if standing != Standing::Refused && self.admission.join_open() => true,
+            JOIN_ALPN
+                if standing != Standing::Refused
+                    && (conn.side() == Side::Client || self.admission.join_open()) =>
+            {
+                true
+            }
             _ => return refuse(),
         };
         live.retain(|entry| {

@@ -176,22 +176,14 @@ async fn hook_refuses_unknown_and_removed_keys_with_empty_reasons() {
         let a_book = Book::new();
         a_book.set_join(true);
         let b_book = Book::new();
-        b_book.set_join(true);
         let (a, mut events) = bind(a_book.clone(), Limits::default()).await;
         let b = raw_bind(b_book.clone(), Limits::default()).await;
         a_book.set(b.id(), standing);
         b_book.set(a.id(), Standing::Accepted);
         let connection = b.connect(&a, alpn).await;
-        if let Ok((mut send, _)) = bounded(connection.open_bi()).await {
-            let _ = bounded(frame::write(
-                &mut send,
-                &Request::Hello { hello: hello() },
-                CONTROL_CAP,
-            ))
-            .await;
-            let _ = send.finish();
-        }
-        closed(&connection, REFUSED).await;
+        timeout(Duration::from_secs(2), closed(&connection, REFUSED))
+            .await
+            .unwrap();
         empty(&mut events).await;
         bounded(a.close()).await;
         bounded(b.close()).await;
@@ -199,10 +191,57 @@ async fn hook_refuses_unknown_and_removed_keys_with_empty_reasons() {
 }
 
 #[tokio::test]
+async fn refused_hello_sends_no_event() {
+    let a_book = Book::new();
+    let b_book = Book::new();
+    let (a, mut events) = bind(a_book.clone(), Limits::default()).await;
+    let b = raw_bind(b_book.clone(), Limits::default()).await;
+    a_book.set(b.id(), Standing::Refused);
+    b_book.set(a.id(), Standing::Accepted);
+    let connection = b.connect(&a, ALPN).await;
+    if let Ok((mut send, _)) = bounded(connection.open_bi()).await {
+        let _ = bounded(frame::write(
+            &mut send,
+            &Request::Hello { hello: hello() },
+            CONTROL_CAP,
+        ))
+        .await;
+        let _ = send.finish();
+    }
+    closed(&connection, REFUSED).await;
+    empty(&mut events).await;
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}
+
+#[tokio::test]
+async fn dialer_without_an_open_join_receives_admission_from_inviter() {
+    let book = Book::new();
+    book.set_join(true);
+    let (a, mut events) = bind(book, Limits::default()).await;
+    let client_book = Book::new();
+    assert!(!client_book.join_open());
+    let b = raw_bind(client_book, Limits::default()).await;
+    let connection = b.connect(&a, JOIN_ALPN).await;
+    match bounded(events.recv()).await.unwrap() {
+        Event::Join {
+            from,
+            connection: accepted,
+        } => {
+            assert_eq!(from, b.id());
+            assert_eq!(accepted.remote_id(), b.id());
+            assert!(connection.close_reason().is_none());
+        }
+        _ => panic!("expected join"),
+    }
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}
+
+#[tokio::test]
 async fn join_is_admitted_only_while_open() {
     let a_book = Book::new();
     let b_book = Book::new();
-    b_book.set_join(true);
     let (a, mut events) = bind(a_book.clone(), Limits::default()).await;
     let b = raw_bind(b_book.clone(), Limits::default()).await;
     b_book.set(a.id(), Standing::Accepted);
@@ -331,7 +370,6 @@ async fn caps_join_connections_and_reuses_closed_slots() {
     let mut joins = Vec::new();
     for _ in 0..5 {
         let book = Book::new();
-        book.set_join(true);
         book.set(a.id(), Standing::Accepted);
         clients.push(raw_bind(book, Limits::default()).await);
     }
@@ -515,6 +553,72 @@ async fn every_stream_rechecks_admission_and_close_key_closes_all_connections() 
 }
 
 #[tokio::test]
+async fn closed_key_cannot_deliver_events_after_the_channel_drains() {
+    for app in [true, false] {
+        let book = Book::new();
+        let a = bounded(radio_link::link::Link::bind(
+            SecretKey::generate(),
+            &["127.0.0.1:0".parse().unwrap()],
+            book.clone(),
+            Limits::default(),
+            radio_link::link::Local {
+                name: "garden".into(),
+                sha: SHA.into(),
+            },
+        ))
+        .await
+        .unwrap();
+        let (sender, mut events) = tokio::sync::mpsc::channel(1);
+        sender
+            .try_send(Event::Hello {
+                from: a.id(),
+                hello: hello(),
+            })
+            .unwrap();
+        a.serve(sender);
+        let b_book = Book::new();
+        let (b, _) = bind(b_book.clone(), Limits::default()).await;
+        book.set(b.id(), Standing::Accepted);
+        b_book.set(a.id(), Standing::Accepted);
+        let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+        let (mut send, mut recv) = bounded(peer.connection().open_bi()).await.unwrap();
+        let request = if app {
+            Request::App {
+                to: a.id().to_string(),
+                app: "lantern".into(),
+                body: "opaque".into(),
+            }
+        } else {
+            Request::Hello { hello: hello() }
+        };
+        bounded(frame::write(&mut send, &request, CONTROL_CAP))
+            .await
+            .unwrap();
+        send.finish().unwrap();
+        assert!(
+            timeout(Duration::from_millis(100), recv.read_to_end(CONTROL_CAP))
+                .await
+                .is_err()
+        );
+        book.set(b.id(), Standing::Refused);
+        a.close_key(&b.id());
+        closed(peer.connection(), REFUSED).await;
+        match bounded(events.recv()).await.unwrap() {
+            Event::Hello { from, .. } => assert_eq!(from, a.id()),
+            _ => panic!("expected filler event"),
+        }
+        assert!(
+            timeout(Duration::from_millis(500), events.recv())
+                .await
+                .is_err(),
+            "a closed key delivered an event"
+        );
+        bounded(a.close()).await;
+        bounded(b.close()).await;
+    }
+}
+
+#[tokio::test]
 async fn blocked_hello_events_bound_stream_tasks_and_recover_after_draining() {
     let book = Book::new();
     let a = bounded(radio_link::link::Link::bind(
@@ -602,7 +706,6 @@ async fn join_deadline_closes_even_a_connection_held_by_the_receiver() {
     )
     .await;
     let client_book = Book::new();
-    client_book.set_join(true);
     client_book.set(a.id(), Standing::Accepted);
     let b = raw_bind(client_book, Limits::default()).await;
     let started = Instant::now();
@@ -651,7 +754,6 @@ async fn join_rechecks_the_code_before_handing_out_the_connection() {
     let (sender, mut events) = tokio::sync::mpsc::channel(1);
     a.serve(sender);
     let book = Book::new();
-    book.set_join(true);
     book.set(a.id(), Standing::Accepted);
     let b = raw_bind(book, Limits::default()).await;
     closed(&b.connect(&a, JOIN_ALPN).await, REFUSED).await;
