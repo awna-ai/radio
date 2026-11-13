@@ -90,6 +90,13 @@ fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path) {
 #[test]
 fn only_one_endpoint_builder_and_no_early_data() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let manifest = crates.parent().unwrap().join("Cargo.toml");
+    let source = fs::read_to_string(&manifest).unwrap();
+    assert!(
+        !source.contains("iroh"),
+        "{}: transport dependency outside its crate",
+        manifest.display()
+    );
     scan(
         crates,
         &crates.join("radio-link/src/endpoint.rs"),
