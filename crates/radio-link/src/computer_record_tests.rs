@@ -133,3 +133,16 @@ fn unknown_fields_are_refused() {
     record["body"]["extra"] = json!(true);
     assert!(serde_json::from_value::<ComputerRecord>(record).is_err());
 }
+
+#[test]
+fn debug_hides_sections_and_roles() {
+    let node = iroh::SecretKey::generate();
+    let mut body = body(&node);
+    body.apps.insert("lantern".into(), "private section".into());
+    let record = sign(body, &node);
+    let debug = format!("{record:?}");
+    assert!(debug.contains("garden"));
+    assert!(!debug.contains("private section"));
+    assert!(!debug.contains("hub"));
+    assert!(debug.contains("<hidden>"));
+}

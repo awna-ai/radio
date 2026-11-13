@@ -1635,7 +1635,7 @@ fn records_cross_the_socket() {
         .with_link_dir(link.clone())
         .with_fleet_db(fleet_path.clone())
         .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
-    let worker = start(server, 15);
+    let worker = start(server, 18);
     let send = |request: &Request| {
         let mut value = serde_json::to_value(request).unwrap();
         value["v"] = 1.into();
@@ -1693,7 +1693,11 @@ fn records_cross_the_socket() {
     assert!(second["record"]["version"].as_u64().unwrap() > version);
     assert_eq!(second["record"]["roles"], first["record"]["roles"]);
     assert_eq!(second["record"]["section"], "b");
-    let cleared = send(&resign(None, None));
+    let roles_only = send(&resign(None, Some(vec!["hub".into()])));
+    assert_eq!(roles_only["ok"], true);
+    assert_eq!(roles_only["record"]["section"], "b");
+    assert_eq!(roles_only["record"]["roles"], serde_json::json!(["hub"]));
+    let cleared = send(&resign(Some(""), None));
     assert_eq!(cleared["ok"], true);
     assert!(cleared["record"].get("section").is_none());
     assert_eq!(
@@ -1745,12 +1749,53 @@ fn records_cross_the_socket() {
         &meadow,
     );
     db.apply_computer(&node.public(), &record).unwrap();
+    let pending = SecretKey::from_bytes(&[22; 32]);
+    let introduction = membership::sign(
+        membership::RecordBody::Introduction {
+            fleet: code.fleet.clone(),
+            inviter: meadow.public().to_string(),
+            counter: 1,
+            newcomer: pending.public().to_string(),
+            name: "cedar".into(),
+            addrs: addrs.to_vec(),
+            consent: membership::consent(
+                &pending,
+                &code.fleet,
+                &meadow.public().to_string(),
+                "cedar",
+                &addrs,
+            ),
+        },
+        &meadow,
+    );
+    db.apply(&node.public(), "test-host", &introduction, now().unwrap())
+        .unwrap();
+    let mut pending_body = record.body.clone();
+    pending_body.key = pending.public().to_string();
+    pending_body.name = "cedar".into();
+    db.apply_computer(
+        &node.public(),
+        &computer_record::sign(pending_body, &pending),
+    )
+    .unwrap();
     let mut expected = vec![
         cleared["record"].clone(),
         serde_json::json!({
             "id":meadow.public().to_string(),"name":"meadow","version":1,"roles":[],"section":section
         }),
     ];
+    expected.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    assert_eq!(
+        send(&records("lantern")),
+        serde_json::json!({"ok":true,"records":expected})
+    );
+    let accepted = send(&Request::ComputerAccept {
+        computer: "cedar".into(),
+    });
+    assert_eq!(accepted["ok"], true);
+    expected.push(serde_json::json!({
+        "id":pending.public().to_string(),"name":"cedar","version":1,"roles":[],"section":section
+    }));
     expected.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
     assert_eq!(
         send(&records("lantern")),
@@ -1798,4 +1843,101 @@ fn records_cross_the_socket() {
             "op=\"resign\" error=\"not a role\"",
         ]
     );
+}
+
+#[test]
+fn listed_records_in_process_follow_local_acceptance() {
+    use radio_link::{
+        SecretKey,
+        computer_record::{self, ComputerBody},
+        fleet_db::FleetDb,
+        membership,
+    };
+    let fixture = Fixture::new();
+    let node = SecretKey::generate();
+    let inviter = SecretKey::generate();
+    let peer = SecretKey::generate();
+    let mut db = FleetDb::open(&fixture.0.join("fleet.db")).unwrap();
+    let (fleet, _) = db.found(&node, "garden", &fixture.0.join("link")).unwrap();
+    let own = db
+        .resign(
+            &node,
+            "garden",
+            &[],
+            "lantern",
+            Some("own section"),
+            None,
+            10.0,
+        )
+        .unwrap();
+    // An untrusted inviter's introduction leaves the newcomer pending.
+    let (code, _) = db
+        .create_code(&node, None, None, Default::default(), 10.0)
+        .unwrap();
+    let addrs = ["127.0.0.1:7000".parse().unwrap()];
+    db.admit(
+        &node,
+        "garden",
+        &[],
+        &code,
+        &inviter.public(),
+        "birch",
+        &addrs,
+        &membership::consent(
+            &inviter,
+            &fleet.body.id,
+            &node.public().to_string(),
+            "birch",
+            &addrs,
+        ),
+        10.0,
+    )
+    .unwrap();
+    let introduction = membership::sign(
+        membership::RecordBody::Introduction {
+            fleet: fleet.body.id.clone(),
+            inviter: inviter.public().to_string(),
+            counter: 1,
+            newcomer: peer.public().to_string(),
+            name: "cedar".into(),
+            addrs: addrs.to_vec(),
+            consent: membership::consent(
+                &peer,
+                &fleet.body.id,
+                &inviter.public().to_string(),
+                "cedar",
+                &addrs,
+            ),
+        },
+        &inviter,
+    );
+    db.apply(&node.public(), "garden", &introduction, 11.0)
+        .unwrap();
+    let record = computer_record::sign(
+        ComputerBody {
+            fleet: fleet.body.id,
+            key: peer.public().to_string(),
+            version: 1,
+            name: "cedar".into(),
+            roles: vec![],
+            addrs: addrs.to_vec(),
+            apps: [("lantern".into(), "peer section".into())].into(),
+        },
+        &peer,
+    );
+    db.apply_computer(&node.public(), &record).unwrap();
+    let own = computer_record(own, "lantern");
+    let peer_record = computer_record(record.clone(), "lantern");
+    let list =
+        |db: &FleetDb| listed_computer_records(db, &node.public().to_string(), "lantern").unwrap();
+    assert_eq!(list(&db), vec![own.clone()]);
+    db.accept("cedar").unwrap();
+    let mut expected = vec![own.clone(), peer_record];
+    expected.sort_by(|a, b| a.id.cmp(&b.id));
+    assert_eq!(list(&db), expected);
+    db.block("cedar").unwrap();
+    assert_eq!(list(&db), vec![own]);
+    assert_eq!(db.computer_record(&peer.public()).unwrap(), Some(record));
+    db.accept("cedar").unwrap();
+    assert_eq!(list(&db), expected);
 }

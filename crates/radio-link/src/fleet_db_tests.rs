@@ -2399,11 +2399,22 @@ fn resign_versions_only_changes_and_keeps_omitted_roles_and_addresses() {
         Ok(second.clone())
     );
     assert_eq!(db.conn.total_changes(), writes);
-    assert_eq!(db.computer_records().unwrap(), vec![second]);
-    let removed = db
-        .resign(&node, "garden", &[], "lantern", None, None, 10.125)
+    assert_eq!(db.computer_records().unwrap(), vec![second.clone()]);
+    assert_eq!(
+        db.resign(&node, "garden", &[], "lantern", None, None, 99.0),
+        Ok(second.clone())
+    );
+    assert_eq!(db.conn.total_changes(), writes);
+    let roles_only = db
+        .resign(&node, "garden", &[], "lantern", None, Some(&[]), 10.125)
         .unwrap();
-    assert_eq!(removed.body.version, 10127);
+    assert_eq!(roles_only.body.apps, second.body.apps);
+    assert!(roles_only.body.roles.is_empty());
+    assert_eq!(roles_only.body.version, 10127);
+    let removed = db
+        .resign(&node, "garden", &[], "lantern", Some(""), None, 10.125)
+        .unwrap();
+    assert_eq!(removed.body.version, 10128);
     assert!(removed.body.apps.is_empty());
     let temp = Temp::new();
     let (mut db, node) = temp.found();
@@ -2432,7 +2443,6 @@ fn resign_refuses_invalid_inputs_and_limits_without_writing() {
     let many_roles: Vec<_> = (0..=ROLES_MAX).map(|i| format!("role{i}")).collect();
     for (name, app, section, roles, phrase) in [
         ("garden", "Lantern", Some("one"), None, "not an app name"),
-        ("garden", "lantern", Some(""), None, "not a section"),
         (
             "garden",
             "lantern",
@@ -2781,4 +2791,21 @@ fn admitting_skips_records_signed_before_a_computer_was_renamed() {
         .open()
         .joined(&newcomer.public(), &code, &answer, 11.0)
         .unwrap();
+}
+
+#[test]
+fn readmitting_under_a_new_name_drops_the_old_computer_record() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = iroh::SecretKey::generate();
+    admit_new(&mut db, &node, &peer, "birch", 10.0);
+    let record = computer_record(&db, &peer, "birch", 1);
+    db.apply_computer(&node.public(), &record).unwrap();
+    admit_new(&mut db, &node, &peer, "cedar", 11.0);
+    assert!(db.computer_records().unwrap().is_empty());
+    let other = iroh::SecretKey::generate();
+    admit_new(&mut db, &node, &other, "birch", 12.0);
+    let record = computer_record(&db, &other, "birch", 1);
+    db.apply_computer(&node.public(), &record).unwrap();
+    assert_eq!(db.computer_records().unwrap(), vec![record]);
 }

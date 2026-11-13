@@ -924,6 +924,11 @@ fn resign_resolves_sections_and_preserves_optional_roles() {
             serde_json::json!({"op":"resign","app":"lantern"}),
         ),
         (
+            vec!["resign", "--app", "lantern", "--section", ""],
+            "",
+            serde_json::json!({"op":"resign","app":"lantern","section":""}),
+        ),
+        (
             vec!["resign", "--app", "lantern", "--roles", ""],
             "",
             serde_json::json!({"op":"resign","app":"lantern","roles":[]}),

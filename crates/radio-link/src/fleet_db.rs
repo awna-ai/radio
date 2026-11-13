@@ -311,13 +311,10 @@ impl FleetDb {
         if !wire::app_name(app) {
             return Err("not an app name");
         }
-        if let Some(section) = section {
-            if section.is_empty() {
-                return Err("not a section");
-            }
-            if section.len() > SECTION_MAX {
-                return Err("the section is too large");
-            }
+        if let Some(section) = section
+            && section.len() > SECTION_MAX
+        {
+            return Err("the section is too large");
         }
         let roles = roles.map(|roles| {
             let mut roles = roles.to_vec();
@@ -358,9 +355,11 @@ impl FleetDb {
             body.roles = roles;
         }
         if let Some(section) = section {
-            body.apps.insert(app.into(), section.into());
-        } else {
-            body.apps.remove(app);
+            if section.is_empty() {
+                body.apps.remove(app);
+            } else {
+                body.apps.insert(app.into(), section.into());
+            }
         }
         if body.apps.len() > APPS_MAX {
             return Err("too many app sections");
@@ -490,7 +489,11 @@ impl FleetDb {
             return Err("the name is taken");
         }
         consume(&tx, code, now)?;
-        let introduction = if current.is_some() {
+        let introduction = if let Some(current) = current {
+            if current.name.as_deref() != Some(name) {
+                tx.execute("DELETE FROM computer_records WHERE key = ?1", [&key])
+                    .map_err(|_| WRITE)?;
+            }
             tx.execute(
                 "UPDATE computers SET state = 'accepted', name = ?2, addrs = ?3 WHERE key = ?1",
                 params![key, name, serde_json::to_string(addrs).map_err(|_| WRITE)?],

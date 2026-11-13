@@ -8,7 +8,7 @@ pub const APPS_MAX: usize = 8;
 pub const SECTION_MAX: usize = 4096;
 pub const COMPUTER_RECORD_MAX: usize = 48 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComputerBody {
     pub fleet: String,
@@ -18,6 +18,19 @@ pub struct ComputerBody {
     pub roles: Vec<String>,
     pub addrs: Vec<SocketAddr>,
     pub apps: BTreeMap<String, String>,
+}
+impl std::fmt::Debug for ComputerBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ComputerBody")
+            .field("fleet", &self.fleet)
+            .field("key", &self.key)
+            .field("version", &self.version)
+            .field("name", &self.name)
+            .field("addrs", &self.addrs)
+            .field("roles", &"<hidden>")
+            .field("apps", &"<hidden>")
+            .finish()
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

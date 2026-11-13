@@ -358,14 +358,14 @@ impl Server {
                 if !radio_link::wire::app_name(&app) {
                     return Err("not an app name".into());
                 }
-                let db = self.fleet_db()?;
-                db.fleet()?.ok_or("not in a fleet")?;
-                response.records = Some(
-                    db.computer_records()?
-                        .into_iter()
-                        .map(|record| computer_record(record, &app))
-                        .collect(),
-                );
+                self.fleet_db()?.fleet()?.ok_or("not in a fleet")?;
+                let dir = self.link_dir.as_deref().ok_or("the link is not set up")?;
+                let node = radio_link::key::load_or_create(dir)?;
+                response.records = Some(listed_computer_records(
+                    self.fleet_db()?,
+                    &node.public().to_string(),
+                    &app,
+                )?);
             }
             Request::Register {
                 app,
@@ -653,6 +653,25 @@ fn computer(row: radio_link::fleet_db::Computer) -> Computer {
         invited_by: row.invited_by,
         trusted: row.trusted,
     }
+}
+
+fn listed_computer_records(
+    db: &radio_link::fleet_db::FleetDb,
+    own: &str,
+    app: &str,
+) -> Result<Vec<radio_client::ComputerRecord>, &'static str> {
+    let accepted: std::collections::HashSet<_> = db
+        .computers()?
+        .into_iter()
+        .filter(|computer| computer.state == radio_link::fleet_db::State::Accepted)
+        .map(|computer| computer.key)
+        .collect();
+    Ok(db
+        .computer_records()?
+        .into_iter()
+        .filter(|record| record.body.key == own || accepted.contains(&record.body.key))
+        .map(|record| computer_record(record, app))
+        .collect())
 }
 
 fn computer_record(
