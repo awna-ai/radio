@@ -85,6 +85,7 @@ fn refuses_loose_and_damaged_files_unchanged() {
         assert!(fs::read(temp.key()).unwrap() == before);
         assert_eq!(mode(&temp.key()), permissions);
         assert_eq!(fs::metadata(temp.key()).unwrap().uid(), owner);
+        assert_no_backup_attribute(&temp.key());
     }
 }
 #[test]
@@ -115,6 +116,8 @@ fn refuses_key_symlink_directory_and_fifo_without_changing_them() {
             (before.mode(), before.uid(), before.ino(), before.len()),
             (after.mode(), after.uid(), after.ino(), after.len())
         );
+        assert_no_backup_attribute(&temp.key());
+        assert_no_backup_attribute(&target.key());
         assert!(fs::read(target.key()).unwrap() == bytes);
         assert_eq!(mode(&target.key()), 0o600);
         if kind == 0 {
@@ -166,45 +169,108 @@ fn concurrent_creation_keeps_one_key_and_no_temporary_files() {
     }
 }
 #[cfg(target_os = "macos")]
+fn backup_attribute(path: &Path) -> Option<Vec<u8>> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    let mut bytes = [0u8; 128];
+    // SAFETY: both strings are NUL-terminated and bytes spans its advertised length.
+    let length = unsafe {
+        libc::getxattr(
+            path.as_ptr(),
+            c"com.apple.metadata:com_apple_backup_excludeItem".as_ptr(),
+            bytes.as_mut_ptr().cast(),
+            bytes.len(),
+            0,
+            libc::XATTR_NOFOLLOW,
+        )
+    };
+    if length < 0 {
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ENOATTR)
+        );
+        None
+    } else {
+        Some(bytes[..length as usize].to_vec())
+    }
+}
+fn assert_no_backup_attribute(_path: &Path) {
+    #[cfg(target_os = "macos")]
+    assert_eq!(backup_attribute(_path), None);
+}
+#[cfg(target_os = "macos")]
 #[test]
 fn excludes_created_and_loaded_keys_from_backups() {
-    use std::os::unix::ffi::OsStrExt;
+    const EXPECTED: &[u8] = b"bplist00\x5f\x10\x11com.apple.backupd\x08\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c";
     for existing in [false, true] {
         let temp = Temp::new();
         if existing {
             temp.write(32, 0o600);
+            assert_no_backup_attribute(&temp.key());
         }
         load_or_create(&temp.0).unwrap();
-        let path = std::ffi::CString::new(temp.key().as_os_str().as_bytes()).unwrap();
-        let mut bytes = [0u8; 128];
-        // SAFETY: both strings are NUL-terminated and bytes is writable for its advertised length.
-        let length = unsafe {
-            libc::getxattr(
-                path.as_ptr(),
-                c"com.apple.metadata:com_apple_backup_excludeItem".as_ptr(),
-                bytes.as_mut_ptr().cast(),
-                bytes.len(),
-                0,
-                0,
-            )
-        };
-        assert!(length > 0);
-        let value = &bytes[..length as usize];
-        assert!(value.starts_with(b"bplist00"));
-        assert!(
-            value
-                .windows(b"com.apple.backupd".len())
-                .any(|w| w == b"com.apple.backupd")
-        );
+        assert_eq!(backup_attribute(&temp.key()).as_deref(), Some(EXPECTED));
     }
 }
+fn make_old(path: &Path) {
+    File::open(path)
+        .unwrap()
+        .set_modified(SystemTime::now() - std::time::Duration::from_secs(120))
+        .unwrap();
+}
 #[test]
-fn ignores_a_temporary_file_from_a_crash() {
+fn removes_stale_temporary_keys_and_keeps_recent_ones() {
     let temp = Temp::new();
     fs::create_dir_all(&temp.0).unwrap();
     let stale = temp.0.join(".node.key.1.1");
-    fs::write(&stale, b"keep").unwrap();
-    load_or_create(&temp.0).unwrap();
-    assert_eq!(fs::metadata(temp.key()).unwrap().len(), 32);
-    assert_eq!(fs::read(stale).unwrap(), b"keep");
+    let recent = temp.0.join(".node.key.1.2");
+    fs::write(&stale, [7; 32]).unwrap();
+    make_old(&stale);
+    fs::write(&recent, [8; 32]).unwrap();
+    let key = load_or_create(&temp.0).unwrap();
+    assert!(!stale.exists());
+    assert_eq!(fs::read(recent).unwrap(), [8; 32]);
+    assert!(key.to_bytes() != [7; 32]);
+    assert!(key.to_bytes() != [8; 32]);
+}
+#[test]
+fn leaves_stale_temporary_symlinks_and_their_targets_untouched() {
+    let temp = Temp::new();
+    let target = Temp::new();
+    target.write(32, 0o600);
+    fs::create_dir_all(&temp.0).unwrap();
+    let link = temp.0.join(".node.key.9.9");
+    symlink(target.key(), &link).unwrap();
+    let old = SystemTime::now() - std::time::Duration::from_secs(120);
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(link.as_os_str().as_bytes()).unwrap();
+    let times = [libc::timespec {
+        tv_sec: old.duration_since(UNIX_EPOCH).unwrap().as_secs() as libc::time_t,
+        tv_nsec: 0,
+    }; 2];
+    // SAFETY: path is NUL-terminated and times holds two valid timestamps.
+    assert_eq!(
+        unsafe {
+            libc::utimensat(
+                libc::AT_FDCWD,
+                path.as_ptr(),
+                times.as_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        },
+        0
+    );
+    let before = fs::symlink_metadata(&link).unwrap();
+    let key = load_or_create(&temp.0).unwrap();
+    let after = fs::symlink_metadata(&link).unwrap();
+    assert!(after.is_symlink());
+    assert_eq!(
+        (before.ino(), before.modified().unwrap()),
+        (after.ino(), after.modified().unwrap())
+    );
+    assert_eq!(fs::read_link(link).unwrap(), target.key());
+    assert_eq!(fs::read(target.key()).unwrap(), [7; 32]);
+    assert_eq!(mode(&target.key()), 0o600);
+    assert_no_backup_attribute(&target.key());
+    assert!(key.to_bytes() != [7; 32]);
 }

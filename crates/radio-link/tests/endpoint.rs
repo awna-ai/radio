@@ -6,6 +6,7 @@ use std::net::{SocketAddr, UdpSocket};
 
 #[tokio::test(flavor = "current_thread")]
 async fn refuses_unconfigured_and_nonlocal_addresses() {
+    let mut refused = Vec::new();
     for addrs in [
         vec![],
         vec!["0.0.0.0:0".parse().unwrap()],
@@ -13,13 +14,35 @@ async fn refuses_unconfigured_and_nonlocal_addresses() {
         vec!["224.0.0.1:0".parse().unwrap()],
         vec!["255.255.255.255:0".parse().unwrap()],
         vec!["[ff02::1]:0".parse().unwrap()],
+        vec!["[::ffff:0.0.0.0]:0".parse().unwrap()],
+        vec![
+            "127.0.0.1:1000".parse().unwrap(),
+            "127.0.0.2:1000".parse().unwrap(),
+        ],
+        vec![
+            "127.0.0.1:1000".parse().unwrap(),
+            "[::1]:1001".parse().unwrap(),
+        ],
         vec!["127.0.0.1:0".parse().unwrap(), "0.0.0.0:0".parse().unwrap()],
     ] {
-        assert_eq!(
-            endpoint::bind(SecretKey::generate(), &addrs).await.err(),
-            Some("the link address is not usable")
-        );
+        let result = endpoint::bind(SecretKey::generate(), &addrs).await;
+        let error = match result {
+            Ok(endpoint) => {
+                endpoint.close().await;
+                None
+            }
+            Err(error) => Some(error),
+        };
+        refused.push((addrs, error));
     }
+    for (addrs, error) in &refused {
+        eprintln!("{addrs:?}: {error:?}");
+    }
+    assert!(
+        refused
+            .iter()
+            .all(|(_, error)| *error == Some("the link address is not usable"))
+    );
 }
 #[tokio::test(flavor = "current_thread")]
 async fn binds_only_configured_ipv4_without_relays_or_lookup() {
@@ -60,5 +83,26 @@ async fn keeps_the_configured_fixed_port() {
         .await
         .unwrap();
     assert!(endpoint.bound_sockets().contains(&addr));
+    endpoint.close().await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn binds_both_families_on_one_fixed_port() {
+    if let Err(error) = UdpSocket::bind("[::1]:0") {
+        eprintln!("skipping dual-family bind: plain IPv6 loopback UDP bind failed: {error}");
+        return;
+    }
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let port = socket.local_addr().unwrap().port();
+    drop(socket);
+    let mut addrs: Vec<SocketAddr> = vec![
+        SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)),
+        SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port)),
+    ];
+    let endpoint = endpoint::bind(SecretKey::generate(), &addrs).await.unwrap();
+    let mut sockets = endpoint.bound_sockets();
+    addrs.sort();
+    sockets.sort();
+    assert_eq!(sockets, addrs);
     endpoint.close().await;
 }

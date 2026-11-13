@@ -1,9 +1,12 @@
 use std::{
     fs::{self, DirBuilder, File, OpenOptions},
     io::{Read, Write},
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+    os::{
+        fd::AsRawFd,
+        unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
+    },
     path::Path,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 pub const KEY_FILE: &str = "node.key";
@@ -30,7 +33,20 @@ pub fn load_or_create(dir: &Path) -> Result<iroh::SecretKey, &'static str> {
     if !metadata.is_dir() || metadata.uid() != uid {
         return Err(FOLDER);
     }
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|_| FOLDER)?;
+    let folder = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .map_err(|_| FOLDER)?;
+    let metadata = folder.metadata().map_err(|_| FOLDER)?;
+    if !metadata.is_dir() || metadata.uid() != uid {
+        return Err(FOLDER);
+    }
+    // SAFETY: folder owns a live directory descriptor.
+    if unsafe { libc::fchmod(folder.as_raw_fd(), 0o700) } != 0 {
+        return Err(FOLDER);
+    }
+    remove_stale_temporary_keys(dir, uid);
     loop {
         match OpenOptions::new()
             .read(true)
@@ -67,6 +83,35 @@ pub fn load_or_create(dir: &Path) -> Result<iroh::SecretKey, &'static str> {
     }
 }
 
+fn remove_stale_temporary_keys(dir: &Path, uid: u32) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .as_encoded_bytes()
+            .starts_with(b".node.key.")
+        {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if metadata.is_file()
+            && metadata.uid() == uid
+            && metadata
+                .modified()
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age > Duration::from_secs(60))
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 fn create(dir: &Path) -> Result<Option<iroh::SecretKey>, &'static str> {
     let key = iroh::SecretKey::generate();
     let (temp, mut file) = loop {
@@ -87,6 +132,7 @@ fn create(dir: &Path) -> Result<Option<iroh::SecretKey>, &'static str> {
             Err(_) => return Err(MAKE),
         }
     };
+    exclude_from_backup(&file);
     let result = (|| {
         file.write_all(&key.to_bytes()).map_err(|_| MAKE)?;
         file.sync_all().map_err(|_| MAKE)?;
@@ -103,7 +149,6 @@ fn create(dir: &Path) -> Result<Option<iroh::SecretKey>, &'static str> {
     if let Ok(folder) = File::open(dir) {
         let _ = folder.sync_all();
     }
-    exclude_from_backup(&file);
     Ok(Some(key))
 }
 
@@ -113,7 +158,6 @@ pub fn endpoint_id(key: &iroh::SecretKey) -> String {
 
 #[cfg(target_os = "macos")]
 fn exclude_from_backup(file: &File) {
-    use std::os::fd::AsRawFd;
     const VALUE: &[u8] = b"bplist00\x5f\x10\x11com.apple.backupd\x08\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c";
     // SAFETY: the fd is live, the name is NUL-terminated, and VALUE spans the supplied length.
     let _ = unsafe {
