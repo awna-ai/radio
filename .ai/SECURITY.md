@@ -112,8 +112,8 @@ token, key or password belongs in the repo; gitleaks runs in `scripts/ci-local.s
 - The op commands (`crates/radio/src/cli.rs`, D16): their arguments and a body file or stdin, from the
   user's own processes, so no new trust. They build one request the socket would take from any client;
   a body is read with a bound (one byte past the 16 KiB request cap), never in full, and the answer is
-  printed as it arrived once `radio-client`'s own types accept it (a line they refuse is `the Radio did
-  not answer`); only `ok` and `refused` choose the exit code.
+  printed as it arrived once `radio-client`'s own types accept it (a line they refuse is `Radio did not
+  answer`); only `ok` and `refused` choose the exit code.
 
 ## External integrations
 
@@ -208,3 +208,4 @@ missing objects, and reads ref names.
 - 2026-11-12: one command per op (D16): an entry point and four command-line gaps.
 - 2026-11-12: the link's key and the one endpoint builder are built (`radio-link`), and the `id` op (minor 1)
   answers the key's public half; the endpoint and identity rows name their tests.
+- 2026-11-13: the client's phrases say Radio with no article (D12).

@@ -414,7 +414,7 @@ fn a_failed_first_start_installs_nothing() {
         &output(command),
         1,
         "",
-        "radio: the Radio did not start, so nothing is installed\n",
+        "radio: Radio did not start, so nothing is installed\n",
     );
     assert!(!f.agent().exists());
     assert!(!f.state().join("install.json").exists());

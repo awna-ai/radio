@@ -8,9 +8,9 @@ use std::{
 };
 
 /// The phrase for an unanswered or unreadable response.
-pub const NO_ANSWER: &str = "the Radio did not answer";
+pub const NO_ANSWER: &str = "Radio did not answer";
 /// The phrase for a missing or stopped daemon.
-pub const NOT_RUNNING: &str = "the Radio is not running";
+pub const NOT_RUNNING: &str = "Radio is not running";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Sends one versioned request and reads its answer; transport failures return fixed error phrases.
@@ -63,7 +63,7 @@ fn exchange(
     Ok((response, line))
 }
 
-// macOS refuses socket options once both directions are shut (EINVAL): the Radio has answered and closed, so
+// macOS refuses socket options once both directions are shut (EINVAL): Radio has answered and closed, so
 // the answer is already buffered and a read cannot block.
 fn timeout_set(result: std::io::Result<()>) -> Result<(), &'static str> {
     match result {

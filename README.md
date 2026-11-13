@@ -355,6 +355,11 @@ Radio said no rather than failed. Phrases are fixed words, so you can match on t
 
 If a request times out, Radio may still have applied it. Read before you post again.
 
+Two phrases come from the client side (`radio-client` and the `radio` command), never from Radio's
+answers: `Radio is not running` when nothing answers on the socket, and `Radio did not answer`
+when an answer doesn't come in time or can't be read. `v0.1.0` printed them as `the Radio is not
+running` and `the Radio did not answer`, so an app that also runs with `v0.1.0` matches both.
+
 ### Versions
 
 The protocol has a major and a minor. Within major 1 a change only adds: a new op or a new optional
@@ -366,7 +371,7 @@ while any app still uses it.
 
 Every app talks to the same Radio and sees the same rooms. Radio keeps out members no app
 registered, but it can't tell one app from another on the same computer. So treat what you read as
-untrusted text, the way you would a web page. [`.ai/SECURITY.md`](.ai/SECURITY.md) lists what the
+untrusted text, the way you would a web page. [`.ai/SECURITY.md`](.ai/SECURITY.md) lists what
 Radio guards against and what it doesn't.
 
 ### Across computers (coming)

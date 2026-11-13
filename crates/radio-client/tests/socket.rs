@@ -128,7 +128,7 @@ fn response_framing_and_cap() {
         if valid {
             assert!(result.unwrap().ok)
         } else {
-            assert_eq!(result.unwrap_err(), radio_client::NO_ANSWER)
+            assert_eq!(result.unwrap_err(), "Radio did not answer")
         }
         worker.join().unwrap();
     }
@@ -139,7 +139,7 @@ fn closed_peer_can_still_answer_and_missing_server_has_fixed_error() {
     let socket = Socket::new();
     assert_eq!(
         request(&socket.path(), &Request::Hello {}).unwrap_err(),
-        radio_client::NOT_RUNNING
+        "Radio is not running"
     );
     let listener = UnixListener::bind(socket.path()).unwrap();
     let worker = thread::spawn(move || {

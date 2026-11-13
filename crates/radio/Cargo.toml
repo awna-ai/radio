@@ -5,7 +5,7 @@ version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
-description = "The Radio daemon"
+description = "Radio's daemon"
 
 [dependencies]
 radio-client = { path = "../radio-client" }

@@ -1,4 +1,4 @@
-//! The client side of the Radio's socket contract, CONTRACT.md at the repo's root.
+//! The client side of Radio's socket contract, CONTRACT.md at the repo's root.
 //! The contract's numbers live here as constants; a test checks them against CONTRACT.md.
 
 use serde::{Deserialize, Serialize};

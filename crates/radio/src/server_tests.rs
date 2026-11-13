@@ -444,7 +444,7 @@ fn missing_server_is_reported() {
     let fixture = Fixture::new();
     assert_eq!(
         request(&fixture.socket(), &post("hi")).err().unwrap(),
-        "the Radio is not running"
+        "Radio is not running"
     );
 }
 

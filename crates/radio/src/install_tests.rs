@@ -479,7 +479,7 @@ fn a_fresh_install_that_does_not_start_leaves_nothing() {
     error(
         f.installer("1.0.0").install(&f.args("kiteapp"), 1),
         1,
-        "the Radio did not start, so nothing is installed",
+        "Radio did not start, so nothing is installed",
     );
     let p = f.paths();
     assert!(!p.record.exists());
@@ -629,7 +629,7 @@ fn argument_refusals_write_nothing() {
         (2, "the handler is not an executable file"),
         (3, "the handler can be changed by another user"),
         (4, "the store to import is not an absolute path"),
-        (5, "the store to import is the Radio's own"),
+        (5, "the store to import is Radio's own"),
     ] {
         let f = Fixture::new();
         let mut args = f.args("kiteapp");
@@ -982,7 +982,7 @@ fn handler_links_and_aliased_store_parents_follow_the_argument_rules() {
     error(
         f.installer("1.0.0").install(&args, 3),
         2,
-        "the store to import is the Radio's own",
+        "the store to import is Radio's own",
     );
     if uid() != 0 {
         let mut installer = f.installer("1.0.0");
@@ -1091,7 +1091,7 @@ fn a_failed_stop_keeps_the_last_client_for_a_retry() {
         f.installer("1.0.0").uninstall("gardenapp").unwrap_err(),
         Failure {
             code: 1,
-            message: "the Radio could not be stopped".into()
+            message: "Radio could not be stopped".into()
         }
     );
     assert!(
@@ -1349,7 +1349,7 @@ fn a_failed_fresh_start_that_cannot_stop_removes_nothing() {
     error(
         f.installer("1.0.0").install(&f.args("kiteapp"), 1),
         1,
-        "the Radio did not start and could not be stopped; nothing was removed",
+        "Radio did not start and could not be stopped; nothing was removed",
     );
     assert!(path.exists());
     assert!(f.paths().agent.exists());
@@ -1464,7 +1464,7 @@ fn a_hard_link_to_the_own_store_is_refused() {
     error(
         f.installer("1.0.0").install(&args, 2),
         2,
-        "the store to import is the Radio's own",
+        "the store to import is Radio's own",
     );
     assert!(!p.clients.join("gardenapp.json").exists());
 }

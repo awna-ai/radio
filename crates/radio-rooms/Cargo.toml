@@ -5,7 +5,7 @@ version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
-description = "The Radio's rooms store"
+description = "Radio's rooms store"
 
 [dependencies]
 rusqlite = { version = "=0.40.2", features = ["bundled", "hooks", "limits"] }

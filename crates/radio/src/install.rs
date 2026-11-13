@@ -16,7 +16,7 @@ use std::{
 };
 
 const FILES: &str = "the install files could not be written";
-const FRESH_FAILED: &str = "the Radio did not start, so nothing is installed";
+const FRESH_FAILED: &str = "Radio did not start, so nothing is installed";
 const QUIET: &str = "the installed Radio does not answer";
 const OTHER_HOME: &str = "HOME is not this account's own, so no real launch agent is loaded from it; set RADIO_LAUNCHCTL to a stand-in";
 
@@ -700,7 +700,7 @@ fn validate(args: &InstallArgs, paths: &Paths, uid: u32) -> Result<String, Failu
                 .zip(fs::metadata(&paths.rooms).ok())
                 .is_some_and(|(a, b)| a.dev() == b.dev() && a.ino() == b.ino())
         {
-            return Err(refuse("the store to import is the Radio's own"));
+            return Err(refuse("the store to import is Radio's own"));
         }
     }
     Ok(handler)
@@ -1101,7 +1101,7 @@ impl Installer<'_> {
         if !self.bootout() {
             return Err(Failure::new(
                 1,
-                "the Radio did not start and could not be stopped; nothing was removed",
+                "Radio did not start and could not be stopped; nothing was removed",
             ));
         }
         remove_file(&self.paths.agent)?;
@@ -1178,7 +1178,7 @@ impl Installer<'_> {
             }
         }
         if last && !self.bootout() {
-            return Err(Failure::new(1, "the Radio could not be stopped"));
+            return Err(Failure::new(1, "Radio could not be stopped"));
         }
         remove_file(&client)?;
         if last {

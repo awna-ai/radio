@@ -21,7 +21,7 @@ them against these lines. They are independent of the repo's semver tags.
 - A request is at most 16 KiB. A request not fully sent within 5 seconds of connecting is answered
   `the request took too long`.
 - An answer is at most 8 MiB, which holds the largest read or page of rooms.
-- A client that gives up waiting (`the Radio did not answer`) can't tell whether a write was applied:
+- A client that gives up waiting (`Radio did not answer`) can't tell whether a write was applied:
   the daemon may still apply it after the client has gone. Read before retrying a post.
 - Unknown request fields are refused (`deny_unknown_fields`), so a client sends only what the daemon
   announced. A client reading an answer ignores fields it doesn't know: a newer minor adds them.

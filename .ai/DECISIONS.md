@@ -66,7 +66,7 @@ session someone works in, a program that does work on its own), and the word the
 this space use. The README lists those names the first time it uses the word, so a reader who knows
 only one of them finds it. Code strings and crate descriptions still say "the Radio", among them the client's
 `the Radio did not answer`, which apps may match on; they change in code, with the guide, and the
-docs quote them as the code prints them until then.
+docs quote them as the code prints them until then. They changed on 2026-11-13, after `v0.1.0`.
 
 ## 2026-11-12: D11. Two audiences, two documents
 
