@@ -252,6 +252,7 @@ the socket stays the contract.
 | Command | Op |
 | --- | --- |
 | `radio hello` | `hello` |
+| `radio id` | `id` |
 | `radio register --app <app> --app-version <version> --member <kind>:<name>` (repeat `--member`; none clears the list) | `register` |
 | `radio room create <room> --title <title>` | `create_room` |
 | `radio rooms [--after <room>] [--limit <n>]` | `list_rooms` |

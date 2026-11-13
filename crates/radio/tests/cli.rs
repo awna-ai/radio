@@ -17,7 +17,7 @@ use std::{
 #[path = "support/contract_match.rs"]
 mod contract_match;
 
-const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>\n";
+const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio id\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>\n";
 
 #[test]
 fn invalid_arguments_and_names_print_only_usage() {
@@ -90,6 +90,7 @@ fn missing_or_empty_home_has_a_fixed_error() {
         vec!["uninstall", "--app", "gardenapp"],
         vec!["status"],
         vec!["hello"],
+        vec!["id"],
         vec!["register", "--app", "lantern", "--app-version", "1.0.0"],
         vec!["room", "create", "garden", "--title", "Garden"],
         vec!["rooms"],
@@ -444,6 +445,7 @@ fn fixture_commands() -> Vec<(usize, Vec<&'static str>)> {
         (14, vec!["rooms", "--limit", "1"]),
         (15, vec!["rooms", "--after", "garden"]),
         (16, vec!["room", "create", "garden", "--title", "Changed"]),
+        (17, vec!["id"]),
     ]
 }
 
@@ -529,6 +531,42 @@ fn commands_replay_the_contract_against_a_real_daemon() {
 }
 
 #[test]
+fn id_prints_a_stable_public_id() {
+    let daemon = Daemon::start();
+    let mut previous = None;
+    for _ in 0..2 {
+        let output = daemon.home.run(&["id"]);
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            output.stdout.iter().filter(|&&byte| byte == b'\n').count(),
+            1
+        );
+        assert!(output.stdout.ends_with(b"\n"));
+        let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(answer["ok"], true);
+        let id = answer["id"].as_str().unwrap();
+        assert_eq!(id.len(), 64);
+        assert!(
+            id.bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        );
+        if let Some(previous) = &previous {
+            assert_eq!(id, previous);
+        }
+        previous = Some(id.to_owned());
+    }
+    assert!(daemon.home.0.join(".config/radio/node.key").is_file());
+}
+
+#[test]
+fn id_extra_sends_nothing() {
+    let server = StandIn::start(r#"{"ok":true}"#);
+    assert_usage(server.home.run(&["id", "extra"]));
+    server.assert_no_connection();
+}
+
+#[test]
 fn daemon_answer_bytes_and_exit_codes_are_preserved() {
     for (answer, code) in [
         (r#"{"ok":true,  "later":{"b":1,"a":2}}"#, 0),
@@ -537,11 +575,13 @@ fn daemon_answer_bytes_and_exit_codes_are_preserved() {
         (r#"{"ok":false,"error":"x"}"#, 1),
     ] {
         let server = StandIn::start(answer);
-        let output = server.home.run(&["hello"]);
-        assert_eq!(output.status.code(), Some(code));
-        assert_eq!(output.stdout, format!("{answer}\n").as_bytes());
-        assert!(output.stderr.is_empty());
-        server.request();
+        for command in ["hello", "id"] {
+            let output = server.home.run(&[command]);
+            assert_eq!(output.status.code(), Some(code));
+            assert_eq!(output.stdout, format!("{answer}\n").as_bytes());
+            assert!(output.stderr.is_empty());
+            server.request();
+        }
     }
 }
 

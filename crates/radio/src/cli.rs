@@ -41,6 +41,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         .as_slice()
     {
         ["hello", rest @ ..] => ("hello", 0, rest, &[]),
+        ["id", rest @ ..] => ("id", 0, rest, &[]),
         ["register", rest @ ..] => ("register", 0, rest, &["--app", "--app-version", "--member"]),
         ["room", "create", rest @ ..] => ("create", 1, rest, &["--title"]),
         ["rooms", rest @ ..] => ("rooms", 0, rest, &["--after", "--limit"]),
@@ -80,6 +81,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     let mut body = None;
     let request = match op {
         "hello" => Request::Hello {},
+        "id" => Request::Id {},
         "register" => Request::Register {
             app: required("--app")?.into(),
             app_version: required("--app-version")?.into(),

@@ -331,6 +331,24 @@ fn valid_commands_preserve_requests_and_body_sources() {
 }
 
 #[test]
+fn id_parses_to_its_request() {
+    assert_eq!(
+        parse(&args(&["id"])),
+        Ok(Command {
+            request: Request::Id {},
+            body: None,
+        })
+    );
+}
+
+#[test]
+fn id_arguments_are_usage_errors() {
+    for words in [vec!["id", "extra"], vec!["id", "--v", "2"]] {
+        assert_eq!(parse(&args(&words)), Err(()), "{words:?}");
+    }
+}
+
+#[test]
 fn invalid_commands_are_usage_errors() {
     let cases: &[&[&str]] = &[
         &[],
