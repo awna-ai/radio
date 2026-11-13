@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "computer_remove",
+    "computer": "birch"
+  },
+  "response": {
+    "ok": false,
+    "error": "this computer has no link address"
+  },
+  "exact": true
+}

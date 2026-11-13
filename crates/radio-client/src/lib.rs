@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 5;
+pub const PROTOCOL_MINOR: u32 = 6;
 
-/// The ops major 1, minor 5 serves, in this order.
+/// The ops major 1, minor 6 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -37,6 +37,9 @@ pub const OPS: &[&str] = &[
     "link_address_add",
     "link_address_list",
     "link_address_remove",
+    "join",
+    "computer_remove",
+    "leave",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -142,6 +145,12 @@ pub enum Request {
     LinkAddressList {},
     /// Removes one of this computer's link addresses.
     LinkAddressRemove { address: String },
+    /// Joins through a one-time code.
+    Join { code: String },
+    /// Removes a computer from the fleet.
+    ComputerRemove { computer: String },
+    /// Leaves this computer's fleet.
+    Leave {},
 }
 
 /// A member identified by a kind and a name.
@@ -243,6 +252,9 @@ pub struct Response {
     /// This computer's link addresses, IPv4 first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addresses: Option<Vec<String>>,
+    /// The number of computers a removal or leave reached.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered: Option<u64>,
 }
 
 /// A room returned by the daemon.
@@ -369,9 +381,9 @@ mod tests {
 
     #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 5);
+        assert_eq!(PROTOCOL_MINOR, 6);
         assert_eq!(
-            &OPS[20..],
+            &OPS[20..23],
             &[
                 "link_address_add",
                 "link_address_list",
@@ -409,5 +421,35 @@ mod tests {
             .unwrap(),
             serde_json::json!({"ok":true})
         );
+    }
+
+    #[test]
+    fn network_contract_round_trips() {
+        assert_eq!(&OPS[23..], &["join", "computer_remove", "leave"]);
+        for request in [
+            Request::Join {
+                code: "rj1.nope".into(),
+            },
+            Request::ComputerRemove {
+                computer: "birch".into(),
+            },
+            Request::Leave {},
+        ] {
+            let mut value = serde_json::to_value(&request).unwrap();
+            assert_eq!(
+                serde_json::from_value::<Request>(value.clone()).unwrap(),
+                request
+            );
+            value["extra"] = true.into();
+            assert!(serde_json::from_value::<Request>(value).is_err());
+        }
+        let value = serde_json::json!({"ok":true,"delivered":2});
+        let response: Response = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(response.delivered, Some(2));
+        assert_eq!(
+            serde_json::to_string(&response).unwrap(),
+            r#"{"ok":true,"delivered":2}"#
+        );
+        assert_eq!(serde_json::to_value(response).unwrap(), value);
     }
 }

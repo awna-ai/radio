@@ -1,0 +1,11 @@
+{
+  "request": {
+    "v": 1,
+    "op": "leave"
+  },
+  "response": {
+    "ok": false,
+    "error": "this computer has no link address"
+  },
+  "exact": true
+}

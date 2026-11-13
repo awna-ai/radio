@@ -41,6 +41,9 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         .as_slice()
     {
         ["hello", rest @ ..] => ("hello", 0, rest, &[]),
+        ["join", rest @ ..] => ("join", 0, rest, &[]),
+        ["leave", rest @ ..] => ("leave", 0, rest, &[]),
+        ["computer", "remove", rest @ ..] => ("computer_remove", 1, rest, &[]),
         ["id", rest @ ..] => ("id", 0, rest, &[]),
         ["fleet", "init", rest @ ..] => ("fleet_init", 1, rest, &[]),
         ["code", "create", rest @ ..] => ("code_create", 0, rest, &["--name", "--ttl"]),
@@ -100,6 +103,16 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     let request = match op {
         "hello" => Request::Hello {},
         "id" => Request::Id {},
+        "join" => {
+            body = Some(BodySource::File("-".into()));
+            Request::Join {
+                code: String::new(),
+            }
+        }
+        "leave" => Request::Leave {},
+        "computer_remove" => Request::ComputerRemove {
+            computer: positionals[0].into(),
+        },
         "fleet_init" => Request::FleetInit {
             name: positionals[0].into(),
         },
@@ -262,6 +275,16 @@ impl Command {
                     body: destination, ..
                 } => *destination = body,
                 Request::Resign { section, .. } => *section = Some(body),
+                Request::Join { code } => {
+                    let body = body
+                        .strip_suffix("\r\n")
+                        .or_else(|| body.strip_suffix('\n'))
+                        .unwrap_or(&body);
+                    if body.is_empty() {
+                        return Err((2, "radio: no join code on standard input".into()));
+                    }
+                    *code = body.into();
+                }
                 _ => {}
             }
         }

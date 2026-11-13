@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 5);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 6);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1089,4 +1089,41 @@ fn link_address_commands_refuse_bad_usage() {
     ] {
         assert!(parse(&args(&words)).is_err(), "{words:?}");
     }
+}
+
+#[test]
+fn join_reads_only_standard_input() {
+    for input in ["rj1.nope", "rj1.nope\n", "rj1.nope\r\n"] {
+        let command = parse(&args(&["join"])).unwrap();
+        assert_eq!(command.body, Some(BodySource::File("-".into())));
+        assert_eq!(
+            command.resolve(input.as_bytes()).unwrap(),
+            Request::Join {
+                code: "rj1.nope".into()
+            }
+        );
+    }
+    for words in [vec!["join", "rj1.nope"], vec!["join", "--code", "rj1.nope"]] {
+        assert!(parse(&args(&words)).is_err());
+    }
+    for input in ["", "\n", "\r\n"] {
+        assert_eq!(
+            parse(&args(&["join"])).unwrap().resolve(input.as_bytes()),
+            Err((2, "radio: no join code on standard input".into()))
+        );
+    }
+}
+
+#[test]
+fn remove_and_leave_parse() {
+    assert_eq!(
+        parse(&args(&["computer", "remove", "birch"]))
+            .unwrap()
+            .request,
+        Request::ComputerRemove {
+            computer: "birch".into()
+        }
+    );
+    assert_eq!(parse(&args(&["leave"])).unwrap().request, Request::Leave {});
+    assert!(parse(&args(&["leave", "birch"])).is_err());
 }

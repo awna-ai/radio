@@ -20,7 +20,7 @@ impl Drop for Temp {
 }
 
 #[test]
-fn replay_major_one_contract() {
+fn link_replay_major_one_contract() {
     let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../contract/v1"));
     let mut paths: Vec<_> = fs::read_dir(dir)
         .unwrap()

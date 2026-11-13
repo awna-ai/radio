@@ -8,7 +8,7 @@ fn an_answer_sent_before_the_close_is_read() {
         .unwrap();
     drop(peer);
 
-    let response = exchange(stream, &json!({"v":1,"op":"hello"}));
+    let response = exchange(stream, &json!({"v":1,"op":"hello"}), TIMEOUT);
     assert!(response.is_ok(), "{response:?}");
     let (response, _) = response.unwrap();
     assert_eq!(response.refused, Some(true));
@@ -21,7 +21,7 @@ fn a_close_without_an_answer_is_no_answer() {
     drop(peer);
 
     assert_eq!(
-        exchange(stream, &json!({"v":1,"op":"hello"})).unwrap_err(),
+        exchange(stream, &json!({"v":1,"op":"hello"}), TIMEOUT).unwrap_err(),
         NO_ANSWER
     );
 }
@@ -33,7 +33,7 @@ fn a_partial_answer_before_the_close_is_no_answer() {
     drop(peer);
 
     assert_eq!(
-        exchange(stream, &json!({"v":1,"op":"hello"})).unwrap_err(),
+        exchange(stream, &json!({"v":1,"op":"hello"}), TIMEOUT).unwrap_err(),
         NO_ANSWER
     );
 }
@@ -86,7 +86,7 @@ fn buffered_answer_bytes_and_encoding_are_preserved() {
     let (stream, mut peer) = UnixStream::pair().unwrap();
     peer.write_all(answer).unwrap();
     drop(peer);
-    let (response, line) = exchange(stream, &json!({"v":1,"op":"hello"})).unwrap();
+    let (response, line) = exchange(stream, &json!({"v":1,"op":"hello"}), TIMEOUT).unwrap();
     assert!(response.ok);
     assert_eq!(line.as_bytes(), &answer[..answer.len() - 1]);
 
@@ -95,7 +95,35 @@ fn buffered_answer_bytes_and_encoding_are_preserved() {
         .unwrap();
     drop(peer);
     assert_eq!(
-        exchange(stream, &json!({"v":1,"op":"hello"})).unwrap_err(),
+        exchange(stream, &json!({"v":1,"op":"hello"}), TIMEOUT).unwrap_err(),
         NO_ANSWER
     );
+}
+
+#[test]
+fn network_ops_wait_for_deliveries() {
+    for request in [
+        Request::Join {
+            code: "rj1.nope".into(),
+        },
+        Request::ComputerRemove {
+            computer: "birch".into(),
+        },
+        Request::Leave {},
+    ] {
+        assert_eq!(answer_wait(&request), Duration::from_secs(120));
+    }
+    for request in [
+        Request::Hello {},
+        Request::ComputerBlock {
+            computer: "birch".into(),
+        },
+        Request::Resign {
+            app: "lantern".into(),
+            section: None,
+            roles: None,
+        },
+    ] {
+        assert_eq!(answer_wait(&request), Duration::from_secs(5));
+    }
 }

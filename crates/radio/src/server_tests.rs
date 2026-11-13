@@ -532,7 +532,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":5},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":6},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -2058,7 +2058,7 @@ fn link_addresses_work_without_a_fleet_and_codes_carry_them() {
 }
 
 #[test]
-fn all_link_address_ops_work_before_founding_and_after_forgetting() {
+fn link_all_address_ops_work_before_founding_and_after_forgetting() {
     for forgotten in [false, true] {
         let fixture = Fixture::new();
         let mut server = fixture
@@ -2119,4 +2119,453 @@ fn link_address_ops_require_link_setup_first() {
         );
     }
     worker.join().unwrap();
+}
+
+fn joining_code(hints: bool) -> String {
+    radio_link::code::JoinCode::new(
+        "a".repeat(64),
+        radio_link::SecretKey::generate().public(),
+        radio_link::code::Hints {
+            direct: if hints {
+                vec!["127.0.0.1:9".parse().unwrap()]
+            } else {
+                vec![]
+            },
+        },
+    )
+    .unwrap()
+    .encode()
+}
+
+#[test]
+fn join_and_delivery_ops_refuse_missing_addresses() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    for (op, phrase) in [
+        (
+            Request::Join {
+                code: "rj1.nope".into(),
+            },
+            "not a join code",
+        ),
+        (
+            Request::Join {
+                code: joining_code(false),
+            },
+            "the join code has no address to dial",
+        ),
+        (
+            Request::Join {
+                code: joining_code(true),
+            },
+            "this computer has no link address",
+        ),
+        (Request::Leave {}, "this computer has no link address"),
+        (
+            Request::ComputerRemove {
+                computer: "birch".into(),
+            },
+            "this computer has no link address",
+        ),
+    ] {
+        assert_eq!(server.apply(op).unwrap_err(), phrase);
+    }
+}
+
+#[test]
+fn an_unusable_link_name_does_not_stop_rooms() {
+    let fixture = Fixture::new();
+    let mut server = Server::bind(&fixture.socket(), &fixture.db(), "Garden_Shed".into())
+        .unwrap()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        server
+            .apply(Request::Join {
+                code: joining_code(true)
+            })
+            .unwrap_err(),
+        NOT_LINK_NAME
+    );
+    assert!(
+        server
+            .apply(Request::Post {
+                room: "Garden_Shed".into(),
+                author: Member {
+                    kind: "human".into(),
+                    name: "birch".into()
+                },
+                body: "ready".into()
+            })
+            .unwrap()
+            .ok
+    );
+}
+
+#[test]
+fn link_join_dials_the_code() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0);
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let address = socket.local_addr().unwrap();
+    drop(socket);
+    let mut code = radio_link::code::JoinCode::parse(&joining_code(true)).unwrap();
+    code.hints.direct = vec![address];
+    assert_eq!(
+        server
+            .apply(Request::Join {
+                code: code.encode()
+            })
+            .unwrap_err(),
+        "the computer could not be reached"
+    );
+}
+
+#[test]
+fn link_address_add_starts_the_link() {
+    let fixture = Fixture::new();
+    let log_path = fixture.0.join("radio.log");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0)
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    assert!(
+        !fs::read_to_string(&log_path)
+            .unwrap()
+            .contains("link start")
+    );
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    assert!(
+        fs::read_to_string(&log_path)
+            .unwrap()
+            .contains("link start")
+    );
+}
+
+#[test]
+fn link_resign_answers_without_waiting() {
+    use radio_link::{SecretKey, code::Hints, membership};
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0);
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    server
+        .apply(Request::FleetInit {
+            name: "harbor".into(),
+        })
+        .unwrap();
+    server
+        .apply(Request::Register {
+            app: "lantern".into(),
+            app_version: "1".into(),
+            members: vec![],
+        })
+        .unwrap();
+    let key = radio_link::key::load_or_create(&fixture.0.join("link")).unwrap();
+    let other = SecretKey::generate();
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let addrs = [socket.local_addr().unwrap()];
+    drop(socket);
+    let mut db = server.fleet_db().unwrap();
+    let code = db
+        .create_code(&key, None, None, Hints::default(), now().unwrap())
+        .unwrap()
+        .0;
+    db.admit(
+        &key,
+        "test-host",
+        &[],
+        &code,
+        &other.public(),
+        "birch",
+        &addrs,
+        &membership::consent(
+            &other,
+            &code.fleet,
+            &key.public().to_string(),
+            "birch",
+            &addrs,
+        ),
+        now().unwrap(),
+    )
+    .unwrap();
+    drop(db);
+    let start = Instant::now();
+    let answer = server
+        .apply(Request::Resign {
+            app: "lantern".into(),
+            section: Some("ready".into()),
+            roles: None,
+        })
+        .unwrap();
+    assert!(answer.ok);
+    assert!(start.elapsed() < Duration::from_secs(1));
+    let records = server.fleet_db().unwrap().computer_records().unwrap();
+    let record = records
+        .iter()
+        .find(|r| r.body.key == key.public().to_string())
+        .unwrap();
+    assert_eq!(record.body.addrs, vec!["127.0.0.1:7341".parse().unwrap()]);
+}
+
+#[test]
+fn starting_without_a_fleet_store_does_not_create_one() {
+    let fixture = Fixture::new();
+    let path = fixture.0.join("fleet.db");
+    let _server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(path.clone())
+        .start_link_now();
+    assert!(!path.exists());
+}
+
+#[test]
+fn bad_link_address_is_refused_before_reading_the_store() {
+    let fixture = Fixture::new();
+    let path = fixture.0.join("fleet.db");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(path.clone());
+    drop(server.fleet_db().unwrap());
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .execute("DROP TABLE link_addresses", [])
+        .unwrap();
+    assert_eq!(
+        server.fleet_db().unwrap().link_addresses().unwrap_err(),
+        "fleet.db could not be read"
+    );
+    assert_eq!(
+        server
+            .apply(Request::LinkAddressAdd {
+                address: "nope".into()
+            })
+            .unwrap_err(),
+        "not a link address"
+    );
+}
+
+#[test]
+fn link_address_remove_stops_the_link() {
+    let fixture = Fixture::new();
+    let log_path = fixture.0.join("radio.log");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0)
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    server
+        .apply(Request::LinkAddressRemove {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    let log = fs::read_to_string(log_path).unwrap();
+    let start = log.find("link start").unwrap();
+    let off = log
+        .rfind("link off error=\"this computer has no link address\"")
+        .unwrap();
+    assert!(off > start);
+    assert!(server.link.is_none());
+}
+
+#[test]
+fn link_start_link_now_uses_a_stored_address() {
+    let fixture = Fixture::new();
+    let log_path = fixture.0.join("radio.log");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0)
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    server
+        .fleet_db()
+        .unwrap()
+        .add_link_address("127.0.0.1".parse().unwrap())
+        .unwrap();
+    let server = server.start_link_now();
+    assert!(fs::read_to_string(log_path).unwrap().contains("link start"));
+    assert!(server.link.as_ref().unwrap().running());
+}
+
+#[test]
+fn a_failed_join_does_not_log_the_code_or_its_secret() {
+    let fixture = Fixture::new();
+    let log_path = fixture.0.join("radio.log");
+    let server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    let code = joining_code(true);
+    let secret = code.split('.').nth(3).unwrap().to_owned();
+    let worker = start(server, 1);
+    let answer = request(&fixture.socket(), &Request::Join { code: code.clone() }).unwrap();
+    assert_eq!(
+        answer.error.as_deref(),
+        Some("this computer has no link address")
+    );
+    worker.join().unwrap();
+    let log = fs::read_to_string(log_path).unwrap();
+    assert!(log.contains("link off"));
+    assert!(log.contains("join"));
+    assert!(!log.contains(&code));
+    assert!(!log.contains(&secret));
+}
+
+#[test]
+fn operations_retry_a_failed_link_start_without_holding_the_store() {
+    let fixture = Fixture::new();
+    let log_path = fixture.0.join("radio.log");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    server.host = "Garden_Shed".into();
+    server
+        .fleet_db()
+        .unwrap()
+        .add_link_address("127.0.0.1".parse().unwrap())
+        .unwrap();
+    for (index, op) in [
+        Request::CodeCreate {
+            name: None,
+            ttl: None,
+        },
+        Request::Resign {
+            app: "lantern".into(),
+            section: None,
+            roles: None,
+        },
+        Request::LinkAddressAdd {
+            address: "nope".into(),
+        },
+        Request::LinkAddressList {},
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let _ = server.apply(op);
+        let log = fs::read_to_string(&log_path).unwrap();
+        assert_eq!(log.matches("link off").count(), index + 1);
+    }
+    let _ = server.apply(Request::LinkAddressRemove {
+        address: "127.0.0.1".into(),
+    });
+    let log = fs::read_to_string(&log_path).unwrap();
+    let off_lines: Vec<_> = log
+        .lines()
+        .filter(|line| line.contains("link off"))
+        .collect();
+    // Removing the last address retries before the op, then restarts once more.
+    assert_eq!(off_lines.len(), 6);
+    assert!(off_lines[5].contains(NOT_LINK_NAME));
+}
+
+#[test]
+fn operations_without_a_link_address_do_not_log_link_off() {
+    let fixture = Fixture::new();
+    let log_path = fixture.0.join("radio.log");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    server
+        .apply(Request::Register {
+            app: "lantern".into(),
+            app_version: "1".into(),
+            members: vec![],
+        })
+        .unwrap();
+    server
+        .apply(Request::FleetInit {
+            name: "garden".into(),
+        })
+        .unwrap();
+    let mut server = server.start_link_now();
+    let before = fs::read_to_string(&log_path)
+        .unwrap()
+        .matches("link off")
+        .count();
+    for section in ["ready", "waiting"] {
+        assert!(
+            server
+                .apply(Request::Resign {
+                    app: "lantern".into(),
+                    section: Some(section.into()),
+                    roles: None,
+                })
+                .unwrap()
+                .ok
+        );
+    }
+    assert!(
+        server
+            .apply(Request::CodeCreate {
+                name: None,
+                ttl: None,
+            })
+            .unwrap()
+            .ok
+    );
+    assert!(server.apply(Request::LinkAddressList {}).unwrap().ok);
+    assert_eq!(
+        server
+            .apply(Request::LinkAddressRemove {
+                address: "127.0.0.1".into(),
+            })
+            .unwrap()
+            .removed,
+        Some(false)
+    );
+    assert_eq!(
+        server
+            .apply(Request::LinkAddressAdd {
+                address: "nope".into(),
+            })
+            .unwrap_err(),
+        "not a link address"
+    );
+    let log = fs::read_to_string(log_path).unwrap();
+    assert_eq!(log.matches("link off").count(), before);
 }

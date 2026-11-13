@@ -41,7 +41,9 @@ make the one-time codes, and each computer keeps its own list of the others, whe
 block or trust one. Each computer also signs a short card about itself, which your apps can add
 their own details to, and only that computer can change it. You can also tell a computer the
 address your other computers reach it at (on a VPN, its VPN address), and the codes it makes carry
-that address. Joining over the network comes next, once Radio listens for your other computers. The rest is how it's meant to work.
+that address. Once it has one, Radio listens there for your other computers, and a computer can join,
+remove another or leave over that network. Sending your apps' files between them comes next. The rest
+is how it's meant to work.
 
 - **You pair a computer once.** One of your computers makes a one-time code, and the new computer
   uses it to join. Your other computers then accept it, on their own or after asking you.
@@ -261,7 +263,20 @@ and inviter, and whether it is trusted. A computer introduced by one this comput
 waits as `pending` until **`computer_accept`** lets it in; **`computer_block`** refuses one on this
 computer only (accepting it again lifts the block); **`computer_trust`** marks an accepted computer
 so that the computers it invites are let in here without asking. Each takes a computer's name or
-id. Joining with a code, removing a computer and leaving come with the next step of the link.
+id.
+
+Radio listens for its other computers on this computer's link addresses (below), from the moment it
+has one; with none, the three ops that reach other computers answer `this computer has no link
+address`. **`join`** takes a code another computer made (pass it through the socket, never a command
+line) and joins that computer's fleet: Radio dials the address the code carries and answers with the
+fleet. **`computer_remove`** removes another computer from the fleet for everyone: the computers it
+reaches, the removed one included, drop it, and `delivered` says how many it reached. **`leave`**
+takes this computer out of its fleet and tells the others. These three wait for the other computers
+(up to 10 seconds for each one that can't be reached), and other apps' requests wait meanwhile, so
+`radio-client` waits up to 2 minutes for them; past about 2 minutes Radio answers `still telling the
+other computers; check computer_list later` and finishes on its own.
+Radio's link name is its daemon's name, so a daemon whose name breaks the computer-name rule doesn't
+listen and answers `this computer's name breaks the computer-name rule; restart Radio with --name`.
 
 Each computer signs a record about itself: its name, its id, its roles, its addresses, and one
 section per app. **`resign`** sets your app's section (text up to 4 KiB, which Radio carries and
@@ -272,7 +287,8 @@ first; a computer holds at most 8 apps' sections, and the record is signed with 
 accepted, each with your app's section. A record is kept only when the computer it names signed it
 and it is newer than the one held, so what you read for a computer is the newest thing it said that
 reached this computer. Sections are not secret: every computer in the
-fleet holds them. Once Radio listens for other computers, a re-signed record goes to each of them.
+fleet holds them. While Radio listens, a re-signed record also goes to each accepted computer, after
+`resign` has answered; one that can't be reached gets it the next time this computer signs.
 
 ### Using Radio from the command line
 
@@ -301,6 +317,9 @@ the socket stays the contract.
 | `radio computer accept <computer>` | `computer_accept` |
 | `radio computer block <computer>` | `computer_block` |
 | `radio computer trust <computer>` | `computer_trust` |
+| `radio join` (reads the code on standard input) | `join` |
+| `radio computer remove <computer>` | `computer_remove` |
+| `radio leave` | `leave` |
 | `radio resign --app <app> [--section <text>]` (`--section ""` removes it), or `--section-file <path>` (`-` reads stdin; an empty file is refused); `--roles <role>,...` (`--roles ""` clears them) | `resign` |
 | `radio computer records --app <app>` | `computer_records` |
 | `radio link address add <address>` (an IP address, no port) | `link_address_add` |
@@ -444,8 +463,9 @@ Radio guards against and what it doesn't.
 
 So far the `id` op (this computer's link id), the fleet and the join codes (`fleet_init`, `code_*`),
 this computer's list of the others (`computer_*`), each computer's signed record (`resign`,
-`computer_records`) and this computer's own link addresses (`link_address_*`, carried in every join
-code it makes) are built; the rest is being built. When it is, an app can count on this:
+`computer_records`), this computer's own link addresses (`link_address_*`, carried in every join
+code it makes) and joining, removing and leaving over them (`join`, `computer_remove`, `leave`) are
+built; the rest is being built. When it is, an app can count on this:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.

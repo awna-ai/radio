@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 5
+Protocol minor: 6
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -83,6 +83,9 @@ them against these lines. They are independent of the repo's semver tags.
 | `link_address_add` | `address` | `port`, `addresses` | Adds one of this computer's link addresses, the address its other computers reach it at (on a VPN, its VPN address). `address` is an IP address with no port: IPv4 or IPv6, never unspecified, multicast, broadcast or IPv6 link-local, and an IPv4-mapped IPv6 address is kept as IPv4. Anything else, a port or a name included, answers `not a link address`. At most one of each family: a second answers `this computer already has a link address of that family; remove it first`; adding one already there changes nothing. Works with or without a fleet, and leaving a fleet keeps them. `port` is the link's one fixed UDP port (7341); `addresses` is the list after the change, IPv4 first |
 | `link_address_list` | none | `port`, `addresses` | This computer's link addresses and the fixed port |
 | `link_address_remove` | `address` | `removed`, `port`, `addresses` | Removes one of this computer's link addresses; `removed` says whether it was there. An `address` that is not an IP address answers `not a link address`; an IP address that could never be a link address answers `removed: false` |
+| `join` | `code` | `fleet: {id, name, version, founder}` | Joins the fleet of the computer that made `code` (`code_create` there): Radio dials the addresses the code carries, pinned to that computer's key, and answers once the inviter has let this computer in. Pass the code through the socket or `radio join`'s standard input, never a command line. `not a join code`, `already in a fleet`, and `the join code has no address to dial` (a code made before its computer had a link address) answer at once; `the computer could not be reached` (nothing answered, or a different key did), `the join was refused` and `the computer did not answer` come from the other computer. Needs a link address here |
+| `computer_remove` | `computer` | `delivered` | Removes another computer from the fleet for everyone. Radio signs the removal (only the computer's inviter or the founding member may) and sends it to the removed computer (when it is accepted here and has an address) and to every accepted computer it has an address for; `delivered` counts those it reached. One that was off misses it. Past 110 seconds it answers `still telling the other computers; check computer_list later` and finishes on its own. Needs a link address here |
+| `leave` | none | `delivered` | Takes this computer out of its fleet: Radio signs the leave, sends it to every accepted computer it has an address for (`delivered` counts those it reached), then forgets the fleet. Past 110 seconds it answers `still telling the other computers; check computer_list later` and finishes on its own. Needs a link address here |
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
 client reads it as a word. Times are seconds since the Unix epoch.

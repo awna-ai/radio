@@ -31,14 +31,24 @@ pub fn request_line(socket: &Path, request: &Request) -> Result<(Response, Strin
         }
         _ => NO_ANSWER.to_owned(),
     })?;
-    exchange(stream, &value)
+    exchange(stream, &value, answer_wait(request))
+}
+
+fn answer_wait(request: &Request) -> Duration {
+    match request {
+        Request::Join { .. } | Request::ComputerRemove { .. } | Request::Leave {} => {
+            Duration::from_secs(120)
+        }
+        _ => TIMEOUT,
+    }
 }
 
 fn exchange(
     mut stream: UnixStream,
     value: &serde_json::Value,
+    wait: Duration,
 ) -> Result<(Response, String), String> {
-    timeout_set(stream.set_read_timeout(Some(TIMEOUT)))?;
+    timeout_set(stream.set_read_timeout(Some(wait)))?;
     timeout_set(stream.set_write_timeout(Some(TIMEOUT)))?;
     // A refused caller may receive an answer before the peer reads anything.
     let sent = write_line(&mut stream, value).and_then(|()| stream.shutdown(Shutdown::Write));

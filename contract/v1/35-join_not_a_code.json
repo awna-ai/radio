@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "join",
+    "code": "rj1.nope"
+  },
+  "response": {
+    "ok": false,
+    "error": "not a join code"
+  },
+  "exact": true
+}

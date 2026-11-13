@@ -33,6 +33,8 @@ const TOOK_TOO_LONG: &str = "the request took too long";
 const REFUSED: &str = "refused: another user";
 const UNBOUND: &str = "radio.sock could not be set up";
 const NOT_MEMBER: &str = "not a member";
+const NOT_LINK_NAME: &str =
+    "this computer's name breaks the computer-name rule; restart Radio with --name";
 
 fn success() -> Response {
     Response {
@@ -59,7 +61,9 @@ pub struct Server {
     host: String,
     link_dir: Option<PathBuf>,
     fleet_db_path: Option<PathBuf>,
-    fleet_db: Option<radio_link::fleet_db::FleetDb>,
+    fleet_db: Option<Arc<Mutex<radio_link::fleet_db::FleetDb>>>,
+    link: Option<radio_link::node::Node>,
+    link_port: u16,
     own_uid: u32,
     request_deadline: Duration,
     answer_deadline: Duration,
@@ -146,6 +150,8 @@ impl Server {
             link_dir: None,
             fleet_db_path: None,
             fleet_db: None,
+            link: None,
+            link_port: radio_link::endpoint::PORT,
             own_uid,
             request_deadline: TIMEOUT,
             answer_deadline: TIMEOUT,
@@ -167,16 +173,107 @@ impl Server {
         self
     }
 
-    fn fleet_db(&mut self) -> Result<&mut radio_link::fleet_db::FleetDb, String> {
+    fn fleet_db(
+        &mut self,
+    ) -> Result<std::sync::MutexGuard<'_, radio_link::fleet_db::FleetDb>, String> {
         self.link_dir.as_ref().ok_or("the link is not set up")?;
         let path = self
             .fleet_db_path
             .as_deref()
             .ok_or("the link is not set up")?;
         if self.fleet_db.is_none() {
-            self.fleet_db = Some(radio_link::fleet_db::FleetDb::open(path)?);
+            self.fleet_db = Some(Arc::new(Mutex::new(radio_link::fleet_db::FleetDb::open(
+                path,
+            )?)));
         }
-        Ok(self.fleet_db.as_mut().unwrap())
+        self.fleet_db
+            .as_ref()
+            .unwrap()
+            .lock()
+            .map_err(|_| "fleet.db could not be read".into())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_link_port(mut self, port: u16) -> Self {
+        self.link_port = port;
+        self
+    }
+
+    /// Tries to start the configured link before serving local requests.
+    pub fn start_link_now(mut self) -> Self {
+        if self.fleet_db_path.as_ref().is_some_and(|path| {
+            fs::symlink_metadata(path)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        }) {
+            return self;
+        }
+        let _ = self.start_link();
+        self
+    }
+
+    fn start_link(&mut self) -> Result<(), String> {
+        if self.link.as_ref().is_some_and(|node| node.running()) {
+            return Ok(());
+        }
+        self.link.take();
+        let result = (|| -> Result<_, String> {
+            self.link_dir.as_ref().ok_or("the link is not set up")?;
+            self.fleet_db_path
+                .as_ref()
+                .ok_or("the link is not set up")?;
+            if !radio_link::wire::member_name(&self.host) {
+                return Err(NOT_LINK_NAME.into());
+            }
+            let mut addrs = self.fleet_db()?.direct_addrs()?;
+            for addr in &mut addrs {
+                addr.set_port(self.link_port);
+            }
+            if addrs.is_empty() {
+                return Err(radio_link::endpoint::NO_OWN_ADDRESS.into());
+            }
+            let key = radio_link::key::load_or_create(self.link_dir.as_deref().unwrap())?;
+            let bytes = std::env::current_exe()
+                .ok()
+                .and_then(|path| fs::read(path).ok())
+                .ok_or("the build's hash could not be read")?;
+            let local = radio_link::link::Local {
+                name: self.host.clone(),
+                sha: crate::install::hash(&bytes),
+            };
+            let db = self.fleet_db.as_ref().unwrap().clone();
+            let node = radio_link::node::Node::start(
+                key,
+                &addrs,
+                db,
+                local,
+                radio_link::admit::Limits::default(),
+            )?;
+            Ok((node, addrs.len()))
+        })();
+        match result {
+            Ok((node, count)) => {
+                self.link = Some(node);
+                self.log.event(
+                    "link",
+                    "start",
+                    &[
+                        ("addresses", Field::Number(count as u64)),
+                        ("port", Field::Number(u64::from(self.link_port))),
+                    ],
+                );
+                Ok(())
+            }
+            Err(error) => {
+                self.log
+                    .event("link", "off", &[("error", Field::Text(&error))]);
+                Err(error)
+            }
+        }
+    }
+
+    fn restart_link(&mut self) {
+        self.link.take();
+        let _ = self.start_link();
     }
 
     fn serve_one(&mut self, mut stream: UnixStream) {
@@ -271,8 +368,35 @@ impl Server {
                 let key = radio_link::key::load_or_create(dir)?;
                 response.id = Some(radio_link::key::endpoint_id(&key));
             }
+            Request::Join { code } => {
+                let code = radio_link::code::JoinCode::parse(&code)?;
+                if self.fleet_db()?.fleet()?.is_some() {
+                    return Err("already in a fleet".into());
+                }
+                if code.hints.direct.is_empty() {
+                    return Err("the join code has no address to dial".into());
+                }
+                self.start_link()?;
+                self.link.as_ref().unwrap().join(code, now)?;
+                let record = self.fleet_db()?.fleet()?.ok_or("not in a fleet")?;
+                response.fleet = Some(Fleet {
+                    id: record.body.id,
+                    name: record.body.name,
+                    version: record.body.version,
+                    founder: record.body.founder,
+                });
+            }
+            Request::ComputerRemove { computer } => {
+                self.start_link()?;
+                response.delivered =
+                    Some(self.link.as_ref().unwrap().remove(&computer, now)? as u64);
+            }
+            Request::Leave {} => {
+                self.start_link()?;
+                response.delivered = Some(self.link.as_ref().unwrap().leave(now)? as u64);
+            }
             Request::FleetInit { name } => {
-                self.fleet_db()?;
+                drop(self.fleet_db()?);
                 let dir = self.link_dir.as_deref().unwrap().to_path_buf();
                 let node = radio_link::key::load_or_create(&dir)?;
                 let dir = absolute_link_dir(&dir)?;
@@ -286,7 +410,13 @@ impl Server {
                 response.recovery_file = Some(file.to_string_lossy().into_owned());
             }
             Request::CodeCreate { name, ttl } => {
-                self.fleet_db()?;
+                let has_addrs = self
+                    .fleet_db()?
+                    .direct_addrs()
+                    .is_ok_and(|addrs| !addrs.is_empty());
+                if has_addrs {
+                    let _ = self.start_link();
+                }
                 let dir = self.link_dir.as_deref().unwrap();
                 let node = radio_link::key::load_or_create(dir)?;
                 let hints = radio_link::code::Hints {
@@ -326,7 +456,11 @@ impl Server {
                 response.computer = Some(computer(self.fleet_db()?.accept(&target)?));
             }
             Request::ComputerBlock { computer: target } => {
-                response.computer = Some(computer(self.fleet_db()?.block(&target)?));
+                let row = match &self.link {
+                    Some(node) => node.block(&target)?,
+                    None => self.fleet_db()?.block(&target)?,
+                };
+                response.computer = Some(computer(row));
             }
             Request::ComputerTrust { computer: target } => {
                 response.computer = Some(computer(self.fleet_db()?.trust(&target)?));
@@ -336,22 +470,32 @@ impl Server {
                 section,
                 roles,
             } => {
-                self.fleet_db()?;
+                let has_addrs = self
+                    .fleet_db()?
+                    .direct_addrs()
+                    .is_ok_and(|addrs| !addrs.is_empty());
+                if has_addrs {
+                    let _ = self.start_link();
+                }
                 if !self.store.registered(&app)? {
                     return Err("the app is not registered".into());
                 }
                 let dir = self.link_dir.as_deref().ok_or("the link is not set up")?;
                 let node = radio_link::key::load_or_create(dir)?;
                 let host = self.host.clone();
+                let addrs = self.fleet_db()?.direct_addrs()?;
                 let record = self.fleet_db()?.resign(
                     &node,
                     &host,
-                    &[],
+                    &addrs,
                     &app,
                     section.as_deref(),
                     roles.as_deref(),
                     now,
                 )?;
+                if let Some(node) = &self.link {
+                    node.publish(record.clone());
+                }
                 response.record = Some(computer_record(record, &app));
             }
             Request::ComputerRecords { app } => {
@@ -362,25 +506,43 @@ impl Server {
                 let dir = self.link_dir.as_deref().unwrap();
                 let node = radio_link::key::load_or_create(dir)?;
                 response.records = Some(listed_computer_records(
-                    self.fleet_db()?,
+                    &*self.fleet_db()?,
                     &node.public().to_string(),
                     &app,
                 )?);
             }
             Request::LinkAddressAdd { address } => {
-                let db = self.fleet_db()?;
-                let ip = address
-                    .parse::<IpAddr>()
-                    .map_err(|_| radio_link::fleet_db::NOT_LINK_ADDRESS)?;
-                response.addresses = Some(
-                    db.add_link_address(ip)?
-                        .into_iter()
-                        .map(|ip| ip.to_string())
-                        .collect(),
-                );
+                let has_addrs = self
+                    .fleet_db()?
+                    .direct_addrs()
+                    .is_ok_and(|addrs| !addrs.is_empty());
+                if has_addrs {
+                    let _ = self.start_link();
+                }
+                let changed;
+                {
+                    let mut db = self.fleet_db()?;
+                    let ip = address
+                        .parse::<IpAddr>()
+                        .map_err(|_| radio_link::fleet_db::NOT_LINK_ADDRESS)?;
+                    let before = db.link_addresses()?;
+                    let after = db.add_link_address(ip)?;
+                    changed = before != after;
+                    response.addresses = Some(after.into_iter().map(|ip| ip.to_string()).collect());
+                }
                 response.port = Some(radio_link::endpoint::PORT);
+                if changed {
+                    self.restart_link();
+                }
             }
             Request::LinkAddressList {} => {
+                let has_addrs = self
+                    .fleet_db()?
+                    .direct_addrs()
+                    .is_ok_and(|addrs| !addrs.is_empty());
+                if has_addrs {
+                    let _ = self.start_link();
+                }
                 response.addresses = Some(
                     self.fleet_db()?
                         .link_addresses()?
@@ -391,18 +553,31 @@ impl Server {
                 response.port = Some(radio_link::endpoint::PORT);
             }
             Request::LinkAddressRemove { address } => {
-                let db = self.fleet_db()?;
-                let ip = address
-                    .parse::<IpAddr>()
-                    .map_err(|_| radio_link::fleet_db::NOT_LINK_ADDRESS)?;
-                response.removed = Some(db.remove_link_address(ip)?);
+                let has_addrs = self
+                    .fleet_db()?
+                    .direct_addrs()
+                    .is_ok_and(|addrs| !addrs.is_empty());
+                if has_addrs {
+                    let _ = self.start_link();
+                }
+                {
+                    let mut db = self.fleet_db()?;
+                    let ip = address
+                        .parse::<IpAddr>()
+                        .map_err(|_| radio_link::fleet_db::NOT_LINK_ADDRESS)?;
+                    response.removed = Some(db.remove_link_address(ip)?);
+                }
+                response.port = Some(radio_link::endpoint::PORT);
+                if response.removed == Some(true) {
+                    self.restart_link();
+                }
                 response.addresses = Some(
-                    db.link_addresses()?
+                    self.fleet_db()?
+                        .link_addresses()?
                         .into_iter()
                         .map(|ip| ip.to_string())
                         .collect(),
                 );
-                response.port = Some(radio_link::endpoint::PORT);
             }
             Request::Register {
                 app,
