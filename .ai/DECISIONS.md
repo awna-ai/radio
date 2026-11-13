@@ -2,6 +2,27 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-13: D23. The daemon listens on its link addresses, and three ops reach other computers
+
+The daemon starts its endpoint when it starts, on this computer's link addresses (D22), and again
+whenever an address is added or removed, so it binds only what is configured; with none it doesn't
+listen, and the ops that need the link say so. The link's name is the daemon's name, so a daemon
+whose name breaks the computer-name rule doesn't listen either, with a plain sentence naming
+`--name` (it already couldn't sign its record). The endpoint runs on a one-thread runtime of its own
+beside the serial socket loop, so `radio-link` keeps tokio and the daemon stays blocking: it answers
+joins, applies the records other computers send, and closes a blocked or removed key's connections.
+
+`join`, `computer_remove` and `leave` (protocol minor 6) wait for the other computers, as the
+library's functions do, and the socket answers no other client meanwhile: up to 10 seconds for a
+join, and up to 10 seconds per computer that can't be reached for a removal or a leave, capped at
+110 seconds, after which the op says the others are still being told and finishes in the
+background. They are a person's rare steps, so `radio-client` waits up to 2 minutes for them rather
+than the library growing a second, queued path. A re-signed record is different: an app re-signs
+often, so `resign` answers once the record is stored, and one sender passes on only the newest
+record afterwards. A link that fails to start (an address not on any interface yet) is tried again
+by the next op that uses the link or its addresses. The join code reaches
+the daemon through the socket or the command's standard input only, never an argument or the log.
+
 ## 2026-11-13: D22. A computer's own link addresses live in `fleet.db`, on one fixed port
 
 Each computer keeps the addresses its other computers reach it at: at most one IPv4 and one IPv6,
