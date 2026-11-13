@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "code_create",
+    "ttl": 59
+  },
+  "response": {
+    "ok": false,
+    "error": "not a code lifetime"
+  },
+  "exact": true
+}

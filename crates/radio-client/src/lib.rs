@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 1;
+pub const PROTOCOL_MINOR: u32 = 2;
 
-/// The ops major 1, minor 1 serves, in this order.
+/// The ops major 1, minor 2 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -24,6 +24,10 @@ pub const OPS: &[&str] = &[
     "read",
     "status",
     "id",
+    "fleet_init",
+    "code_create",
+    "code_list",
+    "code_revoke",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -90,6 +94,19 @@ pub enum Request {
     Status { room: String },
     /// Returns this computer's public link id, creating its key on the first call.
     Id {},
+    /// Makes a fleet with this computer as its founding member.
+    FleetInit { name: String },
+    /// Makes a one-time join code for this computer's fleet.
+    CodeCreate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ttl: Option<u64>,
+    },
+    /// Lists open join codes without their secrets.
+    CodeList {},
+    /// Closes an open join code by its identifier.
+    CodeRevoke { id: String },
 }
 
 /// A member identified by a kind and a name.
@@ -155,6 +172,24 @@ pub struct Response {
     /// This computer's public link id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// The fleet made on this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fleet: Option<Fleet>,
+    /// The file holding the recovery key to move off this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_file: Option<String>,
+    /// The join code, including its secret, returned only when made.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// The identifier used to revoke the join code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_id: Option<String>,
+    /// When the join code expires, in seconds since the Unix epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<f64>,
+    /// The open join codes, oldest first, without their secrets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codes: Option<Vec<JoinCodeInfo>>,
 }
 
 /// A room returned by the daemon.
@@ -211,4 +246,33 @@ pub struct StatusLine {
 /// Returns the default socket path beneath the given home directory.
 pub fn socket_path(home: &Path) -> PathBuf {
     home.join(".local/state/radio/radio.sock")
+}
+
+/// A fleet returned by the daemon.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Fleet {
+    /// The fleet identifier.
+    pub id: String,
+    /// The fleet name.
+    pub name: String,
+    /// The signed fleet record's version.
+    pub version: u64,
+    /// The founding member's public link id.
+    pub founder: String,
+}
+
+/// An open join code returned without its secret.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JoinCodeInfo {
+    /// The identifier used to revoke the join code.
+    pub id: String,
+    /// The optional label given when the code was made.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// When the code was made, in seconds since the Unix epoch.
+    pub created: f64,
+    /// When the code expires, in seconds since the Unix epoch.
+    pub expires_at: f64,
+    /// The remaining uses of the code.
+    pub uses: u32,
 }

@@ -525,7 +525,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":1},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":2},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -1317,4 +1317,151 @@ fn log_unanswered_hello_is_the_only_event() {
         .map(|line| line.split_once(' ').unwrap().1)
         .collect();
     assert_eq!(events, ["serve unanswered op=\"hello\""]);
+}
+
+#[test]
+fn fleet_and_join_codes_cross_the_socket_without_logging_secrets() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join(".config/radio");
+    let log_path = fixture.0.join("radio.log");
+    let server = fixture.bind();
+    let log = Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX);
+    let worker = start(
+        server
+            .with_link_dir(link)
+            .with_fleet_db(fixture.0.join("fleet.db"))
+            .with_log(log),
+        11,
+    );
+    let send = |value: serde_json::Value| {
+        let mut line = serde_json::to_vec(&value).unwrap();
+        line.push(b'\n');
+        raw_value(&fixture.socket(), &line)
+    };
+    assert_eq!(
+        send(serde_json::json!({"v":1,"op":"code_create"})),
+        serde_json::json!({"ok":false,"error":"not in a fleet"})
+    );
+    let id = send(serde_json::json!({"v":1,"op":"id"}))["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let found = send(serde_json::json!({"v":1,"op":"fleet_init","name":"garden"}));
+    assert_eq!(found["ok"], true);
+    assert_eq!(found["fleet"]["founder"], id);
+    assert_eq!(found["fleet"]["name"], "garden");
+    assert_eq!(found["fleet"]["version"], 1);
+    let recovery = PathBuf::from(found["recovery_file"].as_str().unwrap());
+    assert!(recovery.is_absolute());
+    assert_eq!(
+        fs::metadata(&recovery).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let recovery = fs::read(&recovery).unwrap();
+    assert_eq!(recovery.len(), 65);
+    assert_eq!(recovery[64], b'\n');
+    assert!(
+        recovery[..64]
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+    );
+    assert_eq!(
+        send(serde_json::json!({"v":1,"op":"fleet_init","name":"orchard"})),
+        serde_json::json!({"ok":false,"error":"already in a fleet"})
+    );
+    let before = now().unwrap();
+    let created = send(serde_json::json!({"v":1,"op":"code_create","name":"orchard"}));
+    let after = now().unwrap();
+    assert_eq!(created["ok"], true);
+    let text = created["code"].as_str().unwrap();
+    let code = radio_link::code::JoinCode::parse(text).unwrap();
+    assert_eq!(code.fleet, found["fleet"]["id"].as_str().unwrap());
+    assert_eq!(code.inviter.to_string(), id);
+    assert!(code.hints.direct.is_empty());
+    let expires = created["expires_at"].as_f64().unwrap();
+    assert!((before + 1800.0..=after + 1800.0).contains(&expires));
+    let listed = send(serde_json::json!({"v":1,"op":"code_list"}));
+    let rows = listed["codes"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["id"], created["code_id"]);
+    assert_eq!(rows[0]["name"], "orchard");
+    assert_eq!(rows[0]["uses"], 1);
+    let mut fields: Vec<_> = rows[0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    fields.sort();
+    assert_eq!(fields, ["created", "expires_at", "id", "name", "uses"]);
+    let secret = text.split('.').nth(3).unwrap();
+    assert!(!listed.to_string().contains(text));
+    assert!(!listed.to_string().contains(secret));
+    for removed in [true, false] {
+        assert_eq!(
+            send(serde_json::json!({"v":1,"op":"code_revoke","id":created["code_id"]})),
+            serde_json::json!({"ok":true,"removed":removed})
+        );
+    }
+    assert_eq!(
+        send(serde_json::json!({"v":1,"op":"code_list"})),
+        serde_json::json!({"ok":true,"codes":[]})
+    );
+    assert_eq!(
+        send(serde_json::json!({"v":1,"op":"code_create","ttl":59})),
+        serde_json::json!({"ok":false,"error":"not a code lifetime"})
+    );
+    // A hostile failure must not carry its supplied secret into the log either.
+    assert_eq!(
+        send(serde_json::json!({"v":1,"op":"code_revoke","id":text})),
+        serde_json::json!({"ok":false,"error":"not a code id"})
+    );
+    worker.join().unwrap();
+    let log = fs::read_to_string(log_path).unwrap();
+    assert!(log.contains("not a code lifetime"));
+    assert!(!log.contains(secret));
+    assert!(!log.contains(text));
+}
+
+#[test]
+fn fleet_ops_need_both_link_and_fleet_paths() {
+    for configured in [false, true] {
+        let fixture = Fixture::new();
+        let server = fixture.bind();
+        let server = if configured {
+            server.with_link_dir(fixture.0.join("link"))
+        } else {
+            server.with_fleet_db(fixture.0.join("fleet.db"))
+        };
+        let worker = start(server, 4);
+        for value in [
+            serde_json::json!({"v":1,"op":"fleet_init","name":"garden"}),
+            serde_json::json!({"v":1,"op":"code_create"}),
+            serde_json::json!({"v":1,"op":"code_list"}),
+            serde_json::json!({"v":1,"op":"code_revoke","id":"0000000000000000"}),
+        ] {
+            let mut line = serde_json::to_vec(&value).unwrap();
+            line.push(b'\n');
+            assert_eq!(
+                raw_value(&fixture.socket(), &line),
+                serde_json::json!({"ok":false,"error":"the link is not set up"})
+            );
+        }
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn recovery_folder_is_absolute_even_with_a_relative_home() {
+    let absolute = absolute_link_dir(Path::new(".")).unwrap();
+    assert!(absolute.is_absolute());
+    assert_eq!(
+        absolute,
+        std::env::current_dir().unwrap().canonicalize().unwrap()
+    );
+    let fixture = Fixture::new();
+    assert_eq!(
+        absolute_link_dir(&fixture.0),
+        Err("the link folder is not usable")
+    );
 }

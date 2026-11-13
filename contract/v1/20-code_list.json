@@ -1,0 +1,19 @@
+{
+  "request": {
+    "v": 1,
+    "op": "code_list"
+  },
+  "response": {
+    "ok": true,
+    "codes": [
+      {
+        "id": "<string>",
+        "name": "orchard",
+        "created": "<time>",
+        "expires_at": "<time>",
+        "uses": 1
+      }
+    ]
+  },
+  "exact": false
+}

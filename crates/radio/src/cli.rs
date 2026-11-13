@@ -42,6 +42,10 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     {
         ["hello", rest @ ..] => ("hello", 0, rest, &[]),
         ["id", rest @ ..] => ("id", 0, rest, &[]),
+        ["fleet", "init", rest @ ..] => ("fleet_init", 1, rest, &[]),
+        ["code", "create", rest @ ..] => ("code_create", 0, rest, &["--name", "--ttl"]),
+        ["code", "list", rest @ ..] => ("code_list", 0, rest, &[]),
+        ["code", "revoke", rest @ ..] => ("code_revoke", 1, rest, &[]),
         ["register", rest @ ..] => ("register", 0, rest, &["--app", "--app-version", "--member"]),
         ["room", "create", rest @ ..] => ("create", 1, rest, &["--title"]),
         ["rooms", rest @ ..] => ("rooms", 0, rest, &["--after", "--limit"]),
@@ -82,6 +86,17 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     let request = match op {
         "hello" => Request::Hello {},
         "id" => Request::Id {},
+        "fleet_init" => Request::FleetInit {
+            name: positionals[0].into(),
+        },
+        "code_create" => Request::CodeCreate {
+            name: seen.get("--name").map(|value| (*value).into()),
+            ttl: seen.get("--ttl").map(|value| lifetime(value)).transpose()?,
+        },
+        "code_list" => Request::CodeList {},
+        "code_revoke" => Request::CodeRevoke {
+            id: positionals[0].into(),
+        },
         "register" => Request::Register {
             app: required("--app")?.into(),
             app_version: required("--app-version")?.into(),
@@ -144,6 +159,17 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         _ => unreachable!(),
     };
     Ok(Command { request, body })
+}
+
+fn lifetime(value: &str) -> Result<u64, ()> {
+    let (number, multiplier) = if let Some(number) = value.strip_suffix('m') {
+        (number, 60)
+    } else if let Some(number) = value.strip_suffix('h') {
+        (number, 3600)
+    } else {
+        return Err(());
+    };
+    digits::<u64>(number)?.checked_mul(multiplier).ok_or(())
 }
 
 fn read_body(reader: impl Read) -> Result<String, (i32, String)> {

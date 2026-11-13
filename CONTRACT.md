@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 1
+Protocol minor: 2
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -70,9 +70,15 @@ them against these lines. They are independent of the repo's semver tags.
 | `read` | `room`, optional `since`, optional `limit` (1 to 500) | `messages: [{seq, kind, author_host, author, body, sent_at, delivered_at?}]` | The newest `limit` messages (50 by default), or with `since` those numbered after it (500 by default), oldest first |
 | `status` | `room` | `status: [{key, line, set_by, set_at, expires_at?}]` | The room's live status lines |
 | `id` | none | `id` | This computer's link id: the public half of its key, 64 lowercase hex characters. The first call makes the key |
+| `fleet_init` | `name` | `fleet: {id, name, version, founder}`, `recovery_file` | Makes a fleet with this computer as its founding member (its key is made if missing). `name` is 1 to 32 characters: a lowercase letter, then lowercase letters, digits or `-`. Writes the fleet's recovery key, once, to the file named in `recovery_file` (0600): move it into a password manager and delete the file. Fails when this computer is already in a fleet |
+| `code_create` | optional `name`, optional `ttl` (60 to 86400 seconds, 1800 by default) | `code`, `code_id`, `expires_at` | Makes a one-time join code for this computer's fleet. `code` is the only copy of its secret: Radio keeps a SHA-256 of it. `name` (the name rule above) only labels it in `code_list`. At most 64 codes are open at once |
+| `code_list` | none | `codes: [{id, name?, created, expires_at, uses}]` | The open join codes, oldest first, without their secrets |
+| `code_revoke` | `id` | `removed` | Closes an open join code |
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
 client reads it as a word. Times are seconds since the Unix epoch.
+
+A join code is one line: `rj1.<fleet id>.<inviter id>.<secret>.<hints>`, where the fleet and inviter ids are 64 lowercase hex characters, the secret is 32 bytes and the hints are a JSON object `{"direct": ["<ip>:<port>", …]}`, both in unpadded base64url. Treat it as a password: pass it on standard input or through the socket, never on a command line, and never log it.
 
 Every read goes through the socket: the daemon is the only process that opens its rooms store. The
 exact field names and types of each op are `radio-client`'s types. `contract/v1/` holds a fixture per

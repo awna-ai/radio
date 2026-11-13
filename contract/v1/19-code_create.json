@@ -1,0 +1,15 @@
+{
+  "request": {
+    "v": 1,
+    "op": "code_create",
+    "name": "orchard",
+    "ttl": 600
+  },
+  "response": {
+    "ok": true,
+    "code": "<string>",
+    "code_id": "<string>",
+    "expires_at": "<time>"
+  },
+  "exact": false
+}

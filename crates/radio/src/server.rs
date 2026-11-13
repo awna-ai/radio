@@ -1,7 +1,7 @@
 use crate::log::{Field, Log};
 use radio_client::{
-    Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR, Protocol, REQUEST_MAX_BYTES, Request,
-    Response, Room, StatusLine,
+    Fleet, JoinCodeInfo, Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR, Protocol,
+    REQUEST_MAX_BYTES, Request, Response, Room, StatusLine,
 };
 use radio_rooms::{Author, OWNED, READ_MAX, RoomStore};
 use std::{
@@ -57,6 +57,8 @@ pub struct Server {
     store: RoomStore,
     host: String,
     link_dir: Option<PathBuf>,
+    fleet_db_path: Option<PathBuf>,
+    fleet_db: Option<radio_link::fleet_db::FleetDb>,
     own_uid: u32,
     request_deadline: Duration,
     answer_deadline: Duration,
@@ -141,6 +143,8 @@ impl Server {
             store,
             host,
             link_dir: None,
+            fleet_db_path: None,
+            fleet_db: None,
             own_uid,
             request_deadline: TIMEOUT,
             answer_deadline: TIMEOUT,
@@ -154,6 +158,24 @@ impl Server {
     pub fn with_link_dir(mut self, dir: PathBuf) -> Self {
         self.link_dir = Some(dir);
         self
+    }
+
+    /// Sets the path of the fleet store opened on the first fleet operation.
+    pub fn with_fleet_db(mut self, path: PathBuf) -> Self {
+        self.fleet_db_path = Some(path);
+        self
+    }
+
+    fn fleet_db(&mut self) -> Result<&mut radio_link::fleet_db::FleetDb, String> {
+        self.link_dir.as_ref().ok_or("the link is not set up")?;
+        let path = self
+            .fleet_db_path
+            .as_deref()
+            .ok_or("the link is not set up")?;
+        if self.fleet_db.is_none() {
+            self.fleet_db = Some(radio_link::fleet_db::FleetDb::open(path)?);
+        }
+        Ok(self.fleet_db.as_mut().unwrap())
     }
 
     fn serve_one(&mut self, mut stream: UnixStream) {
@@ -247,6 +269,53 @@ impl Server {
                 let dir = self.link_dir.as_deref().ok_or("the link is not set up")?;
                 let key = radio_link::key::load_or_create(dir)?;
                 response.id = Some(radio_link::key::endpoint_id(&key));
+            }
+            Request::FleetInit { name } => {
+                self.fleet_db()?;
+                let dir = self.link_dir.as_deref().unwrap().to_path_buf();
+                let node = radio_link::key::load_or_create(&dir)?;
+                let dir = absolute_link_dir(&dir)?;
+                let (record, file) = self.fleet_db()?.found(&node, &name, &dir)?;
+                response.fleet = Some(Fleet {
+                    id: record.body.id,
+                    name: record.body.name,
+                    version: record.body.version,
+                    founder: record.body.founder,
+                });
+                response.recovery_file = Some(file.to_string_lossy().into_owned());
+            }
+            Request::CodeCreate { name, ttl } => {
+                self.fleet_db()?;
+                let dir = self.link_dir.as_deref().unwrap();
+                let node = radio_link::key::load_or_create(dir)?;
+                let (code, row) = self.fleet_db()?.create_code(
+                    &node,
+                    name.as_deref(),
+                    ttl,
+                    radio_link::code::Hints::default(),
+                    now,
+                )?;
+                response.code = Some(code.encode());
+                response.code_id = Some(row.id);
+                response.expires_at = Some(row.expires_at);
+            }
+            Request::CodeList {} => {
+                response.codes = Some(
+                    self.fleet_db()?
+                        .codes(now)?
+                        .into_iter()
+                        .map(|row| JoinCodeInfo {
+                            id: row.id,
+                            name: row.name,
+                            created: row.created,
+                            expires_at: row.expires_at,
+                            uses: row.uses,
+                        })
+                        .collect(),
+                );
+            }
+            Request::CodeRevoke { id } => {
+                response.removed = Some(self.fleet_db()?.revoke_code(&id)?);
             }
             Request::Register {
                 app,
@@ -405,6 +474,11 @@ impl Server {
         self.answer_deadline = deadline;
         self
     }
+}
+
+fn absolute_link_dir(dir: &Path) -> Result<PathBuf, &'static str> {
+    dir.canonicalize()
+        .map_err(|_| "the link folder is not usable")
 }
 
 fn now() -> Result<f64, String> {

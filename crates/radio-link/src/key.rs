@@ -16,36 +16,9 @@ const READ: &str = "the link key could not be read";
 const REGULAR: &str = "the link key is not a regular file";
 
 pub fn load_or_create(dir: &Path) -> Result<iroh::SecretKey, &'static str> {
-    match fs::symlink_metadata(dir) {
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(dir)
-                .map_err(|_| FOLDER)?;
-        }
-        Err(_) => return Err(FOLDER),
-    }
-    let metadata = fs::symlink_metadata(dir).map_err(|_| FOLDER)?;
+    let _folder = private_folder(dir).map_err(|_| FOLDER)?;
     // SAFETY: geteuid has no arguments or memory preconditions.
     let uid = unsafe { libc::geteuid() };
-    if !metadata.is_dir() || metadata.uid() != uid {
-        return Err(FOLDER);
-    }
-    let folder = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(dir)
-        .map_err(|_| FOLDER)?;
-    let metadata = folder.metadata().map_err(|_| FOLDER)?;
-    if !metadata.is_dir() || metadata.uid() != uid {
-        return Err(FOLDER);
-    }
-    // SAFETY: folder owns a live directory descriptor.
-    if unsafe { libc::fchmod(folder.as_raw_fd(), 0o700) } != 0 {
-        return Err(FOLDER);
-    }
     remove_stale_temporary_keys(dir, uid);
     loop {
         match OpenOptions::new()
@@ -81,6 +54,40 @@ pub fn load_or_create(dir: &Path) -> Result<iroh::SecretKey, &'static str> {
             Err(_) => return Err(READ),
         }
     }
+}
+
+pub(crate) fn private_folder(dir: &Path) -> Result<File, ()> {
+    match fs::symlink_metadata(dir) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(dir)
+                .map_err(|_| ())?;
+        }
+        Err(_) => return Err(()),
+    }
+    let metadata = fs::symlink_metadata(dir).map_err(|_| ())?;
+    // SAFETY: geteuid has no arguments or memory preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if !metadata.is_dir() || metadata.uid() != uid {
+        return Err(());
+    }
+    let folder = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .map_err(|_| ())?;
+    let metadata = folder.metadata().map_err(|_| ())?;
+    if !metadata.is_dir() || metadata.uid() != uid {
+        return Err(());
+    }
+    // SAFETY: folder owns a live directory descriptor.
+    if unsafe { libc::fchmod(folder.as_raw_fd(), 0o700) } != 0 {
+        return Err(());
+    }
+    Ok(folder)
 }
 
 fn remove_stale_temporary_keys(dir: &Path, uid: u32) {
@@ -157,7 +164,7 @@ pub fn endpoint_id(key: &iroh::SecretKey) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn exclude_from_backup(file: &File) {
+pub(crate) fn exclude_from_backup(file: &File) {
     const VALUE: &[u8] = b"bplist00\x5f\x10\x11com.apple.backupd\x08\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c";
     // SAFETY: the fd is live, the name is NUL-terminated, and VALUE spans the supplied length.
     let _ = unsafe {
@@ -173,7 +180,7 @@ fn exclude_from_backup(file: &File) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn exclude_from_backup(_file: &File) {}
+pub(crate) fn exclude_from_backup(_file: &File) {}
 
 #[cfg(test)]
 #[path = "key_tests.rs"]

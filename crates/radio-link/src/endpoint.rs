@@ -22,12 +22,7 @@ pub(crate) fn usable(addrs: &[SocketAddr]) -> Result<Vec<SocketAddr>, &'static s
     for addr in addrs {
         let ip = addr.ip().to_canonical();
         let family = if ip.is_ipv4() { &mut ipv4 } else { &mut ipv6 };
-        if *family
-            || addr.port() != first.port()
-            || ip.is_unspecified()
-            || ip.is_multicast()
-            || matches!(ip, IpAddr::V4(ip) if ip.is_broadcast())
-        {
+        if *family || addr.port() != first.port() || !usable_ip(&ip) {
             return Err(ADDRESS);
         }
         *family = true;
@@ -36,6 +31,11 @@ pub(crate) fn usable(addrs: &[SocketAddr]) -> Result<Vec<SocketAddr>, &'static s
         canonical.push(addr);
     }
     Ok(canonical)
+}
+
+pub(crate) fn usable_ip(ip: &IpAddr) -> bool {
+    let ip = ip.to_canonical();
+    !ip.is_unspecified() && !ip.is_multicast() && !matches!(ip, IpAddr::V4(ip) if ip.is_broadcast())
 }
 
 pub async fn bind(

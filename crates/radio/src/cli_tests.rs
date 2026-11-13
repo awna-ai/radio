@@ -708,3 +708,119 @@ fn stdin_is_never_read_beyond_the_cli_byte_bound() {
         Err((1, "radio: the message is empty or too long".into()))
     );
 }
+
+fn fleet_fixture(stem: &str) -> serde_json::Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contract/v1")
+        .join(format!("{stem}.json"));
+    serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+}
+
+#[test]
+fn fleet_contract_requests_are_supported() {
+    assert_eq!(radio_client::PROTOCOL_MINOR, 2);
+    let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
+    let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
+    assert_eq!(serde_json::to_value(typed).unwrap(), response);
+    for stem in [
+        "18-fleet_init",
+        "19-code_create",
+        "20-code_list",
+        "21-code_revoke",
+        "22-code_create_refused",
+    ] {
+        let mut value = fleet_fixture(stem)["request"].clone();
+        value.as_object_mut().unwrap().remove("v");
+        assert!(serde_json::from_value::<Request>(value).is_ok(), "{stem}");
+    }
+}
+
+#[test]
+fn fleet_commands_match_contract_requests() {
+    for (stem, words) in [
+        ("18-fleet_init", vec!["fleet", "init", "garden"]),
+        (
+            "19-code_create",
+            vec!["code", "create", "--name", "orchard", "--ttl", "10m"],
+        ),
+        ("20-code_list", vec!["code", "list"]),
+        ("21-code_revoke", vec!["code", "revoke", "0000000000000000"]),
+    ] {
+        let parsed = parse(&args(&words));
+        assert!(parsed.is_ok(), "{words:?}");
+        let mut request = serde_json::to_value(parsed.unwrap().request).unwrap();
+        request["v"] = 1.into();
+        assert_eq!(request, fleet_fixture(stem)["request"]);
+    }
+    let parsed = parse(&args(&["code", "create", "--ttl", "2h"])).unwrap();
+    assert_eq!(serde_json::to_value(parsed.request).unwrap()["ttl"], 7200);
+    let parsed = parse(&args(&["code", "create"])).unwrap();
+    assert_eq!(
+        serde_json::to_value(parsed.request).unwrap(),
+        serde_json::json!({"op":"code_create"})
+    );
+}
+
+#[test]
+fn fleet_values_are_sent_verbatim() {
+    for (words, request) in [
+        (
+            vec!["fleet", "init", "--name"],
+            Request::FleetInit {
+                name: "--name".into(),
+            },
+        ),
+        (
+            vec!["code", "revoke", "--id"],
+            Request::CodeRevoke { id: "--id".into() },
+        ),
+        (
+            vec!["code", "create", "--name", "--ttl"],
+            Request::CodeCreate {
+                name: Some("--ttl".into()),
+                ttl: None,
+            },
+        ),
+    ] {
+        assert_eq!(
+            parse(&args(&words)),
+            Ok(Command {
+                request,
+                body: None,
+            }),
+            "{words:?}"
+        );
+    }
+}
+
+#[test]
+fn invalid_fleet_commands_are_usage_errors() {
+    for words in [
+        vec!["code", "revoke"],
+        vec!["fleet", "init"],
+        vec!["fleet", "init", "garden", "orchard"],
+        vec!["code", "list", "extra"],
+        vec!["code", "create", "--unknown", "orchard"],
+        vec!["code", "create", "--name"],
+        vec!["code", "create", "--name", "orchard", "--name", "garden"],
+        vec!["code", "create", "--ttl", "1m", "--ttl", "2h"],
+    ] {
+        assert_eq!(parse(&args(&words)), Err(()), "{words:?}");
+    }
+    for ttl in [
+        "10",
+        "m",
+        "10s",
+        "-1m",
+        "+1m",
+        "١m",
+        "18446744073709551615h",
+        "18446744073709551616m",
+    ] {
+        assert_eq!(
+            parse(&args(&["code", "create", "--ttl", ttl])),
+            Err(()),
+            "{ttl}"
+        );
+    }
+}

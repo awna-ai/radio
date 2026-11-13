@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "code_revoke",
+    "id": "0000000000000000"
+  },
+  "response": {
+    "ok": true,
+    "removed": false
+  },
+  "exact": true
+}

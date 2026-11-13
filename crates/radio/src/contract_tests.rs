@@ -51,7 +51,8 @@ fn replay_major_one_contract() {
     let socket = temp.0.join("radio.sock");
     let mut server = Server::bind(&socket, &temp.0.join("rooms.db"), "test-host".into())
         .unwrap()
-        .with_link_dir(temp.0.join(".config/radio"));
+        .with_link_dir(temp.0.join(".config/radio"))
+        .with_fleet_db(temp.0.join("fleet.db"));
     let connections = fixtures.len();
     let worker = thread::spawn(move || {
         for _ in 0..connections {
