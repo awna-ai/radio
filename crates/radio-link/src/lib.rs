@@ -9,6 +9,7 @@ pub mod join;
 pub mod key;
 pub mod link;
 pub mod membership;
+pub mod node;
 pub mod sim;
 pub mod wire;
 pub use iroh::{EndpointId, SecretKey};
