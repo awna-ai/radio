@@ -20,18 +20,11 @@ fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path) {
             scan(&path, builder, own, manifest);
         } else if path.file_name().unwrap() == "Cargo.toml" && path != manifest {
             let source = fs::read_to_string(&path).unwrap();
-            let mut dependencies = false;
-            for line in source.lines().map(str::trim) {
-                if line.starts_with('[') {
-                    dependencies = line.contains("dependencies");
-                } else if dependencies {
-                    assert!(
-                        line.split(['=', '.']).next().unwrap().trim() != "iroh",
-                        "{}: transport dependency outside its crate",
-                        path.display()
-                    );
-                }
-            }
+            assert!(
+                !source.contains("iroh"),
+                "{}: transport dependency outside its crate",
+                path.display()
+            );
         } else if path.extension().is_some_and(|ext| ext == "rs") && path != own {
             let source = fs::read_to_string(&path).unwrap();
             assert!(
@@ -65,6 +58,8 @@ fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path) {
                     concat!("bind_addr_", "with_opts"),
                     concat!(".pre", "set("),
                     concat!("Builder::", "new("),
+                    concat!("add_custom_", "transport("),
+                    concat!("external_", "addr("),
                 ] {
                     assert!(
                         !contains_forbidden(&source, forbidden),
