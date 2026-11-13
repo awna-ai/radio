@@ -2,6 +2,31 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-13: D20. Each computer signs its own record, and apps' sections ride in it unread
+
+Each computer in a fleet keeps one record about itself: its name, its link id, its roles (at most 8
+names Radio gives no meaning), the addresses it can be reached at, and one section per app (at most
+8, each a string of up to 4 KiB). Only that computer's key signs it, so no other computer can change
+what it says about itself. Radio checks the signature and carries an app's section without reading
+it: the app on the other computer parses it. Sections are not secret, since every computer in the
+fleet holds them.
+
+A computer keeps another's record only when that computer signed it, it names a computer on this
+computer's list (pending and blocked ones included) under the name the list has for it, and its
+version is newer than the one held; anything else is dropped, so a replay or an older record changes
+nothing. A version is the signing time in milliseconds, or one more than the last when the clock
+says less, so it keeps rising even after the computer loses its database and joins again. Any
+accepted computer may carry another's record, since the signature, not the sender, says whose it
+is. A record with addresses replaces the ones held for that computer; one without says nothing
+about them. Removing a computer drops its record, and leaving a fleet drops them all.
+
+An app changes its section with the `resign` op, which may also replace the computer's roles; the
+app must be registered, and a change that changes nothing keeps the record and its version.
+`computer_records` reads every record held, each with the asking app's section. A newcomer takes the
+records its inviter holds with the rest of the inviter's view, up to 256 KiB of them; the others
+reach it when their computers next sign. Until the daemon listens (the direct-address step), a
+re-signed record is kept on its own computer and sent from then on.
+
 ## 2026-11-13: D19. Computers join through one inviter, and each keeps its own list
 
 A fleet's other computers are *computers* in Radio's code, ops and docs, not *members*, since a

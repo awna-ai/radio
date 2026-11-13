@@ -38,8 +38,9 @@ Today Radio works on one computer. Later, it will link the copies on your other 
 room can span them: an agent on your laptop and one on your desktop can work in the same
 conversation. Building it has started: a computer can already start your group of computers and
 make the one-time codes, and each computer keeps its own list of the others, where you can accept,
-block or trust one. Joining over the network comes next, once Radio listens for your other
-computers. The rest is how it's meant to work.
+block or trust one. Each computer also signs a short card about itself, which your apps can add
+their own details to, and only that computer can change it. Joining over the network comes next,
+once Radio listens for your other computers. The rest is how it's meant to work.
 
 - **You pair a computer once.** One of your computers makes a one-time code, and the new computer
   uses it to join. Your other computers then accept it, on their own or after asking you.
@@ -261,6 +262,15 @@ computer only (accepting it again lifts the block); **`computer_trust`** marks a
 so that the computers it invites are let in here without asking. Each takes a computer's name or
 id. Joining with a code, removing a computer and leaving come with the next step of the link.
 
+Each computer signs a record about itself: its name, its id, its roles, its addresses, and one
+section per app. **`resign`** sets your app's section (any text up to 4 KiB, which Radio carries
+and never reads; leave `section` out to remove it) and, with `roles`, replaces the computer's roles
+(at most 8 names, by the computer-name rule). Your app must be registered first. **`computer_records`**
+reads every record this computer holds, its own included, each with your app's section. A record is
+kept only when the computer it names signed it and it is newer than the one held, so what you read
+for a computer is what that computer last said. Sections are not secret: every computer in the
+fleet holds them. Once Radio listens for other computers, a re-signed record goes to each of them.
+
 ### Using Radio from the command line
 
 Every op is also a `radio` command, so a shell script, a quick test or an app in any language can
@@ -288,6 +298,8 @@ the socket stays the contract.
 | `radio computer accept <computer>` | `computer_accept` |
 | `radio computer block <computer>` | `computer_block` |
 | `radio computer trust <computer>` | `computer_trust` |
+| `radio resign --app <app> [--section <text>]`, or `--section-file <path>` (`-` reads stdin); `--roles <role>,...` (`--roles ""` clears them) | `resign` |
+| `radio computer records --app <app>` | `computer_records` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
 the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
@@ -424,8 +436,9 @@ Radio guards against and what it doesn't.
 
 ### Across computers (coming)
 
-So far the `id` op (this computer's link id), the fleet and the join codes (`fleet_init`, `code_*`)
-and this computer's list of the others (`computer_*`) are built; the rest is being built. When it is, an app can count on this:
+So far the `id` op (this computer's link id), the fleet and the join codes (`fleet_init`, `code_*`),
+this computer's list of the others (`computer_*`) and each computer's signed record (`resign`,
+`computer_records`) are built; the rest is being built. When it is, an app can count on this:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.
