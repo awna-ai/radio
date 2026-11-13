@@ -66,6 +66,12 @@ if command -v cargo > /dev/null 2>&1; then
     # radio-panels turns on serde_json features the daemon and client ship without; test them as they ship.
     echo 'cargo test --locked -p radio -p radio-client -p radio-rooms'
     cargo test --locked -p radio -p radio-client -p radio-rooms
+    echo 'cargo fmt --manifest-path fuzz/Cargo.toml --check'
+    cargo fmt --manifest-path fuzz/Cargo.toml --check
+    echo 'cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings'
+    cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings
+    echo 'cargo test --manifest-path fuzz/Cargo.toml --locked'
+    cargo test --manifest-path fuzz/Cargo.toml --locked
 else
     missing cargo 'the Rust checks'
 fi

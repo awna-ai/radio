@@ -1,0 +1,38 @@
+[package]
+name = "radio-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+radio-link = { path = "../crates/radio-link" }
+libfuzzer-sys = "=0.4.13"
+serde_json = "=1.0.151"
+tokio = { version = "=1.54.1", features = ["rt"] }
+
+[[bin]]
+name = "frame"
+path = "fuzz_targets/frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "records"
+path = "fuzz_targets/records.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "join_code"
+path = "fuzz_targets/join_code.rs"
+test = false
+doc = false
+bench = false
