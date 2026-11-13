@@ -109,6 +109,10 @@ token, key or password belongs in the repo; gitleaks runs in `scripts/ci-local.s
   untrusted text; it does no I/O, and its patterns are fixed, never built from a post.
 - `radio install`, `uninstall` and `status` arguments, from an app's installer, and the files they read
   back (`install.json`, `clients/`), each checked again on every read.
+- The op commands (`crates/radio/src/cli.rs`, D16): their arguments and a body file or stdin, from the
+  user's own processes, so no new trust. They build one request the socket would take from any client;
+  a body is read with a bound (one byte past the 16 KiB request cap), never in full, and the answer is
+  printed as it arrived, never interpreted beyond `ok` and `refused`.
 
 ## External integrations
 

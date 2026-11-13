@@ -122,8 +122,8 @@ short script, like the Python one below.
 ## For app developers
 
 This part is for an app that wants rooms on the person's computer. You need two things: a copy
-of the `radio` binary inside your app, and a way to write one line of JSON to a Unix socket. No
-library is required, and any language works. [`CONTRACT.md`](CONTRACT.md) is the exact contract;
+of the `radio` binary inside your app, and a way to write one line of JSON to a Unix socket, or
+to run a command. No library is required, and any language works. [`CONTRACT.md`](CONTRACT.md) is the exact contract;
 this section is how to use it.
 
 Today Radio runs on macOS, under the person's own login (a launch agent), on one computer.
@@ -238,6 +238,101 @@ A first session looks like this:
    every room, including the ones other apps opened.
 6. **`status_set`** and **`status_clear`** for a short live line in a room. A member changes only
    the lines it set; the person changes any line.
+
+### Using Radio from the command line
+
+Every op is also a `radio` command, so a shell script, a quick test or an app in any language can
+use Radio by running the binary it bundles. Each command sends exactly its op's request over the
+socket and prints Radio's answer, unchanged, as one line of JSON. It adds no op, field or phrase:
+the socket stays the contract.
+
+| Command | Op |
+| --- | --- |
+| `radio hello` | `hello` |
+| `radio register --app <app> --app-version <version> --member <kind>:<name>` (repeat `--member`; none clears the list) | `register` |
+| `radio room create <room> --title <title>` | `create_room` |
+| `radio rooms [--after <room>] [--limit <n>]` | `list_rooms` |
+| `radio post <room> --as <kind>:<name> --body <text>`, or `--body-file <path>` (`-` reads stdin) | `post` |
+| `radio read <room> [--since <seq>] [--limit <n>]` | `read` |
+| `radio line list <room>` | `status` |
+| `radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]` | `status_set` |
+| `radio line clear <room> <key> --as <kind>:<name>` | `status_clear` |
+
+Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
+the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
+UTF-8, and Radio applies its own 4 KiB limit.
+
+Exit codes: `0` when the answer is `"ok": true`; `3` when it is `"refused": true`; `1` for any
+other failure, including Radio not running (the phrase is then on stderr, and stdout is empty);
+`2` for a bad argument, with the usage on stderr and nothing sent.
+
+Python, with nothing but the standard library (3.7 or newer, so macOS's own `python3` runs it):
+
+```python
+from __future__ import annotations
+
+import json
+import subprocess
+
+def radio(*args: str, body: str | None = None) -> dict:
+    done = subprocess.run(["radio", *args], input=body or "", capture_output=True, text=True)
+    answer = json.loads(done.stdout or "{}")
+    if done.returncode != 0:
+        raise RuntimeError(f"radio {args[0]}: {answer.get('error', done.stderr.strip())}")
+    return answer
+
+radio("register", "--app", "notes", "--app-version", "1.0.0", "--member", "helper:ada")
+radio("room", "create", "launch-plan", "--title", "Plan the launch")
+radio("post", "launch-plan", "--as", "helper:ada", "--body-file", "-", body="The first draft is ready.")
+
+seen = 0
+for message in radio("read", "launch-plan", "--since", str(seen))["messages"]:
+    print(message["seq"], message["author"]["name"], message["body"])
+    seen = message["seq"]
+```
+
+Node.js, in TypeScript with no packages (an ES module such as `example.mts`, so top-level `await`
+works):
+
+```ts
+import { spawn } from "node:child_process";
+
+type Answer = { ok: boolean; error?: string; refused?: boolean; [field: string]: unknown };
+
+function radio(args: string[], body?: string): Promise<Answer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("radio", args, { stdio: ["pipe", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (chunk) => (out += chunk));
+    child.stderr.on("data", (chunk) => (err += chunk));
+    child.on("error", reject);
+    child.stdin.on("error", () => {}); // the spawn error above reports a missing radio
+    child.on("close", (code) => {
+      let answer: Answer;
+      try {
+        answer = JSON.parse(out || "{}") as Answer;
+      } catch {
+        return reject(new Error(`radio ${args[0]}: ${err.trim()}`));
+      }
+      if (code === 0) resolve(answer);
+      else reject(new Error(`radio ${args[0]}: ${answer.error ?? err.trim()}`));
+    });
+    child.stdin.end(body ?? "");
+  });
+}
+
+await radio(["register", "--app", "notes", "--app-version", "1.0.0", "--member", "helper:ada"]);
+await radio(["room", "create", "launch-plan", "--title", "Plan the launch"]);
+await radio(["post", "launch-plan", "--as", "helper:ada", "--body-file", "-"], "The first draft is ready.");
+
+const { messages } = (await radio(["read", "launch-plan", "--since", "0"])) as unknown as {
+  messages: { seq: number; author: { name: string }; body: string }[];
+};
+for (const m of messages) console.log(m.seq, m.author.name, m.body);
+```
+
+Both run the `radio` on your `PATH`; use the path of the copy your app bundles instead.
 
 ### Answers and errors
 

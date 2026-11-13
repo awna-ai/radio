@@ -2,6 +2,18 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-12: D16. Every op is also a command, and the socket stays the contract
+
+Each op of protocol minor 0 is a `radio` subcommand (`hello`, `register`, `room create`, `rooms`,
+`post`, `read`, and `line list|set|clear` for status lines, since `status` is the install status), so
+a shell script or an app in any language can use Radio by running the binary it bundles. A command
+sends exactly its op's request through `radio-client` and prints the answer line as it arrived. It
+adds no op, field or answer phrase, so it can't drift from `CONTRACT.md`: what it checks itself is
+only what it must to build a request (argument shape, a member's kind by the daemon's own rule) and a
+body too big for any request; everything else is the daemon's to answer. Exit codes split ok (0),
+refused (3), failed (1) and a bad argument (2). There is no waiting or streaming command: a caller
+reads with `--since` again.
+
 ## 2026-11-12: D15. The first link is direct only, and delivers files into a folder the app gets from Radio
 
 The link between computers is built direct first: each computer binds only local addresses the user
