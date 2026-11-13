@@ -17,10 +17,11 @@ pub struct JoinCode {
 impl Hints {
     fn valid(&self) -> bool {
         self.direct.len() <= 8
-            && self
-                .direct
-                .iter()
-                .all(|addr| crate::endpoint::usable_ip(&addr.ip()))
+            && self.direct.iter().enumerate().all(|(index, addr)| {
+                addr.port() != 0
+                    && crate::endpoint::usable_ip(&addr.ip())
+                    && !self.direct[..index].contains(addr)
+            })
             && serde_json::to_vec(self).is_ok_and(|bytes| bytes.len() <= 1024)
     }
 }

@@ -124,7 +124,6 @@ fn refuses_unknown_oversized_and_unusable_hints() {
     let valid = parts(&code());
     for json in [
         "{\"direct\":[],\"extra\":true}".to_owned(),
-        " ".repeat(1025),
         "not json".into(),
         serde_json::to_string(&Hints {
             direct: vec!["192.0.2.1:1".parse().unwrap(); 9],
@@ -151,5 +150,58 @@ fn refuses_unknown_oversized_and_unusable_hints() {
             .unwrap(),
         );
         refused(&p);
+    }
+}
+
+#[test]
+fn hints_json_size_cap_counts_whitespace() {
+    let valid = parts(&code());
+    for size in [1024, 1025] {
+        let json = format!("{:<size$}", r#"{"direct":[]}"#);
+        assert_eq!(json.len(), size);
+        let mut p = valid.clone();
+        p[4] = BASE64URL_NOPAD.encode(json.as_bytes());
+        if size == 1024 {
+            assert_eq!(
+                JoinCode::parse(&p.join(".")).unwrap().hints,
+                Hints::default()
+            );
+        } else {
+            refused(&p);
+        }
+    }
+}
+
+#[test]
+fn refuses_hints_with_port_zero() {
+    let c = code();
+    for addr in ["192.0.2.1:0", "[2001:db8::1]:0"] {
+        let hints = Hints {
+            direct: vec![addr.parse().unwrap()],
+        };
+        let mut p = parts(&c);
+        p[4] = BASE64URL_NOPAD.encode(&serde_json::to_vec(&hints).unwrap());
+        refused(&p);
+        assert_eq!(
+            JoinCode::new(c.fleet.clone(), c.inviter, hints).err(),
+            Some("the join code could not be made")
+        );
+    }
+}
+
+#[test]
+fn refuses_hints_with_repeated_addresses() {
+    let c = code();
+    for addr in ["192.0.2.1:9000", "[2001:db8::1]:9000"] {
+        let hints = Hints {
+            direct: vec![addr.parse().unwrap(); 2],
+        };
+        let mut p = parts(&c);
+        p[4] = BASE64URL_NOPAD.encode(&serde_json::to_vec(&hints).unwrap());
+        refused(&p);
+        assert_eq!(
+            JoinCode::new(c.fleet.clone(), c.inviter, hints).err(),
+            Some("the join code could not be made")
+        );
     }
 }

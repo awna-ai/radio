@@ -1365,6 +1365,8 @@ fn fleet_and_join_codes_cross_the_socket_without_logging_secrets() {
             .iter()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
     );
+    let recovery_secret = std::str::from_utf8(&recovery[..64]).unwrap();
+    assert!(!found.to_string().contains(recovery_secret));
     assert_eq!(
         send(serde_json::json!({"v":1,"op":"fleet_init","name":"orchard"})),
         serde_json::json!({"ok":false,"error":"already in a fleet"})
@@ -1419,6 +1421,7 @@ fn fleet_and_join_codes_cross_the_socket_without_logging_secrets() {
     worker.join().unwrap();
     let log = fs::read_to_string(log_path).unwrap();
     assert!(log.contains("not a code lifetime"));
+    assert!(!log.contains(recovery_secret));
     assert!(!log.contains(secret));
     assert!(!log.contains(text));
 }

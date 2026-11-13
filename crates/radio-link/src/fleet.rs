@@ -6,6 +6,7 @@ pub struct FleetBody {
     pub id: String,
     pub name: String,
     pub version: u64,
+    pub epoch: u64,
     pub founder: String,
     pub recovery: String,
     pub release_key: Option<String>,
@@ -92,23 +93,33 @@ pub fn accept(current: Option<&FleetRecord>, new: &FleetRecord) -> Result<(), &'
     if new.body.id != current.body.id {
         return Err("the fleet record is for another fleet");
     }
-    if new.body.version <= current.body.version {
-        return Err("the fleet record is not newer");
-    }
     if new.body.recovery != current.body.recovery {
         return Err("the fleet record changes its recovery key");
     }
     match new.signer {
-        Signer::Founder if new.body.founder != current.body.founder => {
-            Err("only the recovery key names a new founding member")
+        Signer::Founder => {
+            if new.body.epoch != current.body.epoch {
+                return Err("only the recovery key starts a new epoch");
+            }
+            if new.body.version <= current.body.version {
+                return Err("the fleet record is not newer");
+            }
+            if new.body.founder != current.body.founder {
+                return Err("only the recovery key names a new founding member");
+            }
         }
-        Signer::Recovery
-            if new.body.name != current.body.name || new.body.relays != current.body.relays =>
-        {
-            Err("the recovery key changes only the founding member and the release key")
+        Signer::Recovery => {
+            if new.body.epoch <= current.body.epoch {
+                return Err("the fleet record is not newer");
+            }
+            if new.body.name != current.body.name || new.body.relays != current.body.relays {
+                return Err(
+                    "the recovery key changes only the founding member and the release key",
+                );
+            }
         }
-        _ => Ok(()),
     }
+    Ok(())
 }
 
 pub fn found(
@@ -130,6 +141,7 @@ pub fn found(
         id: data_encoding::HEXLOWER.encode(&id),
         name: name.into(),
         version: 1,
+        epoch: 0,
         founder: node.public().to_string(),
         recovery: recovery.public().to_string(),
         release_key: None,

@@ -8,6 +8,7 @@ fn body(node: &iroh::SecretKey, recovery: &iroh::SecretKey) -> FleetBody {
         id: "ab".repeat(32),
         name: "lantern".into(),
         version: 1,
+        epoch: 0,
         founder: node.public().to_string(),
         recovery: recovery.public().to_string(),
         release_key: None,
@@ -32,6 +33,7 @@ fn founding_record_has_fresh_id_and_distinct_recovery() {
     assert_eq!(record.body.recovery, recovery.public().to_string());
     assert_ne!(record.body.founder, record.body.recovery);
     assert_eq!(record.body.version, 1);
+    assert_eq!(record.body.epoch, 0);
     assert!(record.body.relays.is_empty());
     assert_eq!(record.body.release_key, None);
     assert!(crate::wire::hex64(&record.body.id));
@@ -116,6 +118,7 @@ fn acceptance_checks_identity_version_and_authority() {
         ),
         Err("only the recovery key names a new founding member")
     );
+    next.epoch = 1;
     next.release_key = Some(iroh::SecretKey::generate().public().to_string());
     let replaced = sign(next.clone(), Signer::Recovery, &recovery);
     assert_eq!(accept(Some(&current), &replaced), Ok(()));
@@ -126,6 +129,7 @@ fn acceptance_checks_identity_version_and_authority() {
     );
     let mut next = b.clone();
     next.version = 2;
+    next.epoch = 1;
     next.name = "orchard".into();
     assert_eq!(
         accept(Some(&current), &sign(next, Signer::Recovery, &recovery)),
@@ -189,4 +193,64 @@ fn invalid_fields_and_unknown_fields_are_refused() {
     json.as_object_mut().unwrap().remove("extra");
     json["body"]["extra"] = true.into();
     assert!(serde_json::from_value::<FleetRecord>(json).is_err());
+}
+
+#[test]
+fn recovery_starts_new_epoch_after_maximum_founder_version() {
+    let (node, recovery) = keys();
+    let b = body(&node, &recovery);
+    let current = sign(b.clone(), Signer::Founder, &node);
+    let mut next = b;
+    next.version = u64::MAX;
+    let poisoned = sign(next.clone(), Signer::Founder, &node);
+    assert_eq!(accept(Some(&current), &poisoned), Ok(()));
+
+    let replacement = iroh::SecretKey::generate();
+    next.epoch += 1;
+    next.version = 1;
+    next.founder = replacement.public().to_string();
+    let recovered = sign(next.clone(), Signer::Recovery, &recovery);
+    assert_eq!(accept(Some(&poisoned), &recovered), Ok(()));
+
+    next.version = 2;
+    assert_eq!(
+        accept(Some(&recovered), &sign(next, Signer::Founder, &replacement)),
+        Ok(())
+    );
+    assert_eq!(
+        accept(Some(&recovered), &poisoned),
+        Err("only the recovery key starts a new epoch")
+    );
+}
+
+#[test]
+fn founder_cannot_start_another_epoch() {
+    let (node, recovery) = keys();
+    let mut next = body(&node, &recovery);
+    let current = sign(next.clone(), Signer::Founder, &node);
+    next.version = 2;
+    next.epoch = 1;
+    assert_eq!(
+        accept(Some(&current), &sign(next, Signer::Founder, &node)),
+        Err("only the recovery key starts a new epoch")
+    );
+}
+
+#[test]
+fn recovery_cannot_reuse_or_lower_an_epoch_even_with_a_newer_version() {
+    let (node, recovery) = keys();
+    let mut next = body(&node, &recovery);
+    next.epoch = 1;
+    let current = sign(next.clone(), Signer::Recovery, &recovery);
+    for epoch in [0, 1] {
+        next.epoch = epoch;
+        next.version = 2;
+        assert_eq!(
+            accept(
+                Some(&current),
+                &sign(next.clone(), Signer::Recovery, &recovery)
+            ),
+            Err("the fleet record is not newer")
+        );
+    }
 }

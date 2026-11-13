@@ -315,7 +315,7 @@ impl Server {
                 );
             }
             Request::CodeRevoke { id } => {
-                response.removed = Some(self.fleet_db()?.revoke_code(&id)?);
+                response.removed = Some(self.fleet_db()?.revoke_code(&id, now)?);
             }
             Request::Register {
                 app,

@@ -8,7 +8,9 @@ The decisions this repo was founded on (2026-11-10). Newer decisions go above th
 id, a name, a version, the founder's and a recovery key's public halves, and no relays yet (D15),
 signed by the founder's link key. A newer record is accepted only from the founder, which may
 change the name and the release key, or from the recovery key, which may name a new founding
-member or re-pin the release key, and nothing else; the recovery key itself never changes. The
+member or re-pin the release key, and nothing else; the recovery key itself never changes. Records
+are ordered by an epoch, then a version: only the recovery key starts a new epoch, so a stolen
+founder key can't sign a version so high that the recovery key could never follow it. The
 recovery key's secret is written once to `~/.config/radio/recovery.key` (0600, left out of Time
 Machine) rather than put in the op's answer, so it doesn't land in a terminal's or an agent's
 transcript; the person moves it into a password manager and deletes the file.

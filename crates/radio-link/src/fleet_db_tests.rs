@@ -115,6 +115,24 @@ fn founding_writes_one_private_recovery_key() {
     assert_eq!(path, temp.link().join(RECOVERY_FILE));
     assert_eq!(mode(&path), 0o600);
     assert_eq!(mode(&temp.link()), 0o700);
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        let mut bytes = [0u8; 128];
+        // SAFETY: both strings are NUL-terminated and bytes spans its advertised length.
+        let length = unsafe {
+            libc::getxattr(
+                path.as_ptr(),
+                c"com.apple.metadata:com_apple_backup_excludeItem".as_ptr(),
+                bytes.as_mut_ptr().cast(),
+                bytes.len(),
+                0,
+                libc::XATTR_NOFOLLOW,
+            )
+        };
+        assert!(length > 0, "recovery key must be excluded from backups");
+    }
     let bytes = fs::read(&path).unwrap();
     assert_eq!(bytes.len(), 65);
     assert_eq!(bytes[64], b'\n');
@@ -286,12 +304,12 @@ fn revokes_valid_ids_and_refuses_bad_ids() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
     for id in ["", "a", "FFFFFFFFFFFFFFFF", "0123456789abcdeg"] {
-        assert_eq!(db.revoke_code(id), Err("not a code id"));
+        assert_eq!(db.revoke_code(id, 10.0), Err("not a code id"));
     }
-    assert!(!db.revoke_code("0000000000000000").unwrap());
+    assert!(!db.revoke_code("0000000000000000", 10.0).unwrap());
     let (code, row) = mint(&mut db, &node, 10.0);
-    assert!(db.revoke_code(&row.id).unwrap());
-    assert!(!db.revoke_code(&row.id).unwrap());
+    assert!(db.revoke_code(&row.id, 10.0).unwrap());
+    assert!(!db.revoke_code(&row.id, 10.0).unwrap());
     assert_eq!(
         db.consume_code(&code, &node.public(), 10.0),
         Err("not a live join code")
@@ -342,7 +360,7 @@ fn join_open_tracks_expiry_consumption_and_revocation() {
     db.consume_code(&code, &node.public(), 10.0).unwrap();
     assert!(!db.join_open(10.0).unwrap());
     let (_, row) = mint(&mut db, &node, 10.0);
-    db.revoke_code(&row.id).unwrap();
+    db.revoke_code(&row.id, 10.0).unwrap();
     assert!(!db.join_open(10.0).unwrap());
 }
 #[test]
@@ -384,5 +402,15 @@ fn two_consumers_race_fifty_codes_with_exactly_one_success_each() {
         let second = worker.join().unwrap();
         assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
         assert_eq!(first.err().or(second.err()), Some("not a live join code"));
+    }
+}
+
+#[test]
+fn revoking_an_unswept_expired_code_returns_false() {
+    for elapsed in [0.0, 1.0] {
+        let temp = Temp::new();
+        let (mut db, node) = temp.found();
+        let (_, row) = mint(&mut db, &node, 10.0);
+        assert!(!db.revoke_code(&row.id, row.expires_at + elapsed).unwrap());
     }
 }

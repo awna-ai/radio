@@ -224,7 +224,7 @@ impl FleetDb {
         Ok(rows)
     }
 
-    pub fn revoke_code(&mut self, id: &str) -> Result<bool, &'static str> {
+    pub fn revoke_code(&mut self, id: &str, now: f64) -> Result<bool, &'static str> {
         if id.len() != 16
             || !id
                 .bytes()
@@ -236,6 +236,7 @@ impl FleetDb {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| WRITE)?;
+        drop_expired(&tx, now)?;
         let changed = tx
             .execute("DELETE FROM codes WHERE id = ?1", [id])
             .map_err(|_| WRITE)?;
