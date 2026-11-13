@@ -135,7 +135,8 @@ publishes the draft. A draft that fails any of these stays a draft, and the scri
 
 `bash scripts/ci-local.sh` runs everything: shellcheck, the term check's own test, the term check,
 gitleaks, `cargo fmt`, `cargo clippy` and `cargo test`, for the workspace and for `fuzz/`. It needs
-stable Rust (edition 2024); shellcheck and gitleaks are skipped when missing. `RADIO_STRICT=1` makes
+stable Rust (edition 2024) and a C++ compiler (the fuzz crate's `libfuzzer-sys` builds libFuzzer);
+shellcheck and gitleaks are skipped when missing. `RADIO_STRICT=1` makes
 every tool and the term list required, and is how the maintainers run it before a land.
 
 The link's property tests (`crates/radio-link/tests/properties.rs`, D21) run 256 cases each from a

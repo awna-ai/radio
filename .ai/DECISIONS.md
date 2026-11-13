@@ -16,8 +16,8 @@ new dependency for it.
 The same code is fuzzed by `cargo-fuzz` targets in `fuzz/`, a workspace of its own with its own
 lockfile, never built into a release. Fuzzing needs a nightly toolchain and time, so it runs
 outside the gate; the gate checks that the targets build, lint and pass their own tests on stable,
-and that their lockfile holds every package the workspace's also holds at the same version and
-checksum, so the fuzzers try the code that ships.
+and that every package both lockfiles hold is at the same version, source and checksum, with no
+package in the fuzz lockfile that has not passed an intake.
 
 ## 2026-11-13: D20. Each computer signs its own record, and apps' sections ride in it unread
 
