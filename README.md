@@ -272,9 +272,11 @@ line) and joins that computer's fleet: Radio dials the address the code carries 
 fleet. **`computer_remove`** removes another computer from the fleet for everyone: the computers it
 reaches, the removed one included, drop it, and `delivered` says how many it reached. **`leave`**
 takes this computer out of its fleet and tells the others. These three wait for the other computers
-(up to 10 seconds for each one that can't be reached), and other apps' requests wait meanwhile, so
-`radio-client` waits up to 2 minutes for them; past about 2 minutes Radio answers `still telling the
-other computers; check computer_list later` and finishes on its own.
+(up to 10 seconds for each one that can't be reached), so `radio-client` waits up to 2 minutes for
+them; past 110 seconds Radio answers `still telling the other computers; check computer_list later`
+and finishes in the background, unless it stops or a link address changes first. Radio answers one
+request at a time, so while one of them runs, another app reads `Radio did not answer` after 5
+seconds, and its request is still carried out afterwards: check before you try a post again.
 Radio's link name is its daemon's name, so a daemon whose name breaks the computer-name rule doesn't
 listen and answers `this computer's name breaks the computer-name rule; restart Radio with --name`.
 
