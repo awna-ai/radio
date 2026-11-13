@@ -360,6 +360,25 @@ answers: `Radio is not running` when nothing answers on the socket, and `Radio d
 when an answer doesn't come in time or can't be read. `v0.1.0` printed them as `the Radio is not
 running` and `the Radio did not answer`, so an app that also runs with `v0.1.0` matches both.
 
+### When something goes wrong
+
+Radio writes `~/.local/state/radio/radio.log`, one line per event: when it starts (with its version
+and protocol), binds its socket and stops; when an app installs or upgrades it, or is added or
+removed as a client; and for every answer that isn't `"ok": true`, the op and the phrase. A line
+never holds what an app sent (a body, a title, a member's name), so the log is safe to paste into a
+bug report. For example:
+
+```text
+2026-11-13T03:40:00Z serve start version="0.1.1" protocol="1.1" name="garden-mac"
+2026-11-13T03:40:00Z serve bound socket="radio.sock"
+2026-11-13T03:40:01Z install installed version="0.1.1" app="kiteapp"
+2026-11-13T03:41:12Z serve refused op="post" error="not a member"
+2026-11-13T03:52:30Z serve stop signal="TERM"
+```
+
+The log starts over once it passes 1 MiB. Its lines are for people to read, not part of the
+contract: their words may change in any release.
+
 ### Versions
 
 The protocol has a major and a minor. Within major 1 a change only adds: a new op or a new optional
@@ -397,8 +416,9 @@ None of this is built yet. When it is, an app can count on this:
 
 - It works on Mac today, on one computer.
 - **Built:** rooms, posts, status lines, the shared install and upgrade, the rules for a group
-  discussion, a ready-built download, and a command for every step.
-- **Next:** group discussions that any app can start, and a log to read when something goes wrong.
+  discussion, a ready-built download, a command for every step, and a log to read when something
+  goes wrong.
+- **Next:** group discussions that any app can start.
 - **Later:** linking your computers, as [Across your computers](#across-your-computers-coming)
   describes.
 
