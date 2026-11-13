@@ -2,17 +2,21 @@ use std::{
     fmt::Write as _,
     fs::File,
     io::{self, Seek, SeekFrom, Write},
-    os::fd::AsFd,
+    os::{fd::AsFd, unix::fs::OpenOptionsExt},
+    path::Path,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+/// The maximum regular log file size before the daemon truncates it.
 pub const LOG_MAX_BYTES: u64 = 1 << 20;
+/// A quoted text value or an unsigned number in a log line.
 pub enum Field<'a> {
     Text(&'a str),
     Number(u64),
 }
 
+/// Formats whole seconds since the Unix epoch as a UTC timestamp.
 pub fn utc(secs: u64) -> String {
     // Civil date from days since the epoch, in 400-year Gregorian eras.
     let days = (secs / 86400) as i64 + 719468;
@@ -35,6 +39,7 @@ pub fn utc(secs: u64) -> String {
     )
 }
 
+/// Formats one timestamped event with escaped fields and a trailing newline.
 pub fn line(secs: u64, source: &str, event: &str, fields: &[(&str, Field)]) -> String {
     let mut text = format!("{} {source} {event}", utc(secs));
     for (key, value) in fields {
@@ -51,6 +56,25 @@ pub fn line(secs: u64, source: &str, event: &str, fields: &[(&str, Field)]) -> S
     text
 }
 
+/// Appends one event to an existing regular file, ignoring every error.
+pub fn append(path: &Path, source: &str, event: &str, fields: &[(&str, Field)]) {
+    let Ok(mut file) = File::options()
+        .append(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+    else {
+        return;
+    };
+    if !file.metadata().is_ok_and(|meta| meta.is_file()) {
+        return;
+    }
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |time| time.as_secs());
+    let _ = file.write_all(line(secs, source, event, fields).as_bytes());
+}
+
+/// A shared event log with a cap on regular file size.
 #[derive(Clone)]
 pub struct Log {
     file: Option<Arc<Mutex<File>>>,
@@ -58,6 +82,7 @@ pub struct Log {
 }
 
 impl Log {
+    /// Returns a log that discards every event.
     pub fn none() -> Self {
         Self {
             file: None,
@@ -65,6 +90,7 @@ impl Log {
         }
     }
 
+    /// Returns a log writing to standard error when it can be cloned.
     pub fn stderr() -> Self {
         io::stderr()
             .as_fd()
@@ -73,6 +99,7 @@ impl Log {
             .unwrap_or_else(|_| Self::none())
     }
 
+    /// Returns a log writing to the supplied file with the given size cap.
     pub fn to_file(file: File, cap: u64) -> Self {
         Self {
             file: Some(Arc::new(Mutex::new(file))),
@@ -80,6 +107,7 @@ impl Log {
         }
     }
 
+    /// Writes one event, truncating a regular file at its cap and ignoring errors.
     pub fn event(&self, source: &str, event: &str, fields: &[(&str, Field)]) {
         let Some(file) = &self.file else {
             return;

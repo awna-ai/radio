@@ -62,11 +62,13 @@ pub struct Server {
 }
 
 impl Server {
+    /// Sets the event log used by this server.
     pub fn with_log(mut self, log: Log) -> Self {
         self.log = log;
         self
     }
 
+    /// Returns the mutex held while the server handles a request.
     pub fn busy(&self) -> Arc<Mutex<()>> {
         Arc::clone(&self.busy)
     }

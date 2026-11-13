@@ -99,3 +99,56 @@ fn regular_file_is_truncated_at_cap() {
     );
     assert_eq!(text.lines().count(), 2);
 }
+
+#[test]
+fn append_does_not_create_a_missing_file() {
+    let f = Fixture::new();
+    append(&f.0.join("log"), "install", "installed", &[]);
+    assert!(!f.0.join("log").exists());
+}
+
+#[test]
+fn append_does_not_follow_a_symlink() {
+    let f = Fixture::new();
+    fs::write(f.0.join("target"), "kept\n").unwrap();
+    std::os::unix::fs::symlink(f.0.join("target"), f.0.join("log")).unwrap();
+    append(&f.0.join("log"), "install", "installed", &[]);
+    assert_eq!(fs::read_to_string(f.0.join("target")).unwrap(), "kept\n");
+}
+
+#[test]
+fn append_skips_a_directory() {
+    let f = Fixture::new();
+    fs::create_dir(f.0.join("log")).unwrap();
+    append(&f.0.join("log"), "install", "installed", &[]);
+    assert!(f.0.join("log").is_dir());
+    assert_eq!(fs::read_dir(f.0.join("log")).unwrap().count(), 0);
+}
+
+#[test]
+fn append_writes_one_line_without_truncating() {
+    let f = Fixture::new();
+    fs::write(f.0.join("log"), "kept\n").unwrap();
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    append(
+        &f.0.join("log"),
+        "install",
+        "installed",
+        &[("version", Field::Text("1.0.0"))],
+    );
+    let after = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let text = f.read();
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0], "kept");
+    let (time, event) = lines[1].split_once(' ').unwrap();
+    assert!((before..=after).any(|secs| utc(secs) == time));
+    assert_eq!(event, "install installed version=\"1.0.0\"");
+    assert!(text.ends_with('\n'));
+}

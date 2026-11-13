@@ -1,4 +1,5 @@
 //! The per-user install handshake, with launchd and socket probes supplied by the caller.
+use crate::log::{Field, append};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -709,6 +710,55 @@ fn validate(args: &InstallArgs, paths: &Paths, uid: u32) -> Result<String, Failu
 impl Installer<'_> {
     /// Installs or keeps the newest daemon, registers the client, then imports rooms.
     pub fn install(&self, args: &InstallArgs, now: u64) -> Result<InstallOutcome, Failure> {
+        let result = self.install_inner(args, now);
+        let app = if app_name(&args.app) {
+            &args.app
+        } else {
+            "unknown"
+        };
+        match &result {
+            Ok(outcome) => match &outcome.installed {
+                Installed::Fresh { version } => append(
+                    &self.paths.log,
+                    "install",
+                    "installed",
+                    &[("version", Field::Text(version)), ("app", Field::Text(app))],
+                ),
+                Installed::Upgraded { from, to } => append(
+                    &self.paths.log,
+                    "install",
+                    "upgraded",
+                    &[
+                        ("from", Field::Text(from)),
+                        ("to", Field::Text(to)),
+                        ("app", Field::Text(app)),
+                    ],
+                ),
+                Installed::Kept { installed } => append(
+                    &self.paths.log,
+                    "install",
+                    "client-added",
+                    &[
+                        ("installed", Field::Text(installed)),
+                        ("app", Field::Text(app)),
+                    ],
+                ),
+            },
+            Err(failure) => append(
+                &self.paths.log,
+                "install",
+                "failed",
+                &[
+                    ("app", Field::Text(app)),
+                    ("error", Field::Text(&failure.message)),
+                    ("code", Field::Number(failure.code as u64)),
+                ],
+            ),
+        }
+        result
+    }
+
+    fn install_inner(&self, args: &InstallArgs, now: u64) -> Result<InstallOutcome, Failure> {
         let handler = validate(args, &self.paths, self.uid)?;
         let version = parse_version(&self.version)
             .ok_or_else(|| Failure::new(1, "this build has no valid version"))?;
@@ -1151,6 +1201,31 @@ impl Installer<'_> {
 
     /// Removes a client and stops the daemon only for the last client, retaining data.
     pub fn uninstall(&self, app: &str) -> Result<Uninstalled, Failure> {
+        let result = self.uninstall_inner(app);
+        let app = if app_name(app) { app } else { "unknown" };
+        match &result {
+            Ok(Uninstalled::Removed { last }) => append(
+                &self.paths.log,
+                "uninstall",
+                if *last { "removed" } else { "client-removed" },
+                &[("app", Field::Text(app))],
+            ),
+            Ok(Uninstalled::NotAClient) => {}
+            Err(failure) => append(
+                &self.paths.log,
+                "uninstall",
+                "failed",
+                &[
+                    ("app", Field::Text(app)),
+                    ("error", Field::Text(&failure.message)),
+                    ("code", Field::Number(failure.code as u64)),
+                ],
+            ),
+        }
+        result
+    }
+
+    fn uninstall_inner(&self, app: &str) -> Result<Uninstalled, Failure> {
         if !app_name(app) {
             return Err(Failure::new(2, "not an app name"));
         }
@@ -1256,7 +1331,10 @@ pub fn status(paths: &Paths, probe: &dyn Probe) -> StatusReport {
 /// Renders the installation, clients and socket as three status lines.
 pub fn render(status: &StatusReport) -> String {
     let installed = match &status.installation {
-        Some((version, app, at)) => format!("radio {version}, installed by {app} at {}", utc(*at)),
+        Some((version, app, at)) => format!(
+            "radio {version}, installed by {app} at {}",
+            crate::log::utc(*at)
+        ),
         None => "radio: not installed".into(),
     };
     let clients = if status.clients.is_empty() {
@@ -1270,28 +1348,6 @@ pub fn render(status: &StatusReport) -> String {
         .map(|version| format!("answers, radio {version}"))
         .unwrap_or_else(|| "no answer".into());
     format!("{installed}\nclients: {clients}\nsocket: {socket}\n")
-}
-
-// Gregorian civil date from days since the Unix epoch, using 400-year eras.
-fn utc(at: u64) -> String {
-    let days = i128::from(at / 86400) + 719468;
-    let era = days / 146097;
-    let day_of_era = days - era * 146097;
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
-    let year = year_of_era + era * 400;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_prime = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
-    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
-    let year = year + i128::from(month <= 2);
-    let seconds = at % 86400;
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        seconds / 3600,
-        seconds % 3600 / 60,
-        seconds % 60
-    )
 }
 
 #[cfg(test)]

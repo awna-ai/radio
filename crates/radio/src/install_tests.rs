@@ -1,4 +1,5 @@
 use super::*;
+use crate::log::utc;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -240,6 +241,17 @@ impl Fixture {
             .unwrap()
     }
 
+    fn last_log_line(&self) -> String {
+        fs::read_to_string(self.paths().log)
+            .unwrap()
+            .lines()
+            .last()
+            .unwrap_or("")
+            .split_once(' ')
+            .map_or("", |(_, event)| event)
+            .to_owned()
+    }
+
     fn record(&self) -> Value {
         serde_json::from_slice(&fs::read(self.paths().record).unwrap()).unwrap()
     }
@@ -370,6 +382,10 @@ fn an_older_build_never_replaces_a_newer_one() {
     assert!(!f.paths().binary("1.0.0").exists());
     assert!(f.calls().iter().all(|c| c[0] == "print"));
     assert!(f.paths().clients.join("gardenapp.json").is_file());
+    assert_eq!(
+        f.last_log_line(),
+        "install client-added installed=\"2.0.0\" app=\"gardenapp\""
+    );
 }
 
 fn rollback_case(bootstrap: bool, quiet: bool, rollback_fails: bool) {
@@ -470,6 +486,10 @@ fn a_fresh_install_places_writes_and_starts() {
         json!({"app":"kiteapp","app_version":"1.0.0","handler":fs::canonicalize(f.home.join("handler")).unwrap(),"majors":[1],"at":1794452827u64})
     );
     assert_installed(&f, "1.0.0");
+    assert_eq!(
+        f.last_log_line(),
+        "install installed version=\"1.0.0\" app=\"kiteapp\""
+    );
 }
 
 #[test]
@@ -482,6 +502,10 @@ fn a_fresh_install_that_does_not_start_leaves_nothing() {
         "Radio did not start, so nothing is installed",
     );
     let p = f.paths();
+    assert_eq!(
+        f.last_log_line(),
+        "install failed app=\"kiteapp\" error=\"Radio did not start, so nothing is installed\" code=1"
+    );
     assert!(!p.record.exists());
     assert!(!p.agent.exists());
     assert!(!p.binary("1.0.0").parent().unwrap().exists());
@@ -497,6 +521,10 @@ fn an_upgrade_keeps_one_previous_version() {
     fs::create_dir(p.binaries.join("notes")).unwrap();
     symlink(f.home.join("handler"), p.binaries.join("9.0.0")).unwrap();
     f.install("2.0.0", "kiteapp");
+    assert_eq!(
+        f.last_log_line(),
+        "install upgraded from=\"1.0.0\" to=\"2.0.0\" app=\"kiteapp\""
+    );
     assert_eq!(
         f.install("3.0.0", "kiteapp").installed,
         Installed::Upgraded {
@@ -602,6 +630,22 @@ fn a_changed_or_missing_binary_or_bad_record_reinstalls() {
             .collect();
         assert_eq!(versions, [OsString::from("2.0.0")]);
     }
+}
+
+#[test]
+fn a_handler_refusal_does_not_create_a_log() {
+    let f = Fixture::new();
+    let p = f.paths();
+    fs::create_dir_all(&p.state).unwrap();
+    assert!(!p.log.exists());
+    let args = f.args("kiteapp");
+    fs::set_permissions(&args.handler, fs::Permissions::from_mode(0o600)).unwrap();
+    error(
+        f.installer("1.0.0").install(&args, 1),
+        2,
+        "the handler is not an executable file",
+    );
+    assert!(!p.log.exists());
 }
 
 #[test]
@@ -738,6 +782,10 @@ fn uninstall_keeps_data_and_waits_for_the_last_client() {
         i.uninstall("gardenapp").unwrap(),
         Uninstalled::Removed { last: false }
     );
+    assert_eq!(
+        f.last_log_line(),
+        "uninstall client-removed app=\"gardenapp\""
+    );
     assert_installed(&f, "2.0.0");
     assert!(p.binary("1.0.0").exists());
     assert_eq!(
@@ -751,6 +799,7 @@ fn uninstall_keeps_data_and_waits_for_the_last_client() {
             && !p.binary("2.0.0").parent().unwrap().exists()
     );
     assert!(p.clients.is_dir() && p.log.is_file() && p.lock.is_file());
+    assert_eq!(f.last_log_line(), "uninstall removed app=\"kiteapp\"");
     assert_eq!(fs::read(p.rooms).unwrap(), b"rooms kept");
     assert_eq!(fs::read(p.state.join("rooms.db-wal")).unwrap(), b"wal kept");
     assert_eq!(fs::read(p.state.join("rooms.db-shm")).unwrap(), b"shm kept");
@@ -768,7 +817,9 @@ fn uninstall_unknown_and_unreadable_clients_are_conservative() {
     f.install("1.0.0", "kiteapp");
     let i = f.installer("1.0.0");
     f.clear_calls();
+    let log_before = fs::read(f.paths().log).unwrap();
     assert_eq!(i.uninstall("gardenapp").unwrap(), Uninstalled::NotAClient);
+    assert_eq!(fs::read(f.paths().log).unwrap(), log_before);
     assert!(f.calls().is_empty());
     fs::write(f.paths().clients.join("x.json"), b"not json").unwrap();
     assert_eq!(
@@ -1099,6 +1150,10 @@ fn a_failed_stop_keeps_the_last_client_for_a_retry() {
         "a failed stop must preserve the last client"
     );
     assert_eq!(fs::read(&client).unwrap(), before);
+    assert_eq!(
+        f.last_log_line(),
+        "uninstall failed app=\"gardenapp\" error=\"Radio could not be stopped\" code=1"
+    );
     assert_installed(&f, "1.0.0");
     f.fake.state.lock().unwrap().stuck = false;
     assert_eq!(
@@ -1553,5 +1608,58 @@ fn rollback_keeps_the_new_binary_when_it_cannot_stop_the_daemon() {
     assert_eq!(
         f.fake.state.lock().unwrap().loaded,
         Some(f.paths().binary("2.0.0"))
+    );
+}
+
+#[test]
+fn an_equal_build_logs_a_second_client() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    f.install("1.0.0", "gardenapp");
+    assert_eq!(
+        f.last_log_line(),
+        "install client-added installed=\"1.0.0\" app=\"gardenapp\""
+    );
+}
+
+#[test]
+fn an_invalid_uninstall_app_is_unknown_in_the_log() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    assert_eq!(
+        f.installer("1.0.0").uninstall("Kite App").unwrap_err(),
+        Failure::new(2, "not an app name")
+    );
+    assert_eq!(
+        f.last_log_line(),
+        "uninstall failed app=\"unknown\" error=\"not an app name\" code=2"
+    );
+}
+
+#[test]
+fn an_invalid_install_app_is_unknown_in_the_log() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    error(
+        f.installer("1.0.0").install(&f.args("Kite App"), 1),
+        2,
+        "not an app name",
+    );
+    assert_eq!(
+        f.last_log_line(),
+        "install failed app=\"unknown\" error=\"not an app name\" code=2"
+    );
+}
+
+#[test]
+fn a_failed_install_logs_the_valid_app() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let mut args = f.args("gardenapp");
+    args.app_version = "".into();
+    error(f.installer("1.0.0").install(&args, 1), 2, "not a version");
+    assert_eq!(
+        f.last_log_line(),
+        "install failed app=\"gardenapp\" error=\"not a version\" code=2"
     );
 }
