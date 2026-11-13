@@ -4,6 +4,7 @@ pub mod endpoint;
 pub mod fleet;
 pub mod fleet_db;
 pub mod frame;
+pub mod join;
 pub mod key;
 pub mod link;
 pub mod membership;

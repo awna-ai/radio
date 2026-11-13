@@ -88,6 +88,15 @@ impl Gate {
         }
     }
 
+    /// Release the admission lock before calling this, as for `close_key`.
+    pub fn close_all(&self) {
+        for entry in self.live.lock().unwrap().drain(..) {
+            if let Some(connection) = entry.connection.upgrade() {
+                connection.close(REFUSED.into(), &[]);
+            }
+        }
+    }
+
     pub(crate) fn join_deadline(&self, connection: &Connection) -> Option<Instant> {
         self.live.lock().unwrap().iter().find_map(|entry| {
             entry.connection.upgrade().and_then(|live| {

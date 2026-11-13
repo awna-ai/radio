@@ -142,3 +142,42 @@ fn names_and_destination_are_checked() {
     assert!(!valid_app(&local.to_string(), "Lantern", &local));
     assert!(!valid_app(&"A".repeat(64), "lantern", &local));
 }
+
+#[test]
+fn record_request_round_trips_and_refuses_unknown_fields() {
+    let key = crate::SecretKey::generate();
+    let record = crate::membership::sign(
+        crate::membership::RecordBody::Removal {
+            fleet: "a".repeat(64),
+            signer: key.public().to_string(),
+            counter: 1,
+            subject: key.public().to_string(),
+        },
+        &key,
+    );
+    let request = Request::Record { record };
+    let mut value = serde_json::to_value(&request).unwrap();
+    assert_eq!(
+        serde_json::from_value::<Request>(value.clone()).unwrap(),
+        request
+    );
+    value["extra"] = json!(true);
+    assert!(serde_json::from_value::<Request>(value).is_err());
+    assert_eq!(LINK_MINOR, 1);
+}
+
+#[test]
+fn join_request_round_trips_and_refuses_unknown_fields() {
+    let request = JoinRequest {
+        code: "opaque".into(),
+        name: "garden".into(),
+        addrs: vec!["127.0.0.1:7000".parse().unwrap()],
+    };
+    let mut value = serde_json::to_value(&request).unwrap();
+    assert_eq!(
+        serde_json::from_value::<JoinRequest>(value.clone()).unwrap(),
+        request
+    );
+    value["extra"] = json!(true);
+    assert!(serde_json::from_value::<JoinRequest>(value).is_err());
+}

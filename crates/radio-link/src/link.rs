@@ -3,6 +3,7 @@ use crate::{
     admit::{Admission, Gate, Limits, Standing},
     endpoint::{self, ALPN, JOIN_ALPN},
     frame::{self, CONTROL_CAP},
+    membership::SignedRecord,
     wire::{self, Answer, Hello, LINK_MAJOR, LINK_MINOR, Protocol, Request},
 };
 use iroh::{
@@ -29,6 +30,10 @@ pub struct Local {
 
 #[derive(Debug)]
 pub enum Event {
+    Record {
+        from: EndpointId,
+        record: SignedRecord,
+    },
     Hello {
         from: EndpointId,
         hello: Hello,
@@ -75,6 +80,14 @@ impl Link {
 
     pub fn id(&self) -> EndpointId {
         self.endpoint.id()
+    }
+
+    pub fn name(&self) -> &str {
+        &self.local.name
+    }
+
+    pub(crate) fn limits(&self) -> &Limits {
+        &self.gate.limits
     }
 
     pub fn addrs(&self) -> Vec<SocketAddr> {
@@ -164,6 +177,29 @@ impl Link {
             connection,
             gate: self.gate.clone(),
         })
+    }
+
+    pub async fn dial_join(
+        &self,
+        peer: EndpointId,
+        addrs: &[SocketAddr],
+    ) -> Result<Connection, &'static str> {
+        if self.gate.admission.standing(&peer) == Standing::Refused {
+            return Err("the computer is not let in");
+        }
+        let addrs = endpoint::usable(addrs)?;
+        let addr = EndpointAddr::from_parts(peer, addrs.into_iter().map(TransportAddr::Ip));
+        timeout(
+            self.gate.limits.dial,
+            self.endpoint.connect(addr, JOIN_ALPN),
+        )
+        .await
+        .map_err(|_| "the computer could not be reached")?
+        .map_err(|_| "the computer could not be reached")
+    }
+
+    pub fn close_all(&self) {
+        self.gate.close_all();
     }
 
     pub fn close_key(&self, key: &EndpointId) {
@@ -289,6 +325,24 @@ async fn serve_stream(
                 frame::write(&mut send, &Answer::Ok, CONTROL_CAP).await?;
                 send.finish().map_err(|_| UNANSWERED)?;
             }
+            Request::Record { record } => {
+                if record.verify().is_err() {
+                    return Err(UNANSWERED);
+                }
+                let permit = events.reserve().await.map_err(|_| UNANSWERED)?;
+                if gate.admission.standing(&from) != Standing::Accepted
+                    || connection.close_reason().is_some()
+                {
+                    if connection.close_reason().is_none() {
+                        connection.close(REFUSED.into(), &[]);
+                    }
+                    drop(permit);
+                    return Ok(());
+                }
+                permit.send(Event::Record { from, record });
+                frame::write(&mut send, &Answer::Ok, CONTROL_CAP).await?;
+                send.finish().map_err(|_| UNANSWERED)?;
+            }
         }
         Ok(())
     })
@@ -341,6 +395,18 @@ impl Peer {
             body: body.into(),
         };
         match self.request(&request).await? {
+            Answer::Ok => Ok(()),
+            _ => Err(UNANSWERED),
+        }
+    }
+
+    pub async fn send_record(&self, record: &SignedRecord) -> Result<(), &'static str> {
+        match self
+            .request(&Request::Record {
+                record: record.clone(),
+            })
+            .await?
+        {
             Answer::Ok => Ok(()),
             _ => Err(UNANSWERED),
         }

@@ -1524,6 +1524,7 @@ fn local_changes_need_a_fleet() {
     assert_eq!(db.trust("orchard"), Err("not in a fleet"));
     assert_eq!(db.remove(&node, "orchard", 10.0), Err("not in a fleet"));
     assert_eq!(db.leave(&node), Err("not in a fleet"));
+    assert_eq!(db.forget(), Err("not in a fleet"));
 }
 #[test]
 fn local_remove_signs_next_counter_and_tombstones_invitee() {
@@ -1595,7 +1596,7 @@ fn local_remove_requires_inviter_or_founder() {
     assert!(db.remove(&founder, "meadow", 10.0).is_ok());
 }
 #[test]
-fn local_leave_returns_recipients_then_clears_all_state() {
+fn local_leave_keeps_state_until_forgotten() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
     let peer = iroh::SecretKey::generate().public();
@@ -1607,6 +1608,9 @@ fn local_leave_returns_recipients_then_clears_all_state() {
     let no_addr = iroh::SecretKey::generate().public();
     computer(&db, &no_addr, "juniper", State::Accepted, None, &[]);
     mint(&mut db, &node, 10.0);
+    let fleet = db.fleet().unwrap();
+    let computers = db.computers().unwrap();
+    let codes = db.codes(10.0).unwrap();
     let (record, recipients) = db.leave(&node).unwrap();
     assert_eq!(record.verify(), Ok(()));
     assert_eq!(record.counter(), 2);
@@ -1614,6 +1618,20 @@ fn local_leave_returns_recipients_then_clears_all_state() {
         matches!(record.body, RecordBody::Removal {signer, subject, ..} if signer == subject && signer == node.public().to_string())
     );
     assert_eq!(recipients, vec![(peer, addr())]);
+    assert_eq!(db.fleet().unwrap(), fleet);
+    assert_eq!(db.computers().unwrap(), computers);
+    assert_eq!(db.codes(10.0).unwrap(), codes);
+    assert_eq!(count(&db, "records"), 2);
+    let kind: String = db
+        .conn
+        .query_row(
+            "SELECT kind FROM records WHERE signer = ?1 AND counter = ?2",
+            params![node.public().to_string(), 2i64],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(kind, "removal");
+    db.forget().unwrap();
     assert_eq!(db.fleet().unwrap(), None);
     assert!(db.computers().unwrap().is_empty());
     assert!(db.codes(10.0).unwrap().is_empty());

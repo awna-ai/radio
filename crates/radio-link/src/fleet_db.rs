@@ -608,6 +608,11 @@ impl FleetDb {
         let fleet = load_fleet(&tx)?.ok_or("not in a fleet")?;
         let counter = take_counter(&tx)?;
         let own = node.public();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| WRITE)?
+            .as_secs_f64();
+        seen(&tx, &own.to_string(), counter, "removal", now)?;
         let record = membership::sign(
             RecordBody::Removal {
                 fleet: fleet.body.id,
@@ -618,9 +623,18 @@ impl FleetDb {
             node,
         );
         let recipients = recipients(&tx, &own)?;
-        clear_fleet(&tx)?;
         tx.commit().map_err(|_| WRITE)?;
         Ok((record, recipients))
+    }
+
+    pub fn forget(&mut self) -> Result<(), &'static str> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        load_fleet(&tx)?.ok_or("not in a fleet")?;
+        clear_fleet(&tx)?;
+        tx.commit().map_err(|_| WRITE)
     }
 
     pub fn create_code(
