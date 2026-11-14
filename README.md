@@ -293,19 +293,20 @@ fleet holds them. While Radio listens, a re-signed record also goes to each acce
 `resign` has answered; one that can't be reached gets it the next time this computer signs.
 
 Your app can send a file to itself on another computer of the fleet. On the receiving computer, your
-app first names the folder its files land in with **`delivery_folder_set`** (an absolute path to a
-folder of this user's that no one else can write; **`delivery_folder_clear`** stops taking files).
-On the sending computer, **`send`** takes the other computer's name or id, the absolute path of a
-regular file up to 64 MiB, and the name it should land as (no slash, not starting with a dot), and
-answers with `size` once the file is written there. The other computer must be on and reachable now:
-Radio keeps nothing to resend, so on `the computer could not be reached` your app tries again later.
-If Radio cannot start the thread that waits for the send, it answers `the send could not be started`.
-The file lands under its name with mode 0600, never over a file already there (`a file with that
-name is already there`) and never through a link; a computer whose app set no folder answers `that
-app takes no files on that computer`. **`deliveries`** lists what arrived for your app (which
-computer sent it, the name, the size and when), oldest first, in pages after an `id`. Like `join`, a
-`send` holds Radio until it finishes (up to about 2 minutes for a large file on a slow network), so
-`radio-client` waits up to 135 seconds for it.
+app, installed there, asks for a folder with **`delivery_folder_set`**: an absolute path that does
+not exist yet, which Radio makes for it, mode 0700 (**`delivery_folder_clear`** stops taking files
+and leaves the folder as it is). On the sending computer, **`send`** takes the other computer's name
+or id, the absolute path of a regular file up to 64 MiB, and the name it should land as (1 to 128 of
+`A-Z a-z 0-9 . _ -`, not starting with a dot), and answers with `size` once the file is written
+there. The other computer must be on and reachable now: Radio keeps nothing to resend, so on `the
+computer could not be reached` or `that computer is busy; try again` your app tries again later. The
+file lands under its name with mode 0600, never over a file already there (`a file with that name is
+already there`) and never through a link; a computer whose app set no folder answers `that app takes
+no files on that computer`, and a folder already holding 64 files, or one the file would take past
+1 GiB, answers `that app's folder on that computer is full` until your app moves files out. **`deliveries`** lists what arrived for your
+app (which computer sent it, its key, the name, the size and when), oldest first, in pages after an
+`id`. A `send` answers within 135 seconds and other apps' requests are served meanwhile;
+`radio-client` waits up to 140 seconds for it.
 
 ### Using Radio from the command line
 
@@ -494,8 +495,8 @@ sending files (`send`, `delivery_folder_*`, `deliveries`) are built; the rest is
   computer that was let in, be fresh, not replay one already seen, and fit within the size caps.
   Anything else is refused there.
 - **Files first.** The first link carries files: your app asks its Radio to send a file to your app
-  on another of the person's computers. The receiving Radio writes it only into the folder your app
-  set there, and says which computer sent it. If the other computer can't
+  on another of the person's computers. The receiving Radio writes it only into a folder it made for
+  your app when your app asked for one, and says which computer sent it. If the other computer can't
   be reached, the send fails within a few seconds and Radio keeps nothing, so your app tries again later.
 - **Then your app's own messages go through Radio.** Your app asks its Radio to send a message to your
   app on another computer. Radio carries it without reading it, and on the other side hands it,
