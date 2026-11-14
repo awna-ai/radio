@@ -3,11 +3,27 @@ use std::{fs, path::Path};
 fn contains_forbidden(source: &str, forbidden: &str) -> bool {
     source.match_indices(forbidden).any(|(offset, _)| {
         forbidden != concat!("Builder::", "new(")
-            || source[..offset]
-                .chars()
-                .next_back()
-                .is_none_or(|ch| !ch.is_alphanumeric() && ch != '_')
+            // The standard library's thread builder is not a transport builder.
+            || (!source[..offset].ends_with("thread::")
+                && source[..offset]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|ch| !ch.is_alphanumeric() && ch != '_'))
     })
+}
+
+#[test]
+fn thread_builder_is_not_a_transport_builder() {
+    let forbidden = concat!("Builder::", "new(");
+    assert!(!contains_forbidden(
+        "std::thread::Builder::new()",
+        forbidden
+    ));
+    assert!(contains_forbidden(
+        "iroh::endpoint::Builder::new(",
+        forbidden
+    ));
+    assert!(contains_forbidden("Builder::new(", forbidden));
 }
 
 fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path, hostile: &Path) {
