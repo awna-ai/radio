@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 7
+Protocol minor: 8
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -90,11 +90,19 @@ them against these lines. They are independent of the repo's semver tags.
 | `delivery_folder_set` | `app`, `folder` | none | Radio makes a dedicated folder, mode 0700, for this app to take files in on this computer, with or without a fleet; leaving a fleet keeps it. The app must be registered (`the app is not registered`) and installed (`the app is not installed`), and the link directory must be set (`the link is not set up`). `folder` must be absolute (`the folder must be an absolute path`) with a normal last component (`not a folder name`), after trailing slashes are stripped. The path must not exist (`the folder already exists; name a new one`); setting the same path again is fine only while it is still the folder Radio made for this app, recorded by device and inode. A path held by another app answers `that folder is another app's`; a folder Radio cannot make or open answers `the folder could not be made`; a folder it made but cannot record answers `fleet.db could not be written`, and the new, empty folder is removed. A registered app whose name is not 1 to 64 of `a-z 0-9 . _ -`, starting with a letter or digit, answers `the app is not installed`. Changing the path makes a new folder and leaves the old folder and its files as they are |
 | `delivery_folder_clear` | `app` | `removed` | Clears only this app's delivery-folder row, leaving the folder and its files; `removed` says whether one was set. The app must be registered (`the app is not registered`) and the link directory must be set (`the link is not set up`). Works with or without a fleet |
 | `deliveries` | `app`, optional `after` (0 by default), optional `limit` (100 by default) | `deliveries: [{id, computer, key, name, size, at}]` | Lists only this app's arrivals in id order, strictly after `after`, at most `limit`. The app must be registered (`the app is not registered`) and the link directory must be set (`the link is not set up`). `limit` must be 1 to 500 (`not a limit`); `after` must be a non-negative integer (`not a request`). `computer` is Radio's name for the sender, `key` its authenticated endpoint id in hex, `name` the landed file name, `size` its bytes and `at` seconds since the Unix epoch. Radio keeps the newest 10,000 arrivals per app. Works with or without a fleet |
+| `message` | `app`, `computer`, `body` | `reply`, `exit` | Sends this app's message to its recorded handler on an accepted computer, named by name or id. The app must be registered (`the app is not registered`) and the link directory set (`the link is not set up`). Starts the link first, with the same address, daemon-name, computer-lookup, dial and stopped-link checks as `send`. `body` is a JSON string of 1 to 8,192 decoded bytes (`the message is empty`, `the message is larger than 8 KiB`); the 16 KiB request-line cap applies first. A refusal answers `that app takes no messages on that computer`, `that computer is busy; try again`, `the clocks on the two computers differ by more than 2 minutes`, `that computer refused the message`, `that app's handler did not finish in time` or `that app's handler gave an unusable reply`. A missing or invalid answer answers `the computer did not answer`. Nothing is kept to resend. The answer comes within 45 seconds, served beside other clients; at most 4 messages wait at once (`too many messages at once; try again`), independently of sends. The outer wait answers `the message did not finish in time`; the client waits 60 seconds. If its answer thread cannot start, it answers `the message could not be started`, and nothing was sent. `reply` is the handler's stdout string and `exit` its integer exit code, or 128 plus the signal number when a signal ended it |
 
 Files: a file goes to one app on one computer of the fleet, up to 64 MiB, only when
 that computer answers now. Nothing is kept to resend. It lands in the folder that app
 set on that computer, as its own name, mode 0600, never over another file and never
 through a link; `deliveries` lists what arrived.
+
+App messages: before running anything, the target checks the accepted sender, destination and app name, the 8 KiB body cap, the sender's time within 120 seconds either way, and a 32-character lowercase hex id not seen from that sender for 300 seconds (at most 1,024 live ids per sender, refusing rather than evicting when full).
+The handler is only the executable recorded at install, checked again before each run, invoked as `[handler, "message"]` with the body on stdin and working folder `/`.
+Its environment contains only `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, the daemon's `HOME`, `RADIO_FROM_KEY`, `RADIO_FROM_NAME` (Radio's name for the authenticated sender, or its key), and `RADIO_MESSAGE_ID`.
+At most 4 handlers run at once and 1 per sender; the process group is killed at 30 seconds or when stdout exceeds 4,096 bytes.
+A reply must be UTF-8, at most 4,096 bytes and 8 lines (a final newline does not add a line), containing only printable characters, newline and tab.
+Refusals go to `audit.log` without the body, id or reply.
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
 client reads it as a word. Times are seconds since the Unix epoch.

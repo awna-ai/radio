@@ -89,6 +89,7 @@ pub async fn bind_key(
             sha: SHA.into(),
             clients: None,
         },
+        std::sync::Arc::new(radio_link::handler::NoHandlers),
     ))
     .await
     .unwrap();

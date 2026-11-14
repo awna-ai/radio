@@ -49,6 +49,7 @@ impl Node {
         db: Arc<Mutex<FleetDb>>,
         local: Local,
         limits: Limits,
+        handlers: Arc<dyn crate::handler::Handlers>,
     ) -> Result<Self, &'static str> {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()
@@ -62,6 +63,7 @@ impl Node {
             db.clone() as Arc<dyn Admission>,
             limits.clone(),
             local,
+            handlers,
         ))?);
         let (stop, stopped) = oneshot::channel();
         let (publish, records) = watch::channel::<Option<ComputerRecord>>(None);
@@ -206,6 +208,50 @@ impl Node {
         self.start_send(computer, app, name, path)?.wait()
     }
 
+    pub fn start_message(
+        &self,
+        computer: &str,
+        app: &str,
+        body: &str,
+    ) -> Result<PendingMessage, &'static str> {
+        let computer = self
+            .db
+            .lock()
+            .map_err(|_| "the fleet store is busy")?
+            .computer(computer)?;
+        if computer.state != State::Accepted {
+            return Err("the computer is not let in");
+        }
+        if computer.addrs.is_empty() {
+            return Err(crate::endpoint::NO_ADDRESS);
+        }
+        let id: EndpointId = computer.key.parse().map_err(|_| "not a computer key")?;
+        if !self.running() {
+            return Err("the link stopped");
+        }
+        Ok(PendingMessage {
+            runtime: self.runtime.handle().clone(),
+            link: self.link.clone(),
+            id,
+            addrs: computer.addrs,
+            app: app.to_owned(),
+            body: body.to_owned(),
+            timeout: self.limits.dial
+                + 2 * self.limits.frame
+                + self.limits.handler
+                + Duration::from_secs(5),
+        })
+    }
+
+    pub fn message(
+        &self,
+        computer: &str,
+        app: &str,
+        body: &str,
+    ) -> Result<crate::handler::Reply, &'static str> {
+        self.start_message(computer, app, body)?.wait()
+    }
+
     pub fn block(&self, target: &str) -> Result<Computer, &'static str> {
         join::block(&self.link, &self.db, target)
     }
@@ -217,6 +263,36 @@ impl Node {
 
     pub fn publish(&self, record: ComputerRecord) {
         let _ = self.publish.send(Some(record));
+    }
+}
+
+pub struct PendingMessage {
+    runtime: tokio::runtime::Handle,
+    link: Arc<Link>,
+    id: EndpointId,
+    addrs: Vec<SocketAddr>,
+    app: String,
+    body: String,
+    timeout: Duration,
+}
+
+impl PendingMessage {
+    pub fn wait(self) -> Result<crate::handler::Reply, &'static str> {
+        let timeout = self.timeout;
+        self.wait_timeout(timeout)
+    }
+
+    pub fn wait_timeout(self, timeout: Duration) -> Result<crate::handler::Reply, &'static str> {
+        let (sender, receiver) = sync_channel(1);
+        self.runtime.spawn(async move {
+            let result = async {
+                let peer = self.link.dial(self.id, &self.addrs).await?;
+                peer.send_app(&self.app, &self.body).await
+            }
+            .await;
+            let _ = sender.send(result);
+        });
+        wait(receiver, timeout, "the message did not finish in time")?
     }
 }
 

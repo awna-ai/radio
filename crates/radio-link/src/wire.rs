@@ -1,7 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 pub const LINK_MAJOR: u32 = 1;
-pub const LINK_MINOR: u32 = 3;
+pub const LINK_MINOR: u32 = 4;
+pub const NO_HANDLER: &str = "no_handler";
+pub const CLOCK: &str = "clock";
+pub const REPLAY: &str = "replay";
+pub const TOO_BIG: &str = "too_big";
+pub const HANDLER_TIMEOUT: &str = "handler_timeout";
+pub const BAD_REPLY: &str = "bad_reply";
 pub const NO_FOLDER: &str = "no_folder";
 pub const EXISTS: &str = "exists";
 pub const BUSY: &str = "busy";
@@ -56,6 +62,8 @@ pub enum Request {
         to: String,
         app: String,
         body: String,
+        id: String,
+        sent: u64,
     },
 }
 
@@ -67,6 +75,7 @@ pub enum Request {
     from = "AnswerFields"
 )]
 pub enum Answer {
+    Reply { reply: String, exit: i32 },
     Refused { reason: String },
     Hello { hello: Hello },
     Ok,
@@ -75,6 +84,7 @@ pub enum Answer {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum AnswerFields {
+    Reply { reply: String, exit: i32 },
     Refused { reason: String },
     Hello { hello: Hello },
     Ok {},
@@ -83,6 +93,7 @@ enum AnswerFields {
 impl From<AnswerFields> for Answer {
     fn from(fields: AnswerFields) -> Self {
         match fields {
+            AnswerFields::Reply { reply, exit } => Self::Reply { reply, exit },
             AnswerFields::Refused { reason } => Self::Refused { reason },
             AnswerFields::Hello { hello } => Self::Hello { hello },
             AnswerFields::Ok {} => Self::Ok,
@@ -170,3 +181,10 @@ pub(crate) fn valid_file(
 #[cfg(test)]
 #[path = "wire_tests.rs"]
 mod tests;
+
+pub(crate) fn message_id(id: &str) -> bool {
+    id.len() == 32
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}

@@ -43,7 +43,9 @@ their own details to, and only that computer can change it. You can also tell a 
 address your other computers reach it at (on a VPN, its VPN address), and the codes it makes carry
 that address. Once it has one, Radio listens there for your other computers, and a computer can join,
 remove another or leave over that network. Your apps can also send files to each other across it,
-up to 64 MiB each, while the other computer is on. The rest is how it's meant to work.
+up to 64 MiB each, while the other computer is on. Your app's own messages also go through Radio
+to the program that app installed on the other computer, and its answer comes back. The rest is
+how it's meant to work.
 
 - **You pair a computer once.** One of your computers makes a one-time code, and the new computer
   uses it to join. Your other computers then accept it, on their own or after asking you.
@@ -52,7 +54,7 @@ up to 64 MiB each, while the other computer is on. The rest is how it's meant to
 - **First, between computers that can already reach each other.** The first version links
   computers on the same network, or on a private network (a VPN) you already run between them:
   you tell each computer the other's address once. It sends files from an app on one computer to
-  the same app on another, and nothing else yet.
+  the same app on another, and passes that app's own messages to its installed program there.
 - **Later, at home or away.** It will work on the same network or over the internet. Your computers find each
   other on a home or office network by themselves, and connect directly wherever the network
   allows; when it doesn't, they go through a relay. Each one remembers the addresses that worked
@@ -178,8 +180,8 @@ radio install --app <name> --app-version <your version> --handler <path>
 
 - `--app` is your app's name: lowercase letters, digits, `_` or `-`, starting with a letter.
 - `--handler` is an executable file in your app. Radio records it as the only program it will
-  ever run for your app. Today Radio runs nothing; the handler is for your app's own messages,
-  which a later minor of the contract carries.
+  ever run for your app. Radio runs it for your app's own messages from another accepted computer
+  and returns its answer.
 - `--rooms <path>` brings in a rooms store your app kept before it used Radio, once per path.
 
 Run it on every install and every update of your app; it's safe to repeat. What it does depends on
@@ -308,6 +310,33 @@ app (which computer sent it, its key, the name, the size and when), oldest first
 `id`. A `send` answers within 135 seconds and other apps' requests are served meanwhile;
 `radio-client` waits up to 150 seconds for it.
 
+### Messages to your app on another computer
+
+Run `radio message <computer> --app <app>` with the body on standard input, or send
+`message` with `app`, `computer` and `body` through the socket; the answer has `reply` and `exit`.
+The app must be registered on the sending computer and installed with a handler on the receiving one.
+Radio keeps nothing to resend, and the computer must be accepted and reachable now.
+
+Radio re-checks the installed handler before every run and invokes it as `[handler, "message"]`,
+with the body on stdin, working folder `/`, and only `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, the daemon's
+`HOME`, `RADIO_FROM_KEY`, `RADIO_FROM_NAME` and `RADIO_MESSAGE_ID` in its environment.
+The sender key is authenticated; the name is Radio's name for it, or its key when unnamed.
+A body is 1 to 8,192 decoded bytes, still within the socket's 16 KiB request line.
+A handler gets 30 seconds and returns UTF-8 stdout of at most 4,096 bytes and 8 lines, with only
+printable characters, newline and tab; a final newline does not add a line.
+Its exit code comes back as `exit`, or 128 plus its terminating signal.
+At most 4 messages wait on the sending computer and at most 4 handlers run on the receiving one,
+with 1 per sender; the socket answers within 45 seconds and the client waits 60 seconds.
+
+Apps should expect `the message is empty`, `the message is larger than 8 KiB`,
+`too many messages at once; try again`, `that app takes no messages on that computer`,
+`that computer is busy; try again`, `the clocks on the two computers differ by more than 2 minutes`,
+`that computer refused the message`, `that app's handler did not finish in time`,
+`that app's handler gave an unusable reply`, `the message did not finish in time` and
+`the message could not be started`,
+as well as `send`'s registration, link, computer-lookup, dial and answer phrases.
+Radio never logs the body or reply.
+
 ### Using Radio from the command line
 
 Every op is also a `radio` command, so a shell script, a quick test or an app in any language can
@@ -347,6 +376,7 @@ the socket stays the contract.
 | `radio delivery folder set <folder> --app <app>` | `delivery_folder_set` |
 | `radio delivery folder clear --app <app>` | `delivery_folder_clear` |
 | `radio deliveries --app <app> [--after <id>] [--limit <n>]` | `deliveries` |
+| `radio message <computer> --app <app>` (body on standard input) | `message` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
 the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
@@ -487,7 +517,8 @@ So far the `id` op (this computer's link id), the fleet and the join codes (`fle
 this computer's list of the others (`computer_*`), each computer's signed record (`resign`,
 `computer_records`), this computer's own link addresses (`link_address_*`, carried in every join
 code it makes), joining, removing and leaving over them (`join`, `computer_remove`, `leave`) and
-sending files (`send`, `delivery_folder_*`, `deliveries`) are built; the rest is being built. When it is, an app can count on this:
+sending files (`send`, `delivery_folder_*`, `deliveries`) and app messages (`message`) are built; the
+rest is being built. When it is, an app can count on this:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.
@@ -498,7 +529,7 @@ sending files (`send`, `delivery_folder_*`, `deliveries`) are built; the rest is
   on another of the person's computers. The receiving Radio writes it only into a folder it made for
   your app when your app asked for one, and says which computer sent it. If the other computer can't
   be reached, the send fails within a few seconds and Radio keeps nothing, so your app tries again later.
-- **Then your app's own messages go through Radio.** Your app asks its Radio to send a message to your
+- **Your app's own messages now go through Radio.** Your app asks its Radio to send a message to your
   app on another computer. Radio carries it without reading it, and on the other side hands it,
   with the identity of the computer that sent it, to the handler your app recorded at install
   (`--handler`); the handler's reply goes back. The handler's path only ever comes from that

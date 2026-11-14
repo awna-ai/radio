@@ -40,6 +40,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     let (op, positional_count, rest, allowed): (&str, usize, &[&str], &[&str]) = match words
         .as_slice()
     {
+        ["message", rest @ ..] => ("message", 1, rest, &["--app"]),
         ["send", rest @ ..] => ("send", 2, rest, &["--app", "--name"]),
         ["delivery", "folder", "set", rest @ ..] => ("delivery_folder_set", 1, rest, &["--app"]),
         ["delivery", "folder", "clear", rest @ ..] => {
@@ -107,6 +108,14 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     let limit = || seen.get("--limit").map(|value| digits(value)).transpose();
     let mut body = None;
     let request = match op {
+        "message" => {
+            body = Some(BodySource::File("-".into()));
+            Request::Message {
+                app: required("--app")?.into(),
+                computer: positionals[0].into(),
+                body: String::new(),
+            }
+        }
         "send" => {
             let path = std::path::Path::new(positionals[1]);
             let last = path.file_name().and_then(|name| name.to_str()).ok_or(())?;
@@ -271,14 +280,18 @@ fn lifetime(value: &str) -> Result<u64, ()> {
     digits::<u64>(number)?.checked_mul(multiplier).ok_or(())
 }
 
-fn read_body(reader: impl Read) -> Result<String, (i32, String)> {
+fn read_body(reader: impl Read, maximum: usize) -> Result<String, (i32, String)> {
     let mut bytes = Vec::new();
     reader
-        .take((REQUEST_MAX_BYTES + 1) as u64)
+        .take((maximum + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| (2, "radio: the body file could not be read".into()))?;
-    if bytes.len() > REQUEST_MAX_BYTES {
-        return Err((1, format!("radio: {}", radio_rooms::MESSAGE_INVALID)));
+    if bytes.len() > maximum {
+        return Err(if maximum == 8192 {
+            (2, "radio: the message is larger than 8 KiB".into())
+        } else {
+            (1, format!("radio: {}", radio_rooms::MESSAGE_INVALID))
+        });
     }
     String::from_utf8(bytes).map_err(|_| (2, "radio: the body is not UTF-8".into()))
 }
@@ -287,14 +300,20 @@ impl Command {
     /// Resolves a post body or app section with a bounded read before the socket or HOME is consulted.
     pub fn resolve(mut self, stdin: impl Read) -> Result<Request, (i32, String)> {
         if let Some(source) = self.body {
+            let maximum = if matches!(self.request, Request::Message { .. }) {
+                8192
+            } else {
+                REQUEST_MAX_BYTES
+            };
             let section_file = matches!(self.request, Request::Resign { .. })
                 && matches!(source, BodySource::File(_));
             let body = match source {
                 BodySource::Text(text) => text,
-                BodySource::File(path) if path.as_os_str() == "-" => read_body(stdin)?,
+                BodySource::File(path) if path.as_os_str() == "-" => read_body(stdin, maximum)?,
                 BodySource::File(path) => read_body(
                     File::open(path)
                         .map_err(|_| (2, "radio: the body file could not be read".into()))?,
+                    maximum,
                 )?,
             };
             if section_file && body.is_empty() {
@@ -305,6 +324,9 @@ impl Command {
             }
             match &mut self.request {
                 Request::Post {
+                    body: destination, ..
+                }
+                | Request::Message {
                     body: destination, ..
                 } => *destination = body,
                 Request::Resign { section, .. } => *section = Some(body),

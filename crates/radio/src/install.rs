@@ -660,19 +660,13 @@ fn handler_folder_safe(owner: u32, group: u32, mode: u32, uid: u32) -> bool {
         && (mode & 0o002 == 0 || mode & 0o1000 != 0)
 }
 
-fn validate(args: &InstallArgs, paths: &Paths, uid: u32) -> Result<String, Failure> {
+/// Checks the executable and each containing folder using the install rules.
+pub(crate) fn validate_handler(path: &Path, uid: u32) -> Result<String, Failure> {
     let refuse = |phrase| Failure::new(2, phrase);
-    if !app_name(&args.app) {
-        return Err(refuse("not an app name"));
-    }
-    if !app_version(&args.app_version) {
-        return Err(refuse("not a version"));
-    }
-    if !args.handler.is_absolute() {
+    if !path.is_absolute() {
         return Err(refuse("the handler is not an absolute path"));
     }
-    let canonical = args
-        .handler
+    let canonical = path
         .canonicalize()
         .map_err(|_| refuse("the handler is not an executable file"))?;
     let handler = canonical
@@ -700,6 +694,31 @@ fn validate(args: &InstallArgs, paths: &Paths, uid: u32) -> Result<String, Failu
             return Err(refuse("the handler can be changed by another user"));
         }
     }
+    Ok(handler)
+}
+
+/// Reads a handler only from a matching, plain install record.
+pub(crate) fn recorded_handler(clients: &Path, app: &str) -> Option<PathBuf> {
+    if !app_name(app) {
+        return None;
+    }
+    let record: ClientRecord =
+        serde_json::from_slice(&read_plain(&clients.join(format!("{app}.json"))).ok()?).ok()?;
+    (record.app == app
+        && app_version(&record.app_version)
+        && record.majors == [radio_client::PROTOCOL_MAJOR])
+    .then(|| PathBuf::from(record.handler))
+}
+
+fn validate(args: &InstallArgs, paths: &Paths, uid: u32) -> Result<String, Failure> {
+    let refuse = |phrase| Failure::new(2, phrase);
+    if !app_name(&args.app) {
+        return Err(refuse("not an app name"));
+    }
+    if !app_version(&args.app_version) {
+        return Err(refuse("not a version"));
+    }
+    let handler = validate_handler(&args.handler, uid)?;
     if let Some(rooms) = &args.rooms {
         if !rooms.is_absolute() {
             return Err(refuse("the store to import is not an absolute path"));

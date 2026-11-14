@@ -543,7 +543,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":7},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":8},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -3018,4 +3018,154 @@ fn daemon_start_sweeps_uninstalled_folders_and_partial_files() {
     assert!(db.delivery_folder("notes").unwrap().is_some());
     assert!(!partial.exists());
     assert_eq!(fs::read(inbox.join("letter")).unwrap(), b"hello");
+}
+
+fn message_value(body: &str) -> serde_json::Value {
+    serde_json::json!({"v":1,"op":"message","app":"notes","computer":"birch","body":body})
+}
+
+#[test]
+fn message_requires_registration_and_link_setup() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    assert_eq!(
+        server.dispatch(message_value("hello")).unwrap_err(),
+        "the app is not registered"
+    );
+    for configured in [false, true] {
+        let fixture = Fixture::new();
+        let mut server = fixture.bind();
+        server = if configured {
+            server.with_link_dir(fixture.0.join("link"))
+        } else {
+            server.with_fleet_db(fixture.0.join("fleet.db"))
+        };
+        register_notes(&mut server);
+        assert_eq!(
+            server.dispatch(message_value("hello")).unwrap_err(),
+            "the link is not set up"
+        );
+    }
+}
+
+#[test]
+fn message_checks_decoded_body_bytes_and_has_its_own_cap() {
+    let fixture = Fixture::new();
+    let (mut server, _) = unreachable_send_server(&fixture);
+    for (body, error) in [
+        (String::new(), "the message is empty"),
+        ("a".repeat(8193), "the message is larger than 8 KiB"),
+        ("é".repeat(4097), "the message is larger than 8 KiB"),
+    ] {
+        assert_eq!(server.dispatch(message_value(&body)).unwrap_err(), error);
+    }
+    server.waiting_messages.store(4, Ordering::Release);
+    assert_eq!(
+        server.dispatch(message_value("hello")).unwrap_err(),
+        "too many messages at once; try again"
+    );
+    server.waiting_messages.store(0, Ordering::Release);
+    server.waiting_sends.store(4, Ordering::Release);
+    assert!(
+        server
+            .dispatch(message_value(&"a".repeat(8192)))
+            .unwrap()
+            .ok
+    );
+    assert_eq!(server.waiting_messages.load(Ordering::Acquire), 1);
+    server.waiting_sends.store(0, Ordering::Release);
+}
+
+#[test]
+fn a_failed_message_logs_neither_body_nor_reply() {
+    let fixture = Fixture::new();
+    let log_path = fixture.0.join("radio.log");
+    let server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_log(Log::to_file(fs::File::create(&log_path).unwrap(), u64::MAX));
+    let worker = start(server, 1);
+    let mut stream = UnixStream::connect(fixture.socket()).unwrap();
+    writeln!(stream, "{}", message_value("private-message-marker")).unwrap();
+    let mut answer = String::new();
+    BufReader::new(stream).read_line(&mut answer).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Response>(&answer)
+            .unwrap()
+            .error
+            .as_deref(),
+        Some("the app is not registered")
+    );
+    worker.join().unwrap();
+    let log = fs::read_to_string(log_path).unwrap();
+    assert!(
+        log.contains("op=\"message\" error=\"the app is not registered\""),
+        "{log}"
+    );
+    assert!(!log.contains("private-message-marker"), "{log}");
+}
+
+#[test]
+fn four_waiting_messages_serve_hello_and_refuse_a_fifth() {
+    let fixture = Fixture::new();
+    let (server, _) = unreachable_send_server(&fixture);
+    let worker = start(server, 7);
+    let mut pending = Vec::new();
+    for _ in 0..4 {
+        let mut stream = UnixStream::connect(fixture.socket()).unwrap();
+        writeln!(stream, "{}", message_value("hello")).unwrap();
+        pending.push(stream);
+    }
+    let message: Request = serde_json::from_value({
+        let mut value = message_value("hello");
+        value.as_object_mut().unwrap().remove("v");
+        value
+    })
+    .unwrap();
+    assert_eq!(
+        request(&fixture.socket(), &message)
+            .unwrap()
+            .error
+            .as_deref(),
+        Some("too many messages at once; try again")
+    );
+    let started = Instant::now();
+    let hello = request(&fixture.socket(), &Request::Hello {}).unwrap();
+    assert!(hello.ops.unwrap().iter().any(|op| op == "message"));
+    assert!(started.elapsed() < Duration::from_secs(1));
+    for stream in pending {
+        read_timeout(&stream, Duration::from_secs(15));
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Response>(&line)
+                .unwrap()
+                .error
+                .as_deref(),
+            Some("the computer could not be reached")
+        );
+    }
+    assert!(request(&fixture.socket(), &Request::Hello {}).unwrap().ok);
+    worker.join().unwrap();
+}
+
+#[test]
+fn a_failed_response_drops_a_pending_message_and_its_slot() {
+    let fixture = Fixture::new();
+    let (mut server, _) = unreachable_send_server(&fixture);
+    assert!(server.dispatch(message_value("hello")).unwrap().ok);
+    assert_eq!(server.waiting_messages.load(Ordering::Acquire), 1);
+    assert!(server.pending_message.is_some());
+    let (mut client, stream) = UnixStream::pair().unwrap();
+    client.write_all(b"{\"v\":999,\"op\":\"hello\"}\n").unwrap();
+    server.serve_one(stream);
+    let mut line = String::new();
+    BufReader::new(client).read_line(&mut line).unwrap();
+    assert!(!serde_json::from_str::<Response>(&line).unwrap().ok);
+    assert!(server.pending_message.is_none());
+    assert_eq!(server.waiting_messages.load(Ordering::Acquire), 0);
 }

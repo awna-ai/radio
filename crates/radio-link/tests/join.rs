@@ -79,6 +79,7 @@ async fn computer_key(name: &str, limits: Limits, key: SecretKey) -> Computer {
                 sha: SHA.into(),
                 clients: None,
             },
+            std::sync::Arc::new(radio_link::handler::NoHandlers),
         ))
         .await
         .unwrap(),
@@ -573,6 +574,7 @@ async fn a_forged_record_is_reset_without_an_event() {
             sha: SHA.into(),
             clients: None,
         },
+        std::sync::Arc::new(radio_link::handler::NoHandlers),
     ))
     .await
     .unwrap();

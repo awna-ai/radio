@@ -4,7 +4,7 @@ use std::{
     io::{self, Seek, SeekFrom, Write},
     os::{
         fd::AsFd,
-        unix::fs::{MetadataExt, OpenOptionsExt},
+        unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     },
     path::Path,
     sync::{Arc, Mutex},
@@ -91,6 +91,21 @@ impl Log {
             file: None,
             cap: LOG_MAX_BYTES,
         }
+    }
+
+    /// Opens a private regular log, sharing the daemon's capped writer.
+    pub fn open(path: &Path) -> io::Result<Self> {
+        let file = File::options()
+            .append(true)
+            .create(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        Ok(Self::to_file(file, LOG_MAX_BYTES))
     }
 
     /// Returns a log writing to standard error when it can be cloned.

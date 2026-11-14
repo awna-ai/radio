@@ -1,0 +1,14 @@
+{
+  "request": {
+    "v": 1,
+    "op": "message",
+    "app": "notes",
+    "computer": "birch",
+    "body": "hello"
+  },
+  "response": {
+    "ok": false,
+    "error": "the app is not registered"
+  },
+  "exact": true
+}

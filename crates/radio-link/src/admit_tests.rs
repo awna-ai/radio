@@ -125,3 +125,37 @@ fn delivery_reservations_bound_keys_slots_and_folder_bytes_and_drop_releases_the
     assert!(gate.reserve_delivery(a, &folder, "one.txt", 1).is_ok());
     std::fs::remove_dir_all(path).unwrap();
 }
+
+#[test]
+fn nonmembers_are_audited_once_without_another_standing_lookup() {
+    struct Audit(std::sync::Mutex<Vec<String>>);
+    impl crate::handler::Handlers for Audit {
+        fn has_handler(&self, _app: &str) -> bool {
+            false
+        }
+        fn run(&self, _envelope: &crate::handler::Envelope<'_>) -> crate::handler::Ran {
+            crate::handler::Ran::NoHandler
+        }
+        fn refused(&self, _key: &EndpointId, name: Option<&str>, app: &str, reason: &str) {
+            assert_eq!(name, None);
+            assert_eq!(app, "");
+            self.0.lock().unwrap().push(reason.into());
+        }
+    }
+    let audit = Arc::new(Audit(std::sync::Mutex::new(Vec::new())));
+    let gate = Gate::with_handlers(
+        Arc::new(Book(Standing::Accepted)),
+        Limits::default(),
+        audit.clone(),
+    );
+    let key = crate::SecretKey::generate().public();
+    assert!(gate.audited_member(&key, Standing::Accepted));
+    assert!(audit.0.lock().unwrap().is_empty());
+    for (index, standing) in [Standing::Unknown, Standing::Refused]
+        .into_iter()
+        .enumerate()
+    {
+        assert!(!gate.audited_member(&key, standing));
+        assert_eq!(*audit.0.lock().unwrap(), vec!["not_member"; index + 1]);
+    }
+}

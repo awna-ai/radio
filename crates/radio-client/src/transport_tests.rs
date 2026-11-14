@@ -136,3 +136,12 @@ fn file_sends_wait_for_the_node_deadline() {
     .unwrap();
     assert_eq!(answer_wait(&request), Duration::from_secs(150));
 }
+
+#[test]
+fn messages_wait_sixty_seconds_for_the_daemon() {
+    let request: Request = serde_json::from_value(
+        json!({"op":"message","app":"notes","computer":"birch","body":"hello"}),
+    )
+    .unwrap();
+    assert_eq!(answer_wait(&request), Duration::from_secs(60));
+}

@@ -36,6 +36,10 @@ struct Computer {
 
 impl Computer {
     fn new(name: &str) -> Self {
+        Self::with_handlers(name, Arc::new(radio_link::handler::NoHandlers))
+    }
+
+    fn with_handlers(name: &str, handlers: Arc<dyn radio_link::handler::Handlers>) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "radio-node-{}-{}",
@@ -54,6 +58,7 @@ impl Computer {
                 clients: None,
             },
             Limits::default(),
+            handlers,
         )
         .unwrap();
         Self {
@@ -198,7 +203,7 @@ fn block_closes_the_keys_connections() {
         .block_on(bounded(b.node.link().dial(a.node.id(), &a.node.addrs())))
         .unwrap();
     runtime
-        .block_on(bounded(peer.send_app("lantern", "ready")))
+        .block_on(bounded(peer.hello(&common::hello())))
         .unwrap();
     a.node.block(&b.node.id().to_string()).unwrap();
     runtime.block_on(common::closed(peer.connection(), REFUSED));
@@ -379,4 +384,44 @@ fn quick_publishes_share_one_publisher() {
             .contains(&latest)
     });
     assert!((1..=3).contains(&b.node.published()));
+}
+
+#[test]
+fn a_message_reaches_the_recorded_name_and_returns_a_reply() {
+    struct Echo;
+    impl radio_link::handler::Handlers for Echo {
+        fn has_handler(&self, app: &str) -> bool {
+            app == "notes"
+        }
+        fn run(&self, envelope: &radio_link::handler::Envelope<'_>) -> radio_link::handler::Ran {
+            radio_link::handler::Ran::Reply {
+                reply: format!(
+                    "{}:{}",
+                    envelope.from_name.unwrap_or("missing"),
+                    envelope.body
+                ),
+                exit: 3,
+            }
+        }
+        fn refused(
+            &self,
+            _from: &radio_link::EndpointId,
+            _name: Option<&str>,
+            _app: &str,
+            _reason: &str,
+        ) {
+        }
+    }
+    let target = Computer::with_handlers("garden", Arc::new(Echo));
+    let sender = Computer::new("birch");
+    target.found();
+    assert_eq!(sender.node.join(target.code(), now()), Ok(()));
+    wait(|| target.state(&sender) == Some(State::Accepted));
+    assert_eq!(
+        sender.node.message("garden", "notes", "opaque"),
+        Ok(radio_link::handler::Reply {
+            reply: "birch:opaque".into(),
+            exit: 3
+        })
+    );
 }

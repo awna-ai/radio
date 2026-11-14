@@ -63,6 +63,9 @@ pub struct Server {
     clients_dir: Option<PathBuf>,
     pending_send: Option<Waiting>,
     waiting_sends: Arc<AtomicUsize>,
+    pending_message: Option<WaitingMessage>,
+    waiting_messages: Arc<AtomicUsize>,
+    handlers: Arc<dyn radio_link::handler::Handlers>,
     send_cap: usize,
     fleet_db_path: Option<PathBuf>,
     fleet_db: Option<Arc<Mutex<radio_link::fleet_db::FleetDb>>>,
@@ -169,6 +172,9 @@ impl Server {
             clients_dir: None,
             pending_send: None,
             waiting_sends: Arc::new(AtomicUsize::new(0)),
+            pending_message: None,
+            waiting_messages: Arc::new(AtomicUsize::new(0)),
+            handlers: Arc::new(radio_link::handler::NoHandlers),
             send_cap: 4,
             fleet_db_path: None,
             fleet_db: None,
@@ -186,6 +192,12 @@ impl Server {
     /// Sets the folder holding this computer's link key.
     pub fn with_link_dir(mut self, dir: PathBuf) -> Self {
         self.link_dir = Some(dir);
+        self
+    }
+
+    /// Sets the installed app handler and refusal audit hooks.
+    pub fn with_handlers(mut self, handlers: Arc<dyn radio_link::handler::Handlers>) -> Self {
+        self.handlers = handlers;
         self
     }
 
@@ -282,6 +294,7 @@ impl Server {
                 db,
                 local,
                 radio_link::admit::Limits::default(),
+                self.handlers.clone(),
             )?;
             Ok((node, addrs.len()))
         })();
@@ -381,6 +394,38 @@ impl Server {
             }
             response = failure("the send could not be started".into());
         }
+        let pending = self.pending_message.take();
+        if let Some(waiting) = pending.filter(|_| response.ok) {
+            let log = self.log.clone();
+            let deadline = self.answer_deadline;
+            let worker_op = op.clone();
+            let spawned = stream.try_clone().and_then(|mut stream| {
+                std::thread::Builder::new().spawn(move || {
+                    let WaitingMessage { pending, _slot } = waiting;
+                    let response = match pending.wait_timeout(Duration::from_secs(45)) {
+                        Ok(reply) => Response {
+                            reply: Some(reply.reply),
+                            exit: Some(reply.exit),
+                            ..success()
+                        },
+                        Err(error) => failure(error.into()),
+                    };
+                    answer(
+                        &mut stream,
+                        &response,
+                        &worker_op,
+                        wrong_uid,
+                        uid,
+                        &log,
+                        deadline,
+                    );
+                })
+            });
+            if spawned.is_ok() {
+                return;
+            }
+            response = failure("the message could not be started".into());
+        }
         answer(
             &mut stream,
             &response,
@@ -455,6 +500,37 @@ impl Server {
             Request::Leave {} => {
                 self.start_link()?;
                 response.delivered = Some(self.link.as_ref().unwrap().leave(now)? as u64);
+            }
+            Request::Message {
+                app,
+                computer,
+                body,
+            } => {
+                drop(self.fleet_db()?);
+                if !self.store.registered(&app)? {
+                    return Err("the app is not registered".into());
+                }
+                self.start_link()?;
+                if body.is_empty() {
+                    return Err("the message is empty".into());
+                }
+                if body.len() > 8192 {
+                    return Err("the message is larger than 8 KiB".into());
+                }
+                if self.waiting_messages.load(Ordering::Acquire) >= 4 {
+                    return Err("too many messages at once; try again".into());
+                }
+                let pending = self
+                    .link
+                    .as_ref()
+                    .unwrap()
+                    .start_message(&computer, &app, &body)?;
+                self.waiting_messages.fetch_add(1, Ordering::AcqRel);
+                let slot = WaitingSend(self.waiting_messages.clone());
+                self.pending_message = Some(WaitingMessage {
+                    pending,
+                    _slot: slot,
+                });
             }
             Request::Send {
                 app,
@@ -1021,6 +1097,11 @@ fn member(author: Author) -> Member {
 // The serial dispatcher reserves a slot before handing the answer to its thread.
 struct Waiting {
     pending: radio_link::node::PendingSend,
+    _slot: WaitingSend,
+}
+
+struct WaitingMessage {
+    pending: radio_link::node::PendingMessage,
     _slot: WaitingSend,
 }
 

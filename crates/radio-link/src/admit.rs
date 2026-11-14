@@ -34,12 +34,22 @@ pub trait Admission: Send + Sync + 'static {
     fn standing(&self, key: &EndpointId) -> Standing;
     fn join_open(&self) -> bool;
     fn fleet(&self) -> Option<String>;
+    fn name(&self, _key: &EndpointId) -> Option<String> {
+        None
+    }
     fn delivery_folder(&self, _app: &str) -> Option<crate::fleet_db::DeliveryFolder> {
         None
     }
 }
 
 impl Admission for Mutex<FleetDb> {
+    fn name(&self, key: &EndpointId) -> Option<String> {
+        self.lock()
+            .ok()
+            .and_then(|db| db.computer(&key.to_string()).ok())
+            .and_then(|computer| computer.name)
+    }
+
     fn delivery_folder(&self, app: &str) -> Option<crate::fleet_db::DeliveryFolder> {
         self.lock()
             .ok()
@@ -72,6 +82,7 @@ impl Admission for Mutex<FleetDb> {
 
 #[derive(Clone)]
 pub struct Limits {
+    pub handler: Duration,
     pub file: Duration,
     pub stall: Duration,
     pub deliveries: usize,
@@ -88,6 +99,7 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            handler: Duration::from_secs(30),
             file: Duration::from_secs(120),
             deliveries: 4,
             stall: Duration::from_secs(30),
@@ -113,6 +125,7 @@ struct Live {
 pub struct Gate {
     pub(crate) admission: Arc<dyn Admission>,
     pub(crate) limits: Limits,
+    handlers: Arc<dyn crate::handler::Handlers>,
     live: Mutex<Vec<Live>>,
     files: Arc<Mutex<Files>>,
     pub(crate) deliveries: Arc<tokio::sync::Semaphore>,
@@ -205,13 +218,30 @@ impl Gate {
     }
 
     pub fn new(admission: Arc<dyn Admission>, limits: Limits) -> Self {
+        Self::with_handlers(admission, limits, Arc::new(crate::handler::NoHandlers))
+    }
+
+    pub(crate) fn with_handlers(
+        admission: Arc<dyn Admission>,
+        limits: Limits,
+        handlers: Arc<dyn crate::handler::Handlers>,
+    ) -> Self {
         Self {
             admission,
+            handlers,
             deliveries: Arc::new(tokio::sync::Semaphore::new(limits.deliveries)),
             limits,
             live: Mutex::new(Vec::new()),
             files: Arc::new(Mutex::new(Files::default())),
         }
+    }
+
+    fn audited_member(&self, key: &EndpointId, standing: Standing) -> bool {
+        if standing == Standing::Accepted {
+            return true;
+        }
+        self.handlers.refused(key, None, "", "not_member");
+        false
     }
 
     /// Release the admission lock before calling this, as for `close_key`.
@@ -269,7 +299,7 @@ impl EndpointHooks for Gate {
         let mut live = self.live.lock().unwrap();
         let standing = self.admission.standing(&key);
         let join = match conn.alpn() {
-            ALPN if standing == Standing::Accepted => false,
+            ALPN if self.audited_member(&key, standing) => false,
             JOIN_ALPN
                 if standing != Standing::Refused
                     && (conn.side() == Side::Client || self.admission.join_open()) =>

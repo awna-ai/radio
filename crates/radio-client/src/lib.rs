@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 7;
+pub const PROTOCOL_MINOR: u32 = 8;
 
-/// The ops major 1, minor 7 serves, in this order.
+/// The ops major 1, minor 8 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -44,6 +44,7 @@ pub const OPS: &[&str] = &[
     "delivery_folder_set",
     "delivery_folder_clear",
     "deliveries",
+    "message",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -179,6 +180,12 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         limit: Option<u32>,
     },
+    /// Sends a message to the installed handler for this app on another computer.
+    Message {
+        app: String,
+        computer: String,
+        body: String,
+    },
 }
 
 /// A member identified by a kind and a name.
@@ -289,6 +296,12 @@ pub struct Response {
     /// This app's arrivals in ascending id order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deliveries: Option<Vec<Delivery>>,
+    /// The installed handler's answer to an app message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply: Option<String>,
+    /// The installed handler's process exit code, or 128 plus its terminating signal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<i32>,
 }
 
 /// A file that arrived for the requesting app on this computer.
@@ -431,8 +444,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn message_contract_round_trips() {
+        assert_eq!(PROTOCOL_MINOR, 8);
+        assert_eq!(OPS.last(), Some(&"message"));
+        let value =
+            serde_json::json!({"op":"message","app":"notes","computer":"birch","body":"hello"});
+        let request: Request = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(request).unwrap(), value);
+        let mut unknown = value;
+        unknown["extra"] = true.into();
+        assert!(serde_json::from_value::<Request>(unknown).is_err());
+        let value = serde_json::json!({"ok":true,"reply":"hello","exit":3});
+        let response: Response = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(response).unwrap(), value);
+        for exit in [
+            serde_json::json!(1.5),
+            serde_json::json!("3"),
+            serde_json::json!(2147483648_i64),
+        ] {
+            assert!(
+                serde_json::from_value::<Response>(
+                    serde_json::json!({"ok":true,"reply":"hello","exit":exit})
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 7);
+        assert_eq!(PROTOCOL_MINOR, 8);
         assert_eq!(
             &OPS[20..23],
             &[

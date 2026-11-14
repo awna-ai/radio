@@ -38,6 +38,7 @@ fn answer_wait(request: &Request) -> Duration {
     match request {
         // The daemon answers a send within 135 s.
         Request::Send { .. } => Duration::from_secs(150),
+        Request::Message { .. } => Duration::from_secs(60),
         Request::Join { .. } | Request::ComputerRemove { .. } | Request::Leave {} => {
             Duration::from_secs(120)
         }

@@ -81,7 +81,7 @@ fn bytes(request: &Request) -> Vec<u8> {
 }
 
 #[tokio::test]
-async fn hello_and_app_preserve_authenticated_sender_and_opaque_body() {
+async fn hello_preserves_authenticated_sender_and_messages_need_a_handler() {
     let a_book = Book::new();
     let b_book = Book::new();
     let (a, mut events) = bind(a_book.clone(), Limits::default()).await;
@@ -94,7 +94,7 @@ async fn hello_and_app_preserve_authenticated_sender_and_opaque_body() {
     assert_eq!(answer.sha, SHA);
     assert_eq!(answer.fleet, FLEET);
     assert_eq!(answer.arch, std::env::consts::ARCH);
-    assert_eq!((answer.protocol.major, answer.protocol.minor), (1, 3));
+    assert_eq!((answer.protocol.major, answer.protocol.minor), (1, 4));
     match bounded(events.recv()).await.unwrap() {
         Event::Hello {
             from,
@@ -110,19 +110,11 @@ async fn hello_and_app_preserve_authenticated_sender_and_opaque_body() {
         _ => panic!("expected hello"),
     }
     let body = "{\"unparsed\":[\"opaque\",42]}";
-    bounded(peer.send_app("lantern", body)).await.unwrap();
-    match bounded(events.recv()).await.unwrap() {
-        Event::App {
-            from,
-            app,
-            body: received,
-        } => {
-            assert_eq!(from, b.id());
-            assert_eq!(app, "lantern");
-            assert_eq!(received, body);
-        }
-        _ => panic!("expected app"),
-    }
+    assert_eq!(
+        bounded(peer.send_app("lantern", body)).await,
+        Err("that app takes no messages on that computer")
+    );
+    empty(&mut events).await;
     let reverse = bounded(a.dial(b.id(), &b.addrs())).await.unwrap();
     assert_eq!(
         bounded(reverse.hello(&hello())).await.unwrap().name,
@@ -157,6 +149,8 @@ async fn invalid_app_destinations_and_names_reset_without_events() {
                 to,
                 app: app.into(),
                 body: "opaque".into(),
+                id: "a".repeat(32),
+                sent: 0,
             }),
         )
         .await;
@@ -187,6 +181,7 @@ async fn hook_refuses_unknown_and_removed_keys_with_empty_reasons() {
                 sha: SHA.into(),
                 clients: None,
             },
+            std::sync::Arc::new(radio_link::handler::NoHandlers),
         ))
         .await
         .unwrap();
@@ -580,139 +575,121 @@ async fn every_stream_rechecks_admission_and_close_key_closes_all_connections() 
 
 #[tokio::test]
 async fn closed_key_cannot_deliver_events_after_the_channel_drains() {
-    for app in [true, false] {
-        let book = Book::new();
-        let a = bounded(radio_link::link::Link::bind(
-            SecretKey::generate(),
-            &["127.0.0.1:0".parse().unwrap()],
-            book.clone(),
-            Limits::default(),
-            radio_link::link::Local {
-                name: "garden".into(),
-                sha: SHA.into(),
-                clients: None,
-            },
-        ))
+    let book = Book::new();
+    let a = bounded(radio_link::link::Link::bind(
+        SecretKey::generate(),
+        &["127.0.0.1:0".parse().unwrap()],
+        book.clone(),
+        Limits::default(),
+        radio_link::link::Local {
+            name: "garden".into(),
+            sha: SHA.into(),
+            clients: None,
+        },
+        std::sync::Arc::new(radio_link::handler::NoHandlers),
+    ))
+    .await
+    .unwrap();
+    let (sender, mut events) = tokio::sync::mpsc::channel(1);
+    sender
+        .try_send(Event::Hello {
+            from: a.id(),
+            hello: hello(),
+        })
+        .unwrap();
+    a.serve(sender);
+    let b_book = Book::new();
+    let (b, _) = bind(b_book.clone(), Limits::default()).await;
+    book.set(b.id(), Standing::Accepted);
+    b_book.set(a.id(), Standing::Accepted);
+    let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+    let (mut send, mut recv) = bounded(peer.connection().open_bi()).await.unwrap();
+    let request = Request::Hello { hello: hello() };
+    bounded(frame::write(&mut send, &request, CONTROL_CAP))
         .await
         .unwrap();
-        let (sender, mut events) = tokio::sync::mpsc::channel(1);
-        sender
-            .try_send(Event::Hello {
-                from: a.id(),
-                hello: hello(),
-            })
-            .unwrap();
-        a.serve(sender);
-        let b_book = Book::new();
-        let (b, _) = bind(b_book.clone(), Limits::default()).await;
-        book.set(b.id(), Standing::Accepted);
-        b_book.set(a.id(), Standing::Accepted);
-        let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
-        let (mut send, mut recv) = bounded(peer.connection().open_bi()).await.unwrap();
-        let request = if app {
-            Request::App {
-                to: a.id().to_string(),
-                app: "lantern".into(),
-                body: "opaque".into(),
-            }
-        } else {
-            Request::Hello { hello: hello() }
-        };
-        bounded(frame::write(&mut send, &request, CONTROL_CAP))
+    send.finish().unwrap();
+    assert!(
+        timeout(Duration::from_millis(100), recv.read_to_end(CONTROL_CAP))
             .await
-            .unwrap();
-        send.finish().unwrap();
-        assert!(
-            timeout(Duration::from_millis(100), recv.read_to_end(CONTROL_CAP))
-                .await
-                .is_err()
-        );
-        book.set(b.id(), Standing::Refused);
-        a.close_key(&b.id());
-        closed(peer.connection(), REFUSED).await;
-        match bounded(events.recv()).await.unwrap() {
-            Event::Hello { from, .. } => assert_eq!(from, a.id()),
-            _ => panic!("expected filler event"),
-        }
-        assert!(
-            timeout(Duration::from_millis(500), events.recv())
-                .await
-                .is_err(),
-            "a closed key delivered an event"
-        );
-        bounded(a.close()).await;
-        bounded(b.close()).await;
+            .is_err()
+    );
+    book.set(b.id(), Standing::Refused);
+    a.close_key(&b.id());
+    closed(peer.connection(), REFUSED).await;
+    match bounded(events.recv()).await.unwrap() {
+        Event::Hello { from, .. } => assert_eq!(from, a.id()),
+        _ => panic!("expected filler event"),
     }
+    assert!(
+        timeout(Duration::from_millis(500), events.recv())
+            .await
+            .is_err(),
+        "a closed key delivered an event"
+    );
+    bounded(a.close()).await;
+    bounded(b.close()).await;
 }
 
 #[tokio::test]
 async fn refused_key_cannot_deliver_events_after_the_channel_drains() {
-    for app in [true, false] {
-        let book = Book::new();
-        let a = bounded(radio_link::link::Link::bind(
-            SecretKey::generate(),
-            &["127.0.0.1:0".parse().unwrap()],
-            book.clone(),
-            Limits::default(),
-            radio_link::link::Local {
-                name: "garden".into(),
-                sha: SHA.into(),
-                clients: None,
-            },
-        ))
+    let book = Book::new();
+    let a = bounded(radio_link::link::Link::bind(
+        SecretKey::generate(),
+        &["127.0.0.1:0".parse().unwrap()],
+        book.clone(),
+        Limits::default(),
+        radio_link::link::Local {
+            name: "garden".into(),
+            sha: SHA.into(),
+            clients: None,
+        },
+        std::sync::Arc::new(radio_link::handler::NoHandlers),
+    ))
+    .await
+    .unwrap();
+    let (sender, mut events) = tokio::sync::mpsc::channel(1);
+    sender
+        .try_send(Event::Hello {
+            from: a.id(),
+            hello: hello(),
+        })
+        .unwrap();
+    a.serve(sender);
+    let b_book = Book::new();
+    let (b, _) = bind(b_book.clone(), Limits::default()).await;
+    book.set(b.id(), Standing::Accepted);
+    b_book.set(a.id(), Standing::Accepted);
+    let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+    let (mut send, mut recv) = bounded(peer.connection().open_bi()).await.unwrap();
+    let request = Request::Hello { hello: hello() };
+    bounded(frame::write(&mut send, &request, CONTROL_CAP))
         .await
         .unwrap();
-        let (sender, mut events) = tokio::sync::mpsc::channel(1);
-        sender
-            .try_send(Event::Hello {
-                from: a.id(),
-                hello: hello(),
-            })
-            .unwrap();
-        a.serve(sender);
-        let b_book = Book::new();
-        let (b, _) = bind(b_book.clone(), Limits::default()).await;
-        book.set(b.id(), Standing::Accepted);
-        b_book.set(a.id(), Standing::Accepted);
-        let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
-        let (mut send, mut recv) = bounded(peer.connection().open_bi()).await.unwrap();
-        let request = if app {
-            Request::App {
-                to: a.id().to_string(),
-                app: "lantern".into(),
-                body: "opaque".into(),
-            }
-        } else {
-            Request::Hello { hello: hello() }
-        };
-        bounded(frame::write(&mut send, &request, CONTROL_CAP))
+    send.finish().unwrap();
+    assert!(
+        timeout(Duration::from_millis(100), recv.read_to_end(CONTROL_CAP))
             .await
-            .unwrap();
-        send.finish().unwrap();
-        assert!(
-            timeout(Duration::from_millis(100), recv.read_to_end(CONTROL_CAP))
-                .await
-                .is_err()
-        );
-        book.set(b.id(), Standing::Refused);
-        // Change standing only: closing the connection here would abort the blocked task.
-        assert!(peer.connection().close_reason().is_none());
-        match bounded(events.recv()).await.unwrap() {
-            Event::Hello { from, .. } => assert_eq!(from, a.id()),
-            _ => panic!("expected filler event"),
-        }
-        timeout(Duration::from_secs(2), closed(peer.connection(), REFUSED))
-            .await
-            .unwrap();
-        assert!(
-            timeout(Duration::from_millis(500), events.recv())
-                .await
-                .is_err(),
-            "a refused key delivered an event"
-        );
-        bounded(a.close()).await;
-        bounded(b.close()).await;
+            .is_err()
+    );
+    book.set(b.id(), Standing::Refused);
+    // Change standing only: closing the connection here would abort the blocked task.
+    assert!(peer.connection().close_reason().is_none());
+    match bounded(events.recv()).await.unwrap() {
+        Event::Hello { from, .. } => assert_eq!(from, a.id()),
+        _ => panic!("expected filler event"),
     }
+    timeout(Duration::from_secs(2), closed(peer.connection(), REFUSED))
+        .await
+        .unwrap();
+    assert!(
+        timeout(Duration::from_millis(500), events.recv())
+            .await
+            .is_err(),
+        "a refused key delivered an event"
+    );
+    bounded(a.close()).await;
+    bounded(b.close()).await;
 }
 
 #[tokio::test]
@@ -731,6 +708,7 @@ async fn blocked_hello_events_bound_stream_tasks_and_recover_after_draining() {
             sha: SHA.into(),
             clients: None,
         },
+        std::sync::Arc::new(radio_link::handler::NoHandlers),
     ))
     .await
     .unwrap();
@@ -847,6 +825,7 @@ async fn join_rechecks_the_code_before_handing_out_the_connection() {
             sha: SHA.into(),
             clients: None,
         },
+        std::sync::Arc::new(radio_link::handler::NoHandlers),
     ))
     .await
     .unwrap();

@@ -22,6 +22,8 @@ fn messages_round_trip() {
             to: "c".repeat(64),
             app: "lantern".into(),
             body: "opaque\n{invalid JSON".into(),
+            id: "a".repeat(32),
+            sent: 0,
         },
     ] {
         assert_eq!(
@@ -163,7 +165,7 @@ fn record_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 3);
+    assert_eq!(LINK_MINOR, 4);
 }
 
 #[test]
@@ -235,7 +237,7 @@ fn computer_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 3);
+    assert_eq!(LINK_MINOR, 4);
 }
 
 #[test]
@@ -273,7 +275,7 @@ fn file_wire_shapes_and_minor() {
     assert_eq!(serde_json::to_value(request).unwrap(), file);
     let answer: Answer = serde_json::from_value(refused.clone()).unwrap();
     assert_eq!(serde_json::to_value(answer).unwrap(), refused);
-    assert_eq!(LINK_MINOR, 3);
+    assert_eq!(LINK_MINOR, 4);
 }
 
 #[test]
@@ -300,5 +302,39 @@ fn file_heads_allow_the_cap_but_refuse_one_byte_more() {
             expected,
             "size={size}"
         );
+    }
+}
+
+#[test]
+fn app_envelope_and_reply_shapes_are_typed_and_strict() {
+    let app = json!({"type":"app", "to":"c".repeat(64), "app":"notes", "body":"hello", "id":"a".repeat(32), "sent":1234});
+    assert!(
+        serde_json::from_value::<Request>(app.clone()).is_ok(),
+        "app envelope fields must decode"
+    );
+    let reply = json!({"type":"reply", "reply":"answer", "exit":3});
+    assert!(
+        serde_json::from_value::<Answer>(reply.clone()).is_ok(),
+        "reply answer must decode"
+    );
+    for (base, field, wrong) in [
+        (app.clone(), "id", json!(3)),
+        (app.clone(), "sent", json!("1234")),
+        (app.clone(), "sent", json!(-1)),
+        (app, "extra", json!(true)),
+    ] {
+        let mut value = base;
+        value[field] = wrong;
+        assert!(serde_json::from_value::<Request>(value).is_err(), "{field}");
+    }
+    for (field, wrong) in [
+        ("reply", json!(3)),
+        ("exit", json!("3")),
+        ("exit", json!(2147483648_u64)),
+        ("extra", json!(true)),
+    ] {
+        let mut value = reply.clone();
+        value[field] = wrong;
+        assert!(serde_json::from_value::<Answer>(value).is_err(), "{field}");
     }
 }

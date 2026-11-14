@@ -31,7 +31,7 @@ fn contract_minor_matches_the_crate() {
 }
 
 #[test]
-fn file_ops_and_minor_seven_are_available() {
+fn file_ops_and_protocol_minor_are_available() {
     for op in [
         "send",
         "delivery_folder_set",
@@ -40,7 +40,7 @@ fn file_ops_and_minor_seven_are_available() {
     ] {
         assert!(radio_client::OPS.contains(&op), "{op}");
     }
-    assert_eq!(radio_client::PROTOCOL_MINOR, 7);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 8);
 }
 
 #[test]

@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 7
+      "minor": 8
     },
     "majors": [
       1
@@ -43,7 +43,8 @@
       "send",
       "delivery_folder_set",
       "delivery_folder_clear",
-      "deliveries"
+      "deliveries",
+      "message"
     ]
   },
   "exact": false

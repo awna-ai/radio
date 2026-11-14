@@ -292,6 +292,8 @@ fn request(g: &mut Gen) -> Request {
             to: text(g, 64),
             app: text(g, 64),
             body: text(g, 256),
+            id: "a".repeat(32),
+            sent: 0,
         },
     }
 }
@@ -530,6 +532,8 @@ fn frames_round_trip_in_any_chunking() {
                     to: text(g, 64),
                     app: text(g, 64),
                     body: String::new(),
+                    id: "a".repeat(32),
+                    sent: 0,
                 };
                 let overhead = serde_json::to_vec(&value).unwrap().len();
                 let size = match g.below(4) {

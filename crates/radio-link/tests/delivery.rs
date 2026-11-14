@@ -58,6 +58,7 @@ impl Computer {
                 clients: Some(dir.join("clients")),
             },
             limits,
+            std::sync::Arc::new(radio_link::handler::NoHandlers),
         )
         .unwrap();
         Self {

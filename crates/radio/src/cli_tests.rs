@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 7);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 8);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1240,4 +1240,35 @@ fn send_defaults_preserve_names_for_daemon_validation() {
         let parsed = parse(&args(&["send", "garden", name, "--app", "notes"])).unwrap();
         assert_eq!(serde_json::to_value(parsed.request).unwrap()["name"], name);
     }
+}
+
+#[test]
+fn message_reads_standard_input_and_enforces_its_byte_limit() {
+    let command = parse(&args(&["message", "birch", "--app", "notes"])).unwrap();
+    let request = command.resolve("hello\n".as_bytes()).unwrap();
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        serde_json::json!({"op":"message","app":"notes","computer":"birch","body":"hello\n"})
+    );
+    for body in ["a".repeat(8192), "é".repeat(4096)] {
+        let request = parse(&args(&["message", "birch", "--app", "notes"]))
+            .unwrap()
+            .resolve(body.as_bytes())
+            .unwrap();
+        assert_eq!(serde_json::to_value(request).unwrap()["body"], body);
+    }
+    for body in ["a".repeat(8193), "é".repeat(4097)] {
+        let error = parse(&args(&["message", "birch", "--app", "notes"]))
+            .unwrap()
+            .resolve(body.as_bytes())
+            .unwrap_err();
+        assert_eq!(error, (2, "radio: the message is larger than 8 KiB".into()));
+    }
+    assert!(parse(&args(&["message", "birch"])).is_err());
+    assert!(
+        parse(&args(&[
+            "message", "birch", "--app", "notes", "--body", "hello"
+        ]))
+        .is_err()
+    );
 }

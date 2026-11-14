@@ -4,6 +4,7 @@ use crate::{
     computer_record::ComputerRecord,
     endpoint::{self, ALPN, JOIN_ALPN},
     frame::{self, CONTROL_CAP},
+    handler::{Envelope, Handlers, Messages, Ran, Reply},
     membership::SignedRecord,
     wire::{self, Answer, Hello, LINK_MAJOR, LINK_MINOR, Protocol, Request},
 };
@@ -51,11 +52,6 @@ pub enum Event {
         from: EndpointId,
         hello: Hello,
     },
-    App {
-        from: EndpointId,
-        app: String,
-        body: String,
-    },
     Join {
         from: EndpointId,
         connection: Connection,
@@ -66,6 +62,7 @@ pub struct Link {
     endpoint: Endpoint,
     gate: Arc<Gate>,
     local: Local,
+    messages: Arc<Messages>,
 }
 
 impl Link {
@@ -75,6 +72,7 @@ impl Link {
         admission: Arc<dyn Admission>,
         limits: Limits,
         local: Local,
+        handlers: Arc<dyn Handlers>,
     ) -> Result<Self, &'static str> {
         if !wire::member_name(&local.name) {
             return Err("the computer's name is not usable");
@@ -82,12 +80,13 @@ impl Link {
         if !wire::hex64(&local.sha) {
             return Err("the build's hash is not usable");
         }
-        let gate = Arc::new(Gate::new(admission, limits));
+        let gate = Arc::new(Gate::with_handlers(admission, limits, handlers.clone()));
         let endpoint = endpoint::bind(key, addrs, gate.clone()).await?;
         Ok(Self {
             endpoint,
             gate,
             local,
+            messages: Arc::new(Messages::new(handlers)),
         })
     }
 
@@ -111,6 +110,7 @@ impl Link {
         let endpoint = self.endpoint.clone();
         let gate = self.gate.clone();
         let local = self.local.clone();
+        let messages = self.messages.clone();
         tokio::spawn(async move {
             let permits = Arc::new(Semaphore::new(gate.limits.handshakes));
             let mut connections = JoinSet::new();
@@ -124,6 +124,7 @@ impl Link {
                         };
                         let gate = gate.clone();
                         let local = local.clone();
+                        let messages = messages.clone();
                         let events = events.clone();
                         let id = endpoint.id();
                         connections.spawn(async move {
@@ -166,7 +167,7 @@ impl Link {
                                     connection.close(IDLE.into(), &[]);
                                 }
                             } else {
-                                serve_connection(connection, gate, local, id, events).await;
+                                serve_connection(connection, gate, local, id, events, messages).await;
                             }
                         });
                     }
@@ -236,6 +237,7 @@ async fn serve_connection(
     local: Local,
     id: EndpointId,
     events: mpsc::Sender<Event>,
+    messages: Arc<Messages>,
 ) {
     let permits = Arc::new(Semaphore::new(endpoint::STREAMS as usize));
     let mut streams = JoinSet::new();
@@ -246,6 +248,9 @@ async fn serve_connection(
                 let Ok((mut send, mut recv)) = stream else { break };
                 let started = Instant::now();
                 if gate.admission.standing(&connection.remote_id()) != Standing::Accepted {
+                    let from = connection.remote_id();
+                    let name = gate.admission.name(&from);
+                    messages.handlers.refused(&from, name.as_deref(), "", "not_member");
                     connection.close(REFUSED.into(), &[]);
                     break;
                 }
@@ -257,10 +262,11 @@ async fn serve_connection(
                 let connection = connection.clone();
                 let gate = gate.clone();
                 let local = local.clone();
+                let messages = messages.clone();
                 let events = events.clone();
                 streams.spawn(async move {
                     let _permit = permit;
-                    serve_stream(connection, gate, local, id, events, (send, recv), started).await;
+                    serve_stream(connection, gate, local, id, events, (send, recv), (started, messages)).await;
                 });
             }
             _ = streams.join_next(), if !streams.is_empty() => {
@@ -283,8 +289,9 @@ async fn serve_stream(
     id: EndpointId,
     events: mpsc::Sender<Event>,
     stream: (SendStream, RecvStream),
-    started: Instant,
+    context: (Instant, Arc<Messages>),
 ) {
+    let (started, messages) = context;
     let (mut send, mut recv) = stream;
     let head = timeout_at(
         started + gate.limits.frame.min(gate.limits.file),
@@ -323,11 +330,19 @@ async fn serve_stream(
         }
         return;
     }
-    let deadline = started + gate.limits.frame;
+    let finished = timeout_at(started + gate.limits.frame, recv.read(&mut [0])).await;
+    if !matches!(finished, Ok(Ok(None))) {
+        let _ = recv.stop(BAD_FRAME.into());
+        let _ = send.reset(BAD_FRAME.into());
+        return;
+    }
+    let deadline = started
+        + if matches!(request, Request::App { .. }) {
+            gate.limits.frame + gate.limits.handler + gate.limits.frame
+        } else {
+            gate.limits.frame
+        };
     let result = timeout_at(deadline, async {
-        if recv.read(&mut [0]).await.map_err(|_| UNANSWERED)?.is_some() {
-            return Err(UNANSWERED);
-        }
         let from = connection.remote_id();
         match request {
             Request::File { .. } => unreachable!(),
@@ -366,22 +381,50 @@ async fn serve_stream(
                 frame::write(&mut send, &answer, CONTROL_CAP).await?;
                 send.finish().map_err(|_| UNANSWERED)?;
             }
-            Request::App { to, app, body } => {
-                if !wire::valid_app(&to, &app, &id) {
-                    return Err(UNANSWERED);
-                }
-                let permit = events.reserve().await.map_err(|_| UNANSWERED)?;
+            Request::App {
+                to,
+                app,
+                body,
+                id: message_id,
+                sent,
+            } => {
+                let from_name = gate.admission.name(&from);
+                let envelope = Envelope {
+                    app: &app,
+                    from,
+                    from_name: from_name.as_deref(),
+                    id: &message_id,
+                    body: &body,
+                };
                 if gate.admission.standing(&from) != Standing::Accepted
                     || connection.close_reason().is_some()
                 {
-                    if connection.close_reason().is_none() {
-                        connection.close(REFUSED.into(), &[]);
-                    }
-                    drop(permit);
+                    messages.refused(&envelope, "not_member");
+                    connection.close(REFUSED.into(), &[]);
                     return Ok(());
                 }
-                permit.send(Event::App { from, app, body });
-                frame::write(&mut send, &Answer::Ok, CONTROL_CAP).await?;
+                if !wire::hex64(&to) || to != id.to_string() {
+                    messages.refused(&envelope, "not_for_us");
+                    return Err(UNANSWERED);
+                }
+                if !wire::app_name(&app) {
+                    messages.refused(&envelope, "bad_app");
+                    return Err(UNANSWERED);
+                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    .min(u64::MAX as u128) as u64;
+                let answer = match messages.check(&envelope, sent, now, Instant::now()) {
+                    Err("bad_frame") => {
+                        messages.refused(&envelope, "bad_frame");
+                        return Err(UNANSWERED);
+                    }
+                    Err(reason) => messages.refused(&envelope, reason),
+                    Ok(()) => run_handler(&messages, &envelope, gate.limits.handler).await,
+                };
+                frame::write(&mut send, &answer, CONTROL_CAP).await?;
                 send.finish().map_err(|_| UNANSWERED)?;
             }
             Request::Record { record } => {
@@ -427,6 +470,89 @@ async fn serve_stream(
     if !matches!(result, Ok(Ok(()))) {
         let _ = recv.stop(BAD_FRAME.into());
         let _ = send.reset(BAD_FRAME.into());
+    }
+}
+
+async fn run_handler(
+    messages: &Arc<Messages>,
+    envelope: &Envelope<'_>,
+    limit: std::time::Duration,
+) -> Answer {
+    let owned_messages = messages.clone();
+    let (app, from, from_name, id, body) = (
+        envelope.app.to_owned(),
+        envelope.from,
+        envelope.from_name.map(str::to_owned),
+        envelope.id.to_owned(),
+        envelope.body.to_owned(),
+    );
+    // A closed stream drops its waiter; the supervisor still records the outcome.
+    tokio::spawn(async move {
+        execute_handler(
+            &owned_messages,
+            &Envelope {
+                app: &app,
+                from,
+                from_name: from_name.as_deref(),
+                id: &id,
+                body: &body,
+            },
+            limit,
+        )
+        .await
+    })
+    .await
+    .unwrap_or_else(|_| messages.refused(envelope, wire::BAD_REPLY))
+}
+
+async fn execute_handler(
+    messages: &Arc<Messages>,
+    envelope: &Envelope<'_>,
+    limit: std::time::Duration,
+) -> Answer {
+    if !messages.handlers.has_handler(envelope.app) {
+        return messages.refused(envelope, wire::NO_HANDLER);
+    }
+    let permits = match messages.reserve(envelope.from) {
+        Ok(permits) => permits,
+        Err(reason) => return messages.refused(envelope, reason),
+    };
+    let handlers = messages.handlers.clone();
+    let (app, from, from_name, id, body) = (
+        envelope.app.to_owned(),
+        envelope.from,
+        envelope.from_name.map(str::to_owned),
+        envelope.id.to_owned(),
+        envelope.body.to_owned(),
+    );
+    let worker = tokio::task::spawn_blocking(move || {
+        // A cancelled wait must not free slots while its blocking handler still runs.
+        let _permits = permits;
+        handlers.run(&Envelope {
+            app: &app,
+            from,
+            from_name: from_name.as_deref(),
+            id: &id,
+            body: &body,
+        })
+    });
+    match timeout(limit, worker).await {
+        Ok(Ok(Ran::Reply { reply, exit })) => Answer::Reply { reply, exit },
+        Ok(Ok(Ran::NoHandler)) => messages.refused(envelope, wire::NO_HANDLER),
+        Ok(Ok(Ran::BadReply)) | Ok(Err(_)) => messages.refused(envelope, wire::BAD_REPLY),
+        Ok(Ok(Ran::Timeout)) | Err(_) => messages.refused(envelope, wire::HANDLER_TIMEOUT),
+    }
+}
+
+fn message_refusal(reason: &str) -> &'static str {
+    match reason {
+        wire::NO_HANDLER => "that app takes no messages on that computer",
+        wire::BUSY => "that computer is busy; try again",
+        wire::CLOCK => "the clocks on the two computers differ by more than 2 minutes",
+        wire::REPLAY | wire::TOO_BIG => "that computer refused the message",
+        wire::HANDLER_TIMEOUT => "that app's handler did not finish in time",
+        wire::BAD_REPLY => "that app's handler gave an unusable reply",
+        _ => UNANSWERED,
     }
 }
 
@@ -760,14 +886,24 @@ impl Peer {
         result
     }
 
-    pub async fn send_app(&self, app: &str, body: &str) -> Result<(), &'static str> {
+    pub async fn send_app(&self, app: &str, body: &str) -> Result<Reply, &'static str> {
+        let mut random = [0; 16];
+        getrandom::fill(&mut random).map_err(|_| UNANSWERED)?;
         let request = Request::App {
             to: self.id().to_string(),
             app: app.into(),
             body: body.into(),
+            id: random.iter().map(|byte| format!("{byte:02x}")).collect(),
+            sent: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| UNANSWERED)?
+                .as_millis()
+                .try_into()
+                .map_err(|_| UNANSWERED)?,
         };
         match self.request(&request).await? {
-            Answer::Ok => Ok(()),
+            Answer::Reply { reply, exit } => Ok(Reply { reply, exit }),
+            Answer::Refused { reason } => Err(message_refusal(&reason)),
             _ => Err(UNANSWERED),
         }
     }
@@ -797,7 +933,12 @@ impl Peer {
     }
 
     async fn request(&self, request: &Request) -> Result<Answer, &'static str> {
-        timeout(self.gate.limits.frame, async {
+        let wait = if matches!(request, Request::App { .. }) {
+            self.gate.limits.frame + self.gate.limits.handler + self.gate.limits.frame
+        } else {
+            self.gate.limits.frame
+        };
+        timeout(wait, async {
             let (mut send, mut recv) = self.connection.open_bi().await.map_err(|_| UNANSWERED)?;
             let result = async {
                 frame::write(&mut send, request, CONTROL_CAP).await?;
@@ -1110,3 +1251,7 @@ mod file_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "message_tests.rs"]
+mod message_tests;
