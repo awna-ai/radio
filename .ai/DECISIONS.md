@@ -2,6 +2,21 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-14: D24. Files between computers: Radio makes the folder, and a send has its own thread
+
+An app sends a file to itself on another computer with `send` (protocol minor 7, link minor 3), and
+takes files in a folder Radio makes for it with `delivery_folder_set`. Radio makes that folder itself,
+mode 0700, at a path that must not exist yet, and records it by device and inode, because a folder
+the app merely named could be one that means something else to the computer (a folder of launch
+agents, say), and a member's file must never land there. Only an installed app may have one; a
+start sweep drops the folders of apps no longer installed and the half-written files left by a stop.
+
+Unlike D23's three ops, a `send` does not hold the socket: an app sends often, and a large file on a
+slow network takes up to 2 minutes. The serial loop checks the request, then hands the wait to a
+thread of its own, at most 4 at once, answered within 135 seconds; `radio-client` waits 150. The
+transfer starts only once that thread exists, so a send Radio could not start never reaches the
+other computer. Radio keeps the newest 10,000 arrivals per app for `deliveries`.
+
 ## 2026-11-13: D23. The daemon listens on its link addresses, and three ops reach other computers
 
 The daemon starts its endpoint when it starts, on this computer's link addresses (D22), and again

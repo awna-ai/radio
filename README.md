@@ -306,7 +306,7 @@ no files on that computer`, and a folder already holding 64 files, or one the fi
 1 GiB, answers `that app's folder on that computer is full` until your app moves files out. **`deliveries`** lists what arrived for your
 app (which computer sent it, its key, the name, the size and when), oldest first, in pages after an
 `id`. A `send` answers within 135 seconds and other apps' requests are served meanwhile;
-`radio-client` waits up to 140 seconds for it.
+`radio-client` waits up to 150 seconds for it.
 
 ### Using Radio from the command line
 
