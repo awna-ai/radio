@@ -254,7 +254,7 @@ impl FleetDb {
         if held {
             return Err("that folder is another app's");
         }
-        let made = match crate::delivery::make_folder(folder) {
+        let (made, parent, last) = match crate::delivery::make_folder_in(folder) {
             Ok(made) => made,
             Err("the folder already exists; name a new one") => {
                 if let Some(existing) = self.delivery_folder(app)?
@@ -267,7 +267,12 @@ impl FleetDb {
             }
             Err(error) => return Err(error),
         };
-        self.conn.execute("INSERT INTO delivery_folders (app, folder, dev, ino) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(app) DO UPDATE SET folder = excluded.folder, dev = excluded.dev, ino = excluded.ino", params![app, folder_text, made.dev as i64, made.ino as i64]).map_err(|_| WRITE)?;
+        if self.conn.execute("INSERT INTO delivery_folders (app, folder, dev, ino) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(app) DO UPDATE SET folder = excluded.folder, dev = excluded.dev, ino = excluded.ino", params![app, folder_text, made.dev as i64, made.ino as i64]).is_err() {
+            use std::os::fd::AsRawFd;
+            // SAFETY: parent is live and last names the empty directory just created.
+            unsafe { libc::unlinkat(parent.as_raw_fd(), last.as_ptr(), libc::AT_REMOVEDIR) };
+            return Err(WRITE);
+        }
         Ok(())
     }
     pub fn clear_delivery_folder(&mut self, app: &str) -> Result<bool, &'static str> {

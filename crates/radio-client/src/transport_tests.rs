@@ -134,5 +134,5 @@ fn file_sends_wait_for_the_node_deadline() {
         json!({"op":"send","app":"notes","computer":"garden","name":"letter","file":"/letter"}),
     )
     .unwrap();
-    assert_eq!(answer_wait(&request), Duration::from_secs(140));
+    assert_eq!(answer_wait(&request), Duration::from_secs(150));
 }

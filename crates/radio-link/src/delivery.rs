@@ -152,6 +152,12 @@ fn folder_stat(dir: &OwnedFd) -> Result<libc::stat, &'static str> {
 }
 
 pub fn make_folder(path: &Path) -> Result<crate::fleet_db::DeliveryFolder, &'static str> {
+    make_folder_in(path).map(|(folder, _, _)| folder)
+}
+
+pub(crate) fn make_folder_in(
+    path: &Path,
+) -> Result<(crate::fleet_db::DeliveryFolder, OwnedFd, CString), &'static str> {
     if !path.is_absolute() {
         return Err("the folder must be an absolute path");
     }
@@ -228,11 +234,15 @@ pub fn make_folder(path: &Path) -> Result<crate::fleet_db::DeliveryFolder, &'sta
             return Err("the folder could not be made");
         }
     };
-    Ok(crate::fleet_db::DeliveryFolder {
-        path: PathBuf::from(std::ffi::OsStr::from_bytes(bytes)),
-        dev: stat.st_dev as u64,
-        ino: stat.st_ino,
-    })
+    Ok((
+        crate::fleet_db::DeliveryFolder {
+            path: PathBuf::from(std::ffi::OsStr::from_bytes(bytes)),
+            dev: stat.st_dev as u64,
+            ino: stat.st_ino,
+        },
+        parent,
+        last,
+    ))
 }
 
 pub fn installed(clients: Option<&Path>, app: &str) -> bool {

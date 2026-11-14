@@ -180,19 +180,15 @@ impl Node {
         if !self.running() {
             return Err("the link stopped");
         }
-        let (link, app, name) = (self.link.clone(), app.to_owned(), name.to_owned());
-        let (sender, receiver) = sync_channel(1);
-        self.runtime.handle().spawn(async move {
-            let result = async {
-                let peer = link.dial(id, &computer.addrs).await?;
-                peer.send_file(&app, &name, file, size).await?;
-                Ok(size)
-            }
-            .await;
-            let _ = sender.send(result);
-        });
         Ok(PendingSend {
-            receiver,
+            runtime: self.runtime.handle().clone(),
+            link: self.link.clone(),
+            id,
+            addrs: computer.addrs,
+            app: app.to_owned(),
+            name: name.to_owned(),
+            file,
+            size,
             timeout: self.limits.file
                 + self.limits.dial
                 + self.limits.frame
@@ -225,17 +221,31 @@ impl Node {
 }
 
 pub struct PendingSend {
-    receiver: Receiver<Result<u64, &'static str>>,
+    runtime: tokio::runtime::Handle,
+    link: Arc<Link>,
+    id: EndpointId,
+    addrs: Vec<SocketAddr>,
+    app: String,
+    name: String,
+    file: std::fs::File,
+    size: u64,
     timeout: Duration,
 }
 
 impl PendingSend {
     pub fn wait(self) -> Result<u64, &'static str> {
-        wait(
-            self.receiver,
-            self.timeout,
-            "the send did not finish in time",
-        )?
+        let (sender, receiver) = sync_channel(1);
+        self.runtime.spawn(async move {
+            let result = async {
+                let peer = self.link.dial(self.id, &self.addrs).await?;
+                peer.send_file(&self.app, &self.name, self.file, self.size)
+                    .await?;
+                Ok(self.size)
+            }
+            .await;
+            let _ = sender.send(result);
+        });
+        wait(receiver, self.timeout, "the send did not finish in time")?
     }
 }
 
@@ -427,6 +437,27 @@ mod tests {
         );
         assert!(sender.send(()).is_err());
         assert_eq!(WAIT, Duration::from_secs(110));
+    }
+
+    #[test]
+    fn a_send_spawned_after_runtime_shutdown_reports_the_link_stopped() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let handle = runtime.handle().clone();
+        drop(runtime);
+        let (sender, receiver) = sync_channel(1);
+        handle.spawn(async move {
+            let _ = sender.send(Ok::<_, &'static str>(0u64));
+        });
+        assert_eq!(
+            wait(
+                receiver,
+                Duration::from_secs(1),
+                "the send did not finish in time"
+            ),
+            Err("the link stopped")
+        );
     }
 
     #[test]

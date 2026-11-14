@@ -197,14 +197,68 @@ fn a_mebibyte_arrives_with_private_mode_and_sender_name() {
     );
 }
 #[test]
+fn dropping_an_unstarted_send_delivers_nothing() {
+    let (a, b) = joined();
+    let inbox = folder(&a);
+    let path = source(&b, b"hello");
+    let pending = b
+        .node
+        .start_send("garden", "notes", "letter", &path)
+        .unwrap();
+    drop(pending);
+    let until = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < until {
+        assert_eq!(fs::read_dir(&inbox).unwrap().count(), 0);
+        no_arrivals(&a);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
 fn an_unpaired_computer_cannot_deliver() {
-    let a = Computer::new("garden");
-    let b = Computer::new("birch");
-    a.found();
+    let (a, b) = joined();
     let inbox = folder(&a);
     runtime().block_on(bounded(async {
-        let result = b.node.link().dial(a.node.id(), &a.node.addrs()).await;
-        assert!(matches!(result, Err("the computer is not let in")));
+        let peer = b
+            .node
+            .link()
+            .dial(a.node.id(), &a.node.addrs())
+            .await
+            .unwrap();
+        let (mut send, mut recv) = peer.connection().open_bi().await.unwrap();
+        let mut head = Vec::new();
+        radio_link::frame::write(
+            &mut head,
+            &radio_link::wire::Request::File {
+                to: a.node.id().to_string(),
+                app: "notes".into(),
+                name: "letter".into(),
+                size: 5,
+            },
+            radio_link::frame::CONTROL_CAP,
+        )
+        .await
+        .unwrap();
+        // Admit this stream while accepted, but keep its head incomplete.
+        send.write_all(&head[..1]).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        a.db.lock()
+            .unwrap()
+            .block(&b.node.id().to_string())
+            .unwrap();
+        assert_eq!(a.state(&b), Some(State::Blocked));
+        send.write_all(&head[1..]).await.unwrap();
+        send.write_all(b"hello").await.unwrap();
+        send.finish().unwrap();
+        let result = radio_link::frame::read::<radio_link::wire::Answer, _>(
+            &mut recv,
+            radio_link::frame::CONTROL_CAP,
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "the receiver accepted a blocked computer: {result:?}"
+        );
     }));
     assert_eq!(fs::read_dir(inbox).unwrap().count(), 0);
     no_arrivals(&a);

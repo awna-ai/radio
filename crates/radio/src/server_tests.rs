@@ -2963,3 +2963,32 @@ fn waiting_send(check_cap: bool) {
         assert!(!log.contains(secret), "{log}");
     }
 }
+
+#[test]
+fn daemon_start_sweeps_uninstalled_folders_and_partial_files() {
+    let fixture = Fixture::new();
+    let clients = fixture.0.join("clients");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_clients_dir(clients.clone());
+    fs::create_dir(&clients).unwrap();
+    fs::write(clients.join("notes.json"), b"{}").unwrap();
+    let inbox = fixture.0.join("inbox");
+    {
+        let mut db = server.fleet_db().unwrap();
+        db.set_delivery_folder("notes", &inbox).unwrap();
+        db.set_delivery_folder("lantern", &fixture.0.join("unused"))
+            .unwrap();
+    }
+    let partial = inbox.join(format!(".radio-partial-{}", "a".repeat(32)));
+    fs::write(&partial, b"unfinished").unwrap();
+    fs::write(inbox.join("letter"), b"hello").unwrap();
+    let mut server = server.start_link_now();
+    let db = server.fleet_db().unwrap();
+    assert!(db.delivery_folder("lantern").unwrap().is_none());
+    assert!(db.delivery_folder("notes").unwrap().is_some());
+    assert!(!partial.exists());
+    assert_eq!(fs::read(inbox.join("letter")).unwrap(), b"hello");
+}

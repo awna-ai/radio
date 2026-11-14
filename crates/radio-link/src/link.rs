@@ -625,7 +625,7 @@ where
     let received = tokio::select! {
         biased;
         received = &mut answer => {
-            match received? {
+            match received.map_err(|_| UNANSWERED)? {
                 Answer::Refused { reason } => return Err(file_refusal(&reason)),
                 Answer::Ok => { upload.await?; return Ok(()); }
                 _ => return Err(UNANSWERED),
@@ -635,7 +635,7 @@ where
             if let Err(error) = sent && error != UNANSWERED { return Err(error); }
             // A receiver refusing before the body stops its receive stream too.
             // Read its answer before turning that stop into a generic error.
-            let received = timeout(answer_wait, answer).await.map_err(|_| UNANSWERED)??;
+            let received = timeout(answer_wait, answer).await.map_err(|_| UNANSWERED)?.map_err(|_| UNANSWERED)?;
             if sent.is_err() && !matches!(received, Answer::Refused { .. }) { return Err(UNANSWERED); }
             received
         }
@@ -733,7 +733,8 @@ impl Peer {
                 },
                 CONTROL_CAP,
             )
-            .await?;
+            .await
+            .map_err(|_| UNANSWERED)?;
             Ok::<_, &'static str>((send, recv))
         })
         .await
@@ -878,6 +879,42 @@ mod file_tests {
             )
             .await,
             Ok(Err("that computer is busy; try again"))
+        );
+    }
+
+    #[tokio::test]
+    async fn an_invalid_file_answer_is_unanswered() {
+        let mut answer = &b"\0\0\0\x01?"[..];
+        assert_eq!(
+            exchange_file(
+                &mut &b"abc"[..],
+                &mut tokio::io::sink(),
+                &mut answer,
+                3,
+                None,
+                Instant::now() + std::time::Duration::from_secs(1),
+                std::time::Duration::from_secs(1),
+            )
+            .await,
+            Err("the computer did not answer")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_answer_eof_during_upload_is_unanswered() {
+        let (mut send, _unread_body) = tokio::io::duplex(1);
+        assert_eq!(
+            exchange_file(
+                &mut &b"abc"[..],
+                &mut send,
+                &mut tokio::io::empty(),
+                3,
+                None,
+                Instant::now() + std::time::Duration::from_secs(1),
+                std::time::Duration::from_secs(1),
+            )
+            .await,
+            Err("the computer did not answer")
         );
     }
 

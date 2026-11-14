@@ -3302,3 +3302,17 @@ fn delivery_make_trailing_slashes_share_the_same_path() {
         Err("that folder is another app's")
     );
 }
+
+#[test]
+fn a_failed_delivery_folder_row_leaves_no_new_folder() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let original = temp.0.join("original");
+    db.set_delivery_folder("notes", &original).unwrap();
+    db.conn.execute_batch("CREATE TRIGGER refuse_folder BEFORE INSERT ON delivery_folders BEGIN SELECT RAISE(ABORT, 'refuse'); END;").unwrap();
+    let replacement = temp.0.join("replacement");
+    assert_eq!(db.set_delivery_folder("notes", &replacement), Err(WRITE));
+    assert!(!replacement.exists());
+    assert!(original.is_dir());
+    assert_eq!(db.delivery_folder("notes").unwrap().unwrap().path, original);
+}

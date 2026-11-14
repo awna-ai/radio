@@ -275,3 +275,30 @@ fn file_wire_shapes_and_minor() {
     assert_eq!(serde_json::to_value(answer).unwrap(), refused);
     assert_eq!(LINK_MINOR, 3);
 }
+
+#[test]
+fn file_heads_allow_the_cap_but_refuse_one_byte_more() {
+    let local = crate::SecretKey::generate().public();
+    for (size, expected) in [(FILE_CAP, true), (FILE_CAP + 1, false)] {
+        let head = Request::File {
+            to: local.to_string(),
+            app: "notes".into(),
+            name: "letter".into(),
+            size,
+        };
+        let Request::File {
+            to,
+            app,
+            name,
+            size,
+        } = head
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            valid_file(&to, &app, &name, size, &local),
+            expected,
+            "size={size}"
+        );
+    }
+}
