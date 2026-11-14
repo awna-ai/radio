@@ -4,7 +4,7 @@ fn contains_forbidden(source: &str, forbidden: &str) -> bool {
     source.match_indices(forbidden).any(|(offset, _)| {
         forbidden != concat!("Builder::", "new(")
             // The standard library's thread builder is not a transport builder.
-            || (!source[..offset].ends_with("thread::")
+            || (!source[..offset].ends_with("std::thread::")
                 && source[..offset]
                     .chars()
                     .next_back()
@@ -24,6 +24,8 @@ fn thread_builder_is_not_a_transport_builder() {
         forbidden
     ));
     assert!(contains_forbidden("Builder::new(", forbidden));
+    assert!(contains_forbidden("my_thread::Builder::new(", forbidden));
+    assert!(contains_forbidden("thread::Builder::new(", forbidden));
 }
 
 fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path, hostile: &Path) {

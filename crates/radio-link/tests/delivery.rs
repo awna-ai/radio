@@ -215,7 +215,7 @@ fn dropping_an_unstarted_send_delivers_nothing() {
 }
 
 #[test]
-fn an_unpaired_computer_cannot_deliver() {
+fn a_computer_blocked_mid_stream_is_refused_at_the_file_head() {
     let (a, b) = joined();
     let inbox = folder(&a);
     runtime().block_on(bounded(async {

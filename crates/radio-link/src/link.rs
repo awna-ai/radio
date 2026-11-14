@@ -919,6 +919,52 @@ mod file_tests {
     }
 
     #[tokio::test]
+    async fn an_answer_eof_after_the_upload_is_unanswered() {
+        let (answer, mut recv) = tokio::io::duplex(64);
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            drop(answer);
+        });
+        assert_eq!(
+            exchange_file(
+                &mut &b"abc"[..],
+                &mut tokio::io::sink(),
+                &mut recv,
+                3,
+                None,
+                Instant::now() + std::time::Duration::from_secs(1),
+                std::time::Duration::from_secs(1),
+            )
+            .await,
+            Err("the computer did not answer")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_invalid_answer_after_the_upload_is_unanswered() {
+        use tokio::io::AsyncWriteExt;
+        let (mut answer, mut recv) = tokio::io::duplex(64);
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            answer.write_all(b"\0\0\0\x01?").await.unwrap();
+            drop(answer);
+        });
+        assert_eq!(
+            exchange_file(
+                &mut &b"abc"[..],
+                &mut tokio::io::sink(),
+                &mut recv,
+                3,
+                None,
+                Instant::now() + std::time::Duration::from_secs(1),
+                std::time::Duration::from_secs(1),
+            )
+            .await,
+            Err("the computer did not answer")
+        );
+    }
+
+    #[tokio::test]
     async fn a_short_source_reports_it_changed() {
         use tokio::io::duplex;
         let (mut send, _body) = duplex(128);
