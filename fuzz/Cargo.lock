@@ -2189,7 +2189,7 @@ dependencies = [
 
 [[package]]
 name = "radio-link"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "data-encoding",
  "getrandom 0.4.3",

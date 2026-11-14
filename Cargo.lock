@@ -2151,7 +2151,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "radio"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "radio-client",
@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "radio-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2173,7 +2173,7 @@ dependencies = [
 
 [[package]]
 name = "radio-link"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "data-encoding",
  "getrandom 0.4.3",
@@ -2188,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "radio-panels"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "regex",
  "serde",
@@ -2198,7 +2198,7 @@ dependencies = [
 
 [[package]]
 name = "radio-rooms"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "rusqlite",
