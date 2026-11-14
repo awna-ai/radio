@@ -76,6 +76,20 @@ pub struct Server {
     stopping: Arc<AtomicBool>,
 }
 
+/// The running build's hash, read once per process: the build cannot change while it runs.
+fn build_hash() -> Result<&'static str, String> {
+    static BUILD_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    if let Some(hash) = BUILD_HASH.get() {
+        return Ok(hash);
+    }
+    let bytes = std::env::current_exe()
+        .ok()
+        .and_then(|path| fs::read(path).ok())
+        .ok_or("the build's hash could not be read")?;
+    let _ = BUILD_HASH.set(crate::install::hash(&bytes));
+    Ok(BUILD_HASH.get().unwrap())
+}
+
 impl Server {
     /// Sets the event log used by this server.
     pub fn with_log(mut self, log: Log) -> Self {
@@ -256,14 +270,10 @@ impl Server {
                 return Err(radio_link::endpoint::NO_OWN_ADDRESS.into());
             }
             let key = radio_link::key::load_or_create(self.link_dir.as_deref().unwrap())?;
-            let bytes = std::env::current_exe()
-                .ok()
-                .and_then(|path| fs::read(path).ok())
-                .ok_or("the build's hash could not be read")?;
             let local = radio_link::link::Local {
                 name: self.host.clone(),
                 clients: self.clients_dir.clone(),
-                sha: crate::install::hash(&bytes),
+                sha: build_hash()?.to_owned(),
             };
             let db = self.fleet_db.as_ref().unwrap().clone();
             let node = radio_link::node::Node::start(

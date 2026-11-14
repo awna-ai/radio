@@ -15,6 +15,17 @@ use std::{
     time::Instant,
 };
 
+#[test]
+fn build_hash_is_read_once_and_matches_the_binary() {
+    let first = build_hash().unwrap();
+    let second = build_hash().unwrap();
+    assert!(std::ptr::eq(first, second));
+    assert_eq!(
+        first,
+        crate::install::hash(&fs::read(std::env::current_exe().unwrap()).unwrap())
+    );
+}
+
 struct Fixture(PathBuf);
 
 impl Fixture {

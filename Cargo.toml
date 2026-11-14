@@ -8,3 +8,8 @@ version = "0.1.0"
 license = "MIT"
 repository = "https://github.com/awna-ai/radio"
 publish = false
+
+# Tests and the daemon hash the running binary; unoptimized SHA-256 of a debug
+# build takes seconds. Release builds are unaffected.
+[profile.dev.package.sha2]
+opt-level = 3
