@@ -54,7 +54,7 @@ sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' -e '/^[[:space:]]
 awk 'length($0) >= 5' "$list" > "$long" || fail 'could not split the term list'
 awk 'length($0) < 5' "$list" > "$short" || fail 'could not split the term list'
 
-tools=(cargo rustup lipo strip codesign shasum tar otool)
+tools=(cargo rustup lipo strip codesign shasum tar otool perl)
 if [ "$publish" -eq 1 ]; then
     tools+=(gh)
 fi
@@ -128,7 +128,7 @@ export CARGO_ENCODED_RUSTFLAGS
 # A v0 crate hash is dropped only before a crate of this build; a crate missing here keeps its hash, so the scan refuses.
 crate_failure='could not read the crates of this build; fetch them with: cargo fetch --locked'
 cargo metadata --locked --offline --format-version 1 --filter-platform "${targets[0]}" --filter-platform "${targets[1]}" > "$work/metadata" 2> /dev/null || fail "$crate_failure"
-grep -o -E '"kind":\[("(lib|rlib|dylib|bin)",?)+\],"crate_types":\[[^]]*\],"name":"[^"]+"' "$work/metadata" > "$work/targets" 2> /dev/null || fail "$crate_failure"
+grep -o -E '"kind":\[[^]]*"(lib|rlib|dylib|bin)"[^]]*\],"crate_types":\[[^]]*\],"name":"[^"]+"' "$work/metadata" > "$work/targets" 2> /dev/null || fail "$crate_failure"
 {
     sed -E 's/.*"name":"([^"]+)"$/\1/' "$work/targets" | tr - _
     printf '%s\n' std core alloc compiler_builtins panic_unwind panic_abort unwind std_detect rustc_demangle hashbrown \
@@ -138,7 +138,8 @@ grep -F -x -q radio "$work/crates" 2> /dev/null || fail "$crate_failure"
 if grep -v -E -q '^[A-Za-z_][A-Za-z0-9_]*$' "$work/crates" 2> /dev/null; then
     fail "$crate_failure"
 fi
-crate_names=$(awk '{ printf "%s%d%s", (NR > 1 ? "|" : ""), length($0), $0 }' "$work/crates") || fail "$crate_failure"
+# v0 writes a separator _ between the length and a name that starts with _.
+crate_names=$(awk '{ printf "%s%d%s%s", (NR > 1 ? "|" : ""), length($0), (substr($0, 1, 1) == "_" ? "_" : ""), $0 }' "$work/crates") || fail "$crate_failure"
 
 # The export trie stores names in fragments, so a crate hash can lose its Cs there; every exported name is whole in the
 # symbol table, which the short scan still reads. Long terms, paths and the account keep the whole file.
@@ -222,7 +223,8 @@ for i in 0 1; do
     check_terms "$bin" "$work/strings"
     normalize "$bin" > "$work/normalized" 2> /dev/null || fail "could not scan the $target binary"
     # v0 crate hashes (Cs, 1 to 11 base-62 digits, _ before a crate of this build) are build noise: drop them before splitting words.
-    sed -E "s/Cs[0-9A-Za-z]{1,11}_(u?)($crate_names)/ \\1\\2/g" "$work/strings" 2> /dev/null | normalize > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
+    # perl, since a real build's crate list is longer than macOS sed takes in one command.
+    CRATE_NAMES=$crate_names perl -pe 's/Cs[0-9A-Za-z]{1,11}_(u?)($ENV{CRATE_NAMES})/ $1$2/g' "$work/strings" 2> /dev/null | normalize > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
     check_terms "$work/normalized" "$work/strings-normalized"
     codesign --force --sign - --identifier ai.awna.radio "$bin" > /dev/null 2>&1 || fail "could not sign the $target binary"
     codesign --verify --strict "$bin" > /dev/null 2>&1 || fail "could not verify the $target signature"

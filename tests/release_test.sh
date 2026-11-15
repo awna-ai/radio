@@ -42,6 +42,12 @@ elif [ "$1" = metadata ]; then
     for crate in ${STUB_CRATES:-}; do
         printf ',{"name":"%s","targets":[{"kind":["lib"],"crate_types":["lib"],"name":"%s"}]}' "$crate" "$crate"
     done
+    for crate in ${STUB_CDYLIB_CRATES:-}; do
+        printf ',{"name":"%s","targets":[{"kind":["lib","cdylib"],"crate_types":["lib","cdylib"],"name":"%s"}]}' "$crate" "$crate"
+    done
+    for crate in ${STUB_CDYLIB_ONLY_CRATES:-}; do
+        printf ',{"name":"%s","targets":[{"kind":["cdylib"],"crate_types":["cdylib"],"name":"%s"}]}' "$crate" "$crate"
+    done
     printf ']}\n'
 else
     git rev-parse HEAD >> "$STUB_ROOT/calls/cargo-head"
@@ -274,6 +280,7 @@ new_case() {
     unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
     unset STUB_BINARY_TEXT STUB_BINARY_TAIL STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
     unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS STUB_BINARY_TRIE STUB_OTOOL STUB_METADATA STUB_CRATES
+    unset STUB_CDYLIB_CRATES STUB_CDYLIB_ONLY_CRATES
     export RADIO_TERMS_FILE="$tmp/terms.txt"
     git init -q -b main "$repo" || exit 1
     git -C "$repo" config user.name Test
@@ -824,6 +831,28 @@ unset STUB_METADATA
 export STUB_CRATES='zzfine bad.name'
 refused 1 'could not read the crates of this build' v0.1.0
 export STUB_CRATES='zzfine bad-name'
+expect 0 'release: built v0.1.0' v0.1.0
+
+# A real build lists about 250 crates, past what one sed command can hold.
+new_case 66
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+STUB_CRATES=$(seq -f 'zzcrate%g' 1 300 | tr '\n' ' ')
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_CRATES STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_10zzcrate3004main\x02'
+expect 0 'release: built v0.1.0' v0.1.0
+
+# A lib target that is also a cdylib is a crate of the build; a cdylib alone is not.
+new_case 67
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_CDYLIB_ONLY_CRATES=zzcdylib STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_8zzcdylib4main\x02'
+refused 1 'names a private term' v0.1.0
+unset STUB_CDYLIB_ONLY_CRATES
+export STUB_CDYLIB_CRATES=zzcdylib
+expect 0 'release: built v0.1.0' v0.1.0
+
+# v0 writes a separator _ before a name that starts with _.
+new_case 68
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_CRATES=_zzunder STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_8__zzunder4main\x02'
 expect 0 'release: built v0.1.0' v0.1.0
 
 if [ "$failed" -ne 0 ]; then
