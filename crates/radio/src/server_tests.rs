@@ -3298,8 +3298,14 @@ fn keep_and_kept_through_the_socket() {
         &code,
         &other.public(),
         "birch",
-        &[],
-        &membership::consent(&other, &code.fleet, &key.public().to_string(), "birch", &[]),
+        &["127.0.0.1:7000".parse().unwrap()],
+        &membership::consent(
+            &other,
+            &code.fleet,
+            &key.public().to_string(),
+            "birch",
+            &["127.0.0.1:7000".parse().unwrap()],
+        ),
         now().unwrap(),
     )
     .unwrap();

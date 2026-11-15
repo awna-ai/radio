@@ -911,6 +911,59 @@ fn record_commands_match_contract_requests() {
 }
 
 #[test]
+fn keep_commands_match_contract_requests() {
+    for (stem, words) in [
+        (
+            "39-keep_unregistered",
+            vec!["keep", "birch", "--app", "notes"],
+        ),
+        ("40-kept_unregistered", vec!["kept", "--app", "notes"]),
+    ] {
+        let parsed = parse(&args(&words)).unwrap().resolve(io::empty()).unwrap();
+        let mut request = serde_json::to_value(parsed).unwrap();
+        request["v"] = 1.into();
+        assert_eq!(request, fleet_fixture(stem)["request"]);
+    }
+}
+
+#[test]
+fn keep_sends_its_computers_in_order() {
+    for (words, expected) in [
+        (
+            vec!["keep", "--app", "notes"],
+            serde_json::json!({"op":"keep","app":"notes","computers":[]}),
+        ),
+        (
+            vec!["keep", "birch", "--app", "notes"],
+            serde_json::json!({"op":"keep","app":"notes","computers":["birch"]}),
+        ),
+        (
+            vec!["keep", "birch", "aspen", "--app", "notes"],
+            serde_json::json!({"op":"keep","app":"notes","computers":["birch","aspen"]}),
+        ),
+    ] {
+        let parsed = parse(&args(&words)).unwrap_or_else(|()| panic!("{words:?}"));
+        assert_eq!(parsed.body, None);
+        assert_eq!(serde_json::to_value(parsed.request).unwrap(), expected);
+    }
+}
+
+#[test]
+fn keep_commands_refuse_bad_usage() {
+    for words in [
+        vec!["keep"],
+        vec!["keep", "birch"],
+        vec!["keep", "--app", "notes", "birch"],
+        vec!["keep", "birch", "--app", "notes", "--app", "notes"],
+        vec!["kept"],
+        vec!["kept", "birch", "--app", "notes"],
+        vec!["kept", "--app", "notes", "--app", "notes"],
+    ] {
+        assert!(parse(&args(&words)).is_err(), "{words:?}");
+    }
+}
+
+#[test]
 fn resign_resolves_sections_and_preserves_optional_roles() {
     for (words, stdin, expected) in [
         (

@@ -41,6 +41,11 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         .as_slice()
     {
         ["message", rest @ ..] => ("message", 1, rest, &["--app"]),
+        ["keep", rest @ ..] => {
+            let computers = rest.iter().take_while(|word| !word.starts_with("--"));
+            ("keep", computers.count(), rest, &["--app"])
+        }
+        ["kept", rest @ ..] => ("kept", 0, rest, &["--app"]),
         ["send", rest @ ..] => ("send", 2, rest, &["--app", "--name"]),
         ["delivery", "folder", "set", rest @ ..] => ("delivery_folder_set", 1, rest, &["--app"]),
         ["delivery", "folder", "clear", rest @ ..] => {
@@ -116,6 +121,13 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
                 body: String::new(),
             }
         }
+        "keep" => Request::Keep {
+            app: required("--app")?.into(),
+            computers: positionals.iter().map(|&name| name.into()).collect(),
+        },
+        "kept" => Request::Kept {
+            app: required("--app")?.into(),
+        },
         "send" => {
             let path = std::path::Path::new(positionals[1]);
             let last = path.file_name().and_then(|name| name.to_str()).ok_or(())?;
