@@ -98,6 +98,7 @@ pub struct Limits {
     pub stall: Duration,
     pub deliveries: usize,
     pub connections: usize,
+    pub dialed: usize,
     pub per_key: usize,
     pub joins: usize,
     pub handshakes: usize,
@@ -120,6 +121,7 @@ impl Default for Limits {
             deliveries: 4,
             stall: Duration::from_secs(30),
             connections: 32,
+            dialed: 64,
             per_key: 4,
             joins: 4,
             handshakes: 32,
@@ -139,6 +141,7 @@ impl Default for Limits {
 struct Live {
     key: EndpointId,
     join: bool,
+    dialed: bool,
     connection: WeakConnectionHandle,
     admitted_at: Instant,
 }
@@ -349,8 +352,22 @@ impl EndpointHooks for Gate {
                 .upgrade()
                 .is_some_and(|conn| conn.close_reason().is_none())
         });
-        if live.len() >= self.limits.connections
-            || live.iter().filter(|entry| entry.key == key).count() >= self.limits.per_key
+        // Connections this side dialed have their own cap, so kept peers never use up the places
+        // other members need to reach us.
+        let dialed = conn.side() == Side::Client;
+        let cap = if dialed {
+            self.limits.dialed
+        } else {
+            self.limits.connections
+        };
+        let side = |entry: &&Live| entry.dialed == dialed;
+        if live.iter().filter(side).count() >= cap
+            || live
+                .iter()
+                .filter(side)
+                .filter(|entry| entry.key == key)
+                .count()
+                >= self.limits.per_key
             || (join && live.iter().filter(|entry| entry.join).count() >= self.limits.joins)
         {
             return refuse();
@@ -358,6 +375,7 @@ impl EndpointHooks for Gate {
         live.push(Live {
             key,
             join,
+            dialed,
             connection: conn.weak_handle(),
             admitted_at: Instant::now(),
         });

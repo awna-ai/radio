@@ -67,7 +67,7 @@ fn limits() -> Limits {
     Limits {
         unused: Duration::from_millis(400),
         heartbeat: Duration::from_millis(100),
-        failed: Duration::from_millis(300),
+        failed: Duration::from_secs(1),
         backoff_min: Duration::from_millis(50),
         backoff_max: Duration::from_millis(400),
         idle: Duration::from_secs(2),
@@ -75,12 +75,18 @@ fn limits() -> Limits {
     }
 }
 
-async fn bind(key: SecretKey, addrs: &[SocketAddr], book: Arc<Book>, name: &str) -> Link {
+async fn try_bind(
+    key: SecretKey,
+    addrs: &[SocketAddr],
+    book: Arc<Book>,
+    name: &str,
+    limits: Limits,
+) -> Result<Link, &'static str> {
     let link = bounded(Link::bind(
         key,
         addrs,
         book,
-        limits(),
+        limits,
         Local {
             name: name.into(),
             sha: SHA.into(),
@@ -88,13 +94,28 @@ async fn bind(key: SecretKey, addrs: &[SocketAddr], book: Arc<Book>, name: &str)
         },
         Arc::new(Echo),
     ))
-    .await
-    .unwrap();
+    .await?;
     let (events, receiver) = tokio::sync::mpsc::channel(64);
     // These tests exchange app requests and heartbeats, neither of which emits events.
     drop(receiver);
     link.serve(events);
-    link
+    Ok(link)
+}
+
+async fn bind(key: SecretKey, addrs: &[SocketAddr], book: Arc<Book>, name: &str) -> Link {
+    try_bind(key, addrs, book, name, limits()).await.unwrap()
+}
+
+/// A closed link's port can stay taken for a moment, so retry until it is free.
+async fn rebind(key: SecretKey, addrs: &[SocketAddr], book: Arc<Book>, name: &str) -> Link {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match try_bind(key.clone(), addrs, book.clone(), name, limits()).await {
+            Ok(link) => return link,
+            Err(_) if Instant::now() < deadline => sleep(Duration::from_millis(50)).await,
+            Err(error) => panic!("{error}"),
+        }
+    }
 }
 
 async fn computer(name: &str) -> (Link, Arc<Book>) {
@@ -235,7 +256,7 @@ async fn a_kept_peer_whose_radio_restarts_is_redialed() {
     bounded(b.close()).await;
     drop(b);
     wait(|| matches!(a.kept("notes")[0].state.as_str(), "failed" | "dialing")).await;
-    let b = bind(key, &addrs, b_book, "birch").await;
+    let b = rebind(key, &addrs, b_book, "birch").await;
     assert_eq!(b.id(), id);
     assert_eq!(b.addrs(), addrs);
     wait(|| a.kept("notes")[0].state.as_str() == "connected").await;
@@ -245,4 +266,40 @@ async fn a_kept_peer_whose_radio_restarts_is_redialed() {
 
     bounded(a.close()).await;
     bounded(b.close()).await;
+}
+
+#[tokio::test]
+async fn kept_peers_leave_room_for_members_to_reach_us() {
+    let (a, a_book) = computer("garden").await;
+    let (c, c_book) = computer("cedar").await;
+    let b_book = Arc::new(Book::default());
+    let b = try_bind(
+        SecretKey::generate(),
+        &["127.0.0.1:0".parse().unwrap()],
+        b_book.clone(),
+        "birch",
+        Limits {
+            connections: 1,
+            dialed: 1,
+            ..limits()
+        },
+    )
+    .await
+    .unwrap();
+    for (book, link) in [(&a_book, &a), (&c_book, &c)] {
+        book.accept(&b);
+        b_book.accept(link);
+    }
+    b.keep("notes", vec![a.id()]);
+    wait(|| b.kept("notes")[0].state.as_str() == "connected").await;
+    // The kept connection is one this side dialed, so the one place for incoming members is free.
+    message(&c, &b, "through").await;
+    // A second kept computer would be a second dialed connection: this side refuses it.
+    b.keep("notes", vec![a.id(), c.id()]);
+    wait(|| b.kept("notes")[1].state.as_str() == "failed").await;
+    assert_eq!(b.kept("notes")[0].state.as_str(), "connected");
+
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+    bounded(c.close()).await;
 }

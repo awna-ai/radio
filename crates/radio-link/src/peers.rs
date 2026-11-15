@@ -296,6 +296,9 @@ async fn keep<C: Connector>(
 ) {
     let mut backoff = limits.backoff_min;
     let mut connected = initially_connected;
+    // A peer that closes each connection right after its handshake keeps growing the backoff;
+    // only a connection that stays up for a heartbeat interval resets it.
+    let mut up_since = initially_connected.then(Instant::now);
     let mut retry_at = None;
     loop {
         let Some(owner) = pool.upgrade() else {
@@ -321,7 +324,7 @@ async fn keep<C: Connector>(
         }
         if live {
             connected = true;
-            backoff = limits.backoff_min;
+            up_since.get_or_insert_with(Instant::now);
             retry_at = None;
             drop(owner);
             if changes.changed().await.is_err() {
@@ -331,6 +334,10 @@ async fn keep<C: Connector>(
         }
         if connected {
             owner.keeper_state(id, &token, KeptState::Failed);
+            if up_since.is_some_and(|at| Instant::now() >= at + limits.heartbeat) {
+                backoff = limits.backoff_min;
+            }
+            up_since = None;
             retry_at = Some(Instant::now() + backoff);
             backoff = (backoff * 2).min(limits.backoff_max);
             connected = false;
@@ -371,7 +378,7 @@ async fn keep<C: Connector>(
         match result {
             Ok(_) => {
                 connected = true;
-                backoff = limits.backoff_min;
+                up_since = Some(Instant::now());
                 retry_at = None;
             }
             Err(_) => {

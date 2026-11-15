@@ -342,7 +342,8 @@ Your registered app can ask Radio to keep connections ready with **`keep`**, sen
 `computers` list of names or ids (at most 64). Sending it again replaces that app's list; an empty
 list lets them all go. **`kept`** reads the list, with each computer's id, name when known, and
 whether it is `connected`, `dialing` or `failed`. Radio checks kept connections regularly and tries
-again when one fails. These lists last only until Radio stops, so send `keep` again after a restart.
+again when one fails. These lists last only until Radio stops or its link addresses change, so send `keep` again after
+either.
 
 ### Using Radio from the command line
 

@@ -4,6 +4,7 @@ use super::*;
 fn defaults_bound_connections_and_deadlines() {
     let limits = Limits::default();
     assert_eq!(limits.connections, 32);
+    assert_eq!(limits.dialed, 64);
     assert_eq!(limits.per_key, 4);
     assert_eq!(limits.joins, 4);
     assert_eq!(limits.handshakes, 32);

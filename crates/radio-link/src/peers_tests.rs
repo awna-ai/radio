@@ -225,11 +225,32 @@ async fn a_kept_peer_is_redialed_with_backoff() {
     fake.fail.store(false, Ordering::SeqCst);
     advance(60).await;
     assert_eq!(state(&pool), KeptState::Connected);
+    // Up for a heartbeat interval, so losing it starts the backoff over.
+    advance(15).await;
     close(&fake.conns.lock().unwrap()[1]);
     settle().await;
     let n = fake.connects.load(Ordering::SeqCst);
     advance(1).await;
     assert_eq!(fake.connects.load(Ordering::SeqCst), n + 1);
+}
+#[tokio::test(start_paused = true)]
+async fn a_peer_that_drops_each_new_connection_is_redialed_with_growing_backoff() {
+    let (pool, fake, id) = setup();
+    pool.keep("notes", vec![id]);
+    settle().await;
+    let mut previous = 0;
+    // Each dial succeeds and the peer closes it at once, as one that refuses after the handshake.
+    for (i, at) in [1, 3, 7, 15, 31, 63, 123, 183].into_iter().enumerate() {
+        for conn in fake.conns.lock().unwrap().iter() {
+            close(conn);
+        }
+        settle().await;
+        advance(at - previous - 1).await;
+        assert_eq!(fake.connects.load(Ordering::SeqCst), i + 1);
+        advance(1).await;
+        assert_eq!(fake.connects.load(Ordering::SeqCst), i + 2);
+        previous = at;
+    }
 }
 #[tokio::test(start_paused = true)]
 async fn keeping_none_lets_them_go() {
