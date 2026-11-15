@@ -54,7 +54,7 @@ sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' -e '/^[[:space:]]
 awk 'length($0) >= 5' "$list" > "$long" || fail 'could not split the term list'
 awk 'length($0) < 5' "$list" > "$short" || fail 'could not split the term list'
 
-tools=(cargo rustup lipo strip codesign shasum tar)
+tools=(cargo rustup lipo strip codesign shasum tar otool)
 if [ "$publish" -eq 1 ]; then
     tools+=(gh)
 fi
@@ -125,6 +125,46 @@ version=${id##*[#@]}
 unset RUSTFLAGS CARGO_TARGET_DIR CARGO_BUILD_TARGET_DIR CARGO_BUILD_RUSTFLAGS
 CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$HOME=/home"$'\x1f'"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"$'\x1f'"--remap-path-prefix=${RUSTUP_HOME:-$HOME/.rustup}=/rustup"$'\x1f'"--remap-path-prefix=$work=/build"
 export CARGO_ENCODED_RUSTFLAGS
+# A v0 crate hash is dropped only before a crate of this build; a crate missing here keeps its hash, so the scan refuses.
+crate_failure='could not read the crates of this build; fetch them with: cargo fetch --locked'
+cargo metadata --locked --offline --format-version 1 --filter-platform "${targets[0]}" --filter-platform "${targets[1]}" > "$work/metadata" 2> /dev/null || fail "$crate_failure"
+grep -o -E '"kind":\[("(lib|rlib|dylib|bin)",?)+\],"crate_types":\[[^]]*\],"name":"[^"]+"' "$work/metadata" > "$work/targets" 2> /dev/null || fail "$crate_failure"
+{
+    sed -E 's/.*"name":"([^"]+)"$/\1/' "$work/targets" | tr - _
+    printf '%s\n' std core alloc compiler_builtins panic_unwind panic_abort unwind std_detect rustc_demangle hashbrown \
+        addr2line gimli object miniz_oxide adler2 memchr cfg_if libc rustc_std_workspace_core rustc_std_workspace_alloc
+} | sort -u > "$work/crates" 2> /dev/null || fail "$crate_failure"
+grep -F -x -q radio "$work/crates" 2> /dev/null || fail "$crate_failure"
+if grep -v -E -q '^[A-Za-z_][A-Za-z0-9_]*$' "$work/crates" 2> /dev/null; then
+    fail "$crate_failure"
+fi
+crate_names=$(awk '{ printf "%s%d%s", (NR > 1 ? "|" : ""), length($0), $0 }' "$work/crates") || fail "$crate_failure"
+
+# The export trie stores names in fragments, so a crate hash can lose its Cs there; every exported name is whole in the
+# symbol table, which the short scan still reads. Long terms, paths and the account keep the whole file.
+without_trie() {
+    local failure="could not read the $target export trie" size off length end
+    otool -l "$1" > "$work/load-commands" 2> /dev/null || fail "$failure"
+    awk '
+        $1 == "cmd" { cmd = $2; off = "" }
+        cmd == "LC_DYLD_INFO_ONLY" && $1 == "export_off" { off = $2 }
+        cmd == "LC_DYLD_INFO_ONLY" && $1 == "export_size" { print off, $2 }
+        cmd == "LC_DYLD_EXPORTS_TRIE" && $1 == "dataoff" { off = $2 }
+        cmd == "LC_DYLD_EXPORTS_TRIE" && $1 == "datasize" { print off, $2 }
+    ' "$work/load-commands" > "$work/trie" 2> /dev/null || fail "$failure"
+    [ -s "$work/trie" ] || fail "$failure"
+    size=$(wc -c < "$1") || fail "$failure"
+    size=${size//[[:space:]]/}
+    cp "$1" "$2" || fail "$failure"
+    while read -r off length; do
+        [[ "$off" =~ ^[0-9]+$ && "$length" =~ ^[0-9]+$ ]] || fail "$failure"
+        end=$((off + length))
+        [ "$length" -gt 0 ] || continue
+        { head -c "$off" "$2" && head -c "$length" /dev/zero && tail -c "+$((end + 1))" "$2"; } > "$2.next" 2> /dev/null || fail "$failure"
+        mv "$2.next" "$2" || fail "$failure"
+    done < "$work/trie"
+    [ "$(wc -c < "$2" | tr -d '[:space:]')" = "$size" ] || fail "$failure"
+}
 
 normalize() {
     sed -E 's/_/ /g; s/([a-z0-9])([A-Z])/\1 \2/g; s/([A-Z])([A-Z][a-z])/\1 \2/g; s/([A-Za-z])([0-9])/\1 \2/g; s/([0-9])([A-Za-z])/\1 \2/g' "$@"
@@ -175,12 +215,14 @@ for i in 0 1; do
         status=$?
         [ "$status" -eq 1 ] || fail "could not scan the $target binary"
     fi
-    # Whole-file printable runs, tab, CR and LF counted as text: strings -a skips Mach-O load commands and __LINKEDIT; no runs fails closed.
-    tr '\t\r\n' '   ' < "$bin" | grep -a -o -E '[[:print:]]{4,}' > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
+    # Whole-file printable runs but the export trie, tab, CR and LF counted as text: strings -a skips Mach-O load commands and
+    # __LINKEDIT; no runs fails closed.
+    without_trie "$bin" "$work/text-source"
+    tr '\t\r\n' '   ' < "$work/text-source" | grep -a -o -E '[[:print:]]{4,}' > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
     check_terms "$bin" "$work/strings"
     normalize "$bin" > "$work/normalized" 2> /dev/null || fail "could not scan the $target binary"
-    # v0 crate hashes (Cs, base-62 digits, _ before the crate name's length) are build noise: drop them before splitting words.
-    sed -E 's/Cs[0-9A-Za-z]*_(u?[0-9])/ \1/g' "$work/strings" 2> /dev/null | normalize > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
+    # v0 crate hashes (Cs, 1 to 11 base-62 digits, _ before a crate of this build) are build noise: drop them before splitting words.
+    sed -E "s/Cs[0-9A-Za-z]{1,11}_(u?)($crate_names)/ \\1\\2/g" "$work/strings" 2> /dev/null | normalize > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
     check_terms "$work/normalized" "$work/strings-normalized"
     codesign --force --sign - --identifier ai.awna.radio "$bin" > /dev/null 2>&1 || fail "could not sign the $target binary"
     codesign --verify --strict "$bin" > /dev/null 2>&1 || fail "could not verify the $target signature"

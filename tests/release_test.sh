@@ -32,6 +32,17 @@ printf '%s\n' "$*" >> "$STUB_ROOT/calls/cargo"
 if [ "$1" = pkgid ]; then
     version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml)
     printf 'path+file://%s/crates/radio#%s\n' "$PWD" "$version"
+elif [ "$1" = metadata ]; then
+    case "${STUB_METADATA:-}" in
+        fail) exit 101 ;;
+        empty) printf '{"packages":[]}\n'; exit 0 ;;
+        noradio) printf '{"packages":[{"name":"other","targets":[{"kind":["lib"],"crate_types":["lib"],"name":"other"}]}]}\n'; exit 0 ;;
+    esac
+    printf '{"packages":[{"name":"radio","targets":[{"kind":["bin"],"crate_types":["bin"],"name":"radio","src_path":"x"},{"kind":["test"],"crate_types":["bin"],"name":"zztest"}]}'
+    for crate in ${STUB_CRATES:-}; do
+        printf ',{"name":"%s","targets":[{"kind":["lib"],"crate_types":["lib"],"name":"%s"}]}' "$crate" "$crate"
+    done
+    printf ']}\n'
 else
     git rev-parse HEAD >> "$STUB_ROOT/calls/cargo-head"
     target='' dest=''
@@ -49,6 +60,9 @@ else
     esac
     mkdir -p "$dest/$target/release"
     printf 'arch=%s\n%s\n' "$arch" "${STUB_BINARY_TEXT:-}" > "$dest/$target/release/radio"
+    if [ -n "${STUB_BINARY_TRIE:-}" ]; then
+        printf '\001%s\002\n' "$STUB_BINARY_TRIE" >> "$dest/$target/release/radio"
+    fi
     printf '%s\n' "$dest" >> "$STUB_ROOT/calls/cargo-dirs"
     if [ "${STUB_EMBED_WORK:-0}" = 1 ]; then
         dirname "$dest" >> "$dest/$target/release/radio"
@@ -103,11 +117,37 @@ cat > "$tmp/bin/grep" <<'STUB'
 #!/usr/bin/env bash
 for arg in "$@"; do
     case "${STUB_GREP_FAIL:-0}:$arg" in
-        1:-a|terms:-f|runs:-o) exit 2 ;;
-        noruns:-o) exit 1 ;;
+        1:-a|terms:-f|'runs:[[:print:]]{4,}') exit 2 ;;
+        'noruns:[[:print:]]{4,}') exit 1 ;;
     esac
 done
 exec /usr/bin/grep "$@"
+STUB
+# Real binaries keep the export trie in LC_DYLD_INFO_ONLY (x86_64 here) or LC_DYLD_EXPORTS_TRIE (arm64 here).
+cat > "$tmp/bin/otool" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$STUB_ROOT/calls/otool"
+[ "${STUB_OTOOL:-}" != fail ] || exit 1
+[ "$#" -eq 2 ] && [ "$1" = -l ] || exit 1
+off=0 size=0
+if [ -n "${STUB_BINARY_TRIE:-}" ]; then
+    off=$(LC_ALL=C /usr/bin/grep -a -b -o -F -- "$STUB_BINARY_TRIE" "$2" | head -1 | cut -d: -f1)
+    size=$(printf '%s' "$STUB_BINARY_TRIE" | wc -c | tr -d ' ')
+fi
+case "${STUB_OTOOL:-}" in
+    none) printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72\n'; exit 0 ;;
+    beyond) off=$(wc -c < "$2" | tr -d ' ') size=1 ;;
+    word) size=many ;;
+esac
+printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72\n'
+if /usr/bin/grep -q '^arch=x86_64$' "$2"; then
+    printf 'Load command 4\n            cmd LC_DYLD_INFO_ONLY\n        cmdsize 48\n     rebase_off 4\n    rebase_size 8\n'
+    printf '     export_off %s\n    export_size %s\n' "$off" "$size"
+else
+    printf 'Load command 4\n      cmd LC_DYLD_EXPORTS_TRIE\n  cmdsize 16\n  dataoff %s\n datasize %s\n' "$off" "$size"
+fi
+printf 'Load command 5\n      cmd LC_SYMTAB\n  cmdsize 24\n   symoff 8\n'
 STUB
 cat > "$tmp/bin/strings" <<'STUB'
 #!/usr/bin/env bash
@@ -233,7 +273,7 @@ new_case() {
     unset STUB_EMBED_WORK STUB_GREP_FAIL STUB_GH_STILL_DRAFT STUB_GH_VIEW_ERROR
     unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
     unset STUB_BINARY_TEXT STUB_BINARY_TAIL STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
-    unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
+    unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS STUB_BINARY_TRIE STUB_OTOOL STUB_METADATA STUB_CRATES
     export RADIO_TERMS_FILE="$tmp/terms.txt"
     git init -q -b main "$repo" || exit 1
     git -C "$repo" config user.name Test
@@ -401,6 +441,14 @@ if [ -f "$tmp/calls/strip" ]; then
 else
     fail 'strip calls absent'
 fi
+if [ -f "$tmp/calls/otool" ]; then
+    sed -E 's|^-l .*/target/|-l |' "$tmp/calls/otool" > "$tmp/actual"
+    printf '%s\n' '-l aarch64-apple-darwin/release/radio' '-l x86_64-apple-darwin/release/radio' > "$tmp/expected"
+    cmp -s "$tmp/expected" "$tmp/actual" || fail 'otool arguments differ'
+else
+    fail 'otool calls absent'
+fi
+grep -F -x -q 'metadata --locked --offline --format-version 1 --filter-platform aarch64-apple-darwin --filter-platform x86_64-apple-darwin' "$tmp/calls/cargo" || fail 'metadata arguments differ'
 [ ! -f "$tmp/calls/cargo-overrides" ] || fail 'inherited build overrides'
 [ ! -f "$tmp/calls/gh" ] || fail 'local build called gh'
 [ "$(git -C "$repo" worktree list --porcelain | grep -c '^worktree ')" -eq 1 ] || fail 'worktree not removed'
@@ -702,6 +750,81 @@ new_case 53
 printf '%s\n' "$term_title" > "$tmp/long-terms.txt"
 export RADIO_TERMS_FILE="$tmp/long-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvNtCs1a'"$term_title"$'9_5radio4main\x02'
 refused 1 'names a private term' v0.1.0
+
+# The export trie stores names in fragments; a short term there is chance, and each exported name is whole in the symbol table.
+new_case 54
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TRIE='edge zqv edge'
+expect 0 'release: built v0.1.0' v0.1.0
+
+new_case 55
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TRIE='edge zqv edge' STUB_BINARY_TEXT=$'\x01_call_zqv_now\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 56
+export STUB_BINARY_TRIE="edge ${term_title} edge"
+refused 1 'names a private term' v0.1.0
+
+new_case 57
+export STUB_OTOOL=fail
+refused 1 'could not read the aarch64-apple-darwin export trie' v0.1.0
+
+new_case 58
+export STUB_OTOOL=none
+refused 1 'could not read the aarch64-apple-darwin export trie' v0.1.0
+
+new_case 59
+export STUB_OTOOL=beyond
+refused 1 'could not read the aarch64-apple-darwin export trie' v0.1.0
+
+new_case 60
+export STUB_OTOOL=word
+refused 1 'could not read the aarch64-apple-darwin export trie' v0.1.0
+
+# A crate hash is dropped only before a crate of this build, so a crate missing from the list keeps its hash.
+new_case 61
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_7zzother4main\x02'
+refused 1 'names a private term' v0.1.0
+export STUB_CRATES='zzfirst zzother'
+expect 0 'release: built v0.1.0' v0.1.0
+
+new_case 62
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_6zztest4main\x02'
+refused 1 'names a private term' v0.1.0
+export STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_3std2io\x02'
+expect 0 'release: built v0.1.0' v0.1.0
+
+new_case 63
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9abcdef_5radio4main\x02'
+refused 1 'names a private term' v0.1.0
+export STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9abcde_5radio4main\x02'
+expect 0 'release: built v0.1.0' v0.1.0
+
+# A Cs inside a type name is not a crate hash.
+new_case 64
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01getCsvZqv_3x\x02'
+refused 1 'names a private term' v0.1.0
+export STUB_BINARY_TEXT=$'\x01CsZqvCs1_2\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 65
+export STUB_METADATA=fail
+refused 1 'could not read the crates of this build' v0.1.0
+no_build
+export STUB_METADATA=empty
+refused 1 'could not read the crates of this build' v0.1.0
+export STUB_METADATA=noradio
+refused 1 'could not read the crates of this build' v0.1.0
+unset STUB_METADATA
+export STUB_CRATES='zzfine bad.name'
+refused 1 'could not read the crates of this build' v0.1.0
+export STUB_CRATES='zzfine bad-name'
+expect 0 'release: built v0.1.0' v0.1.0
 
 if [ "$failed" -ne 0 ]; then
     exit 1
