@@ -181,6 +181,30 @@ async fn a_silent_kept_peer_fails_at_forty_five_seconds() {
     assert!(!fake.is_live(&fake.conns.lock().unwrap()[0]));
 }
 #[tokio::test(start_paused = true)]
+async fn a_lost_kept_connection_reads_failed_until_the_next_dial() {
+    let (pool, fake, id) = setup();
+    pool.keep("notes", vec![id]);
+    settle().await;
+    assert_eq!(state(&pool), KeptState::Connected);
+    fake.pause_connect.store(true, Ordering::SeqCst);
+    close(&fake.conns.lock().unwrap()[0]);
+    settle().await;
+    assert_eq!(state(&pool), KeptState::Failed);
+    tokio::time::advance(Duration::from_millis(999)).await;
+    settle().await;
+    assert_eq!(state(&pool), KeptState::Failed);
+    assert_eq!(fake.connects.load(Ordering::SeqCst), 1);
+    tokio::time::advance(Duration::from_millis(1)).await;
+    settle().await;
+    assert_eq!(state(&pool), KeptState::Dialing);
+    assert_eq!(fake.connects.load(Ordering::SeqCst), 2);
+    fake.resume_connect.notify_one();
+    settle().await;
+    assert_eq!(state(&pool), KeptState::Connected);
+    assert!(fake.is_live(&fake.conns.lock().unwrap()[1]));
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_kept_peer_is_redialed_with_backoff() {
     let (pool, fake, id) = setup();
     pool.keep("notes", vec![id]);
@@ -241,6 +265,23 @@ async fn kept_lists_are_per_app_and_the_pool_keeps_their_union() {
     advance(601).await;
     assert_eq!(pool.kept("garden")[0].state, KeptState::Connected);
     assert_eq!(fake.connects.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn keeping_an_existing_connection_starts_a_fresh_heartbeat_deadline() {
+    let (pool, fake, id) = setup();
+    let (conn, guard) = pool.get(id, None).await.unwrap();
+    drop(guard);
+    advance(60).await;
+    pool.keep("notes", vec![id]);
+    settle().await;
+    assert_eq!(state(&pool), KeptState::Connected);
+    assert!(fake.is_live(&conn));
+    advance(44).await;
+    assert_eq!(state(&pool), KeptState::Connected);
+    assert!(fake.is_live(&conn));
+    assert_eq!(fake.connects.load(Ordering::SeqCst), 1);
+    assert_eq!(fake.beats.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test(start_paused = true)]

@@ -330,6 +330,7 @@ async fn keep<C: Connector>(
             continue;
         }
         if connected {
+            owner.keeper_state(id, &token, KeptState::Failed);
             retry_at = Some(Instant::now() + backoff);
             backoff = (backoff * 2).min(limits.backoff_max);
             connected = false;
@@ -404,6 +405,7 @@ async fn mind<C: Connector>(
             return;
         }
         if kept && !was_kept {
+            last_ok = Instant::now();
             next_beat = Instant::now() + limits.heartbeat;
         }
         if !kept {
