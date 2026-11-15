@@ -640,6 +640,7 @@ printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
 export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01callZqvNow\x02'
 refused 1 'names a private term' v0.1.0
 
+# A long term in bare bytes is caught; case 45 distinguishes the raw long scan from a text scan.
 new_case 41
 export STUB_BINARY_TEXT=$'\x01'"$term_title"$'\x02'
 refused 1 'names a private term' v0.1.0
@@ -660,6 +661,46 @@ refused 1 'names a private term' v0.1.0
 new_case 45
 printf '%s\n%s\n' "$term_title" "Fennel"$'\xc3\xa9'"moor" > "$tmp/long-terms.txt"
 export RADIO_TERMS_FILE="$tmp/long-terms.txt" STUB_BINARY_TEXT=$'\x01'"Fennel"$'\xc3\xa9'"moor"$'\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 46
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01line one\nzqv\nline two\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 47
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01col\tzqv\tcol\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 48
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01\r\nzqv\r\n\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 49
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_5radio4main\x02'
+expect 0 'release: built v0.1.0' v0.1.0
+
+new_case 50
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvNtCs1a2b_3zqv4main\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 51
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01loadCsZqv_now\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 52
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_u5radio4main\x02'
+expect 0 'release: built v0.1.0' v0.1.0
+
+new_case 53
+printf '%s\n' "$term_title" > "$tmp/long-terms.txt"
+export RADIO_TERMS_FILE="$tmp/long-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvNtCs1a'"$term_title"$'9_5radio4main\x02'
 refused 1 'names a private term' v0.1.0
 
 if [ "$failed" -ne 0 ]; then

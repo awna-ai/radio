@@ -175,11 +175,12 @@ for i in 0 1; do
         status=$?
         [ "$status" -eq 1 ] || fail "could not scan the $target binary"
     fi
-    # Whole-file printable runs: strings -a skips Mach-O load commands and __LINKEDIT; no runs fails closed.
-    LC_ALL=C grep -a -o -E '[[:print:]]{4,}' -- "$bin" > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
+    # Whole-file printable runs, tab, CR and LF counted as text: strings -a skips Mach-O load commands and __LINKEDIT; no runs fails closed.
+    tr '\t\r\n' '   ' < "$bin" | grep -a -o -E '[[:print:]]{4,}' > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
     check_terms "$bin" "$work/strings"
     normalize "$bin" > "$work/normalized" 2> /dev/null || fail "could not scan the $target binary"
-    normalize "$work/strings" > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
+    # v0 crate hashes (Cs, base-62 digits, _ before the crate name's length) are build noise: drop them before splitting words.
+    sed -E 's/Cs[0-9A-Za-z]*_(u?[0-9])/ \1/g' "$work/strings" 2> /dev/null | normalize > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
     check_terms "$work/normalized" "$work/strings-normalized"
     codesign --force --sign - --identifier ai.awna.radio "$bin" > /dev/null 2>&1 || fail "could not sign the $target binary"
     codesign --verify --strict "$bin" > /dev/null 2>&1 || fail "could not verify the $target signature"
