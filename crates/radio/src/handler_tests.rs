@@ -179,6 +179,18 @@ fn deadline_kills_the_handler_and_its_child() {
 }
 
 #[test]
+fn deadline_kills_a_handler_that_left_its_group() {
+    let mut f = Fixture::new(
+        "exec /usr/bin/perl -e 'setpgrp(0, getpgrp(getppid())) or exit 9; open my $f, \">\", \"$ENV{HOME}/parent\" or exit 8; print $f $$; close $f; sleep 30'",
+    );
+    f.handler.timeout = Duration::from_secs(1);
+    let start = Instant::now();
+    assert!(matches!(f.run("hello"), Ran::Timeout));
+    assert!(start.elapsed() < Duration::from_secs(3));
+    assert_gone(read_pid(&f.dir.join("parent")));
+}
+
+#[test]
 fn completed_handler_kills_its_background_child() {
     assert_completed_child_killed(
         "/bin/sleep 30 >/dev/null 2>&1 & echo $! > \"$HOME/child\"; printf done",

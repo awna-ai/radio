@@ -211,9 +211,11 @@ fn exited(child: &Child) -> std::io::Result<bool> {
 }
 
 fn kill_and_reap(child: &mut Child) -> std::io::Result<ExitStatus> {
-    // SAFETY: the unreaped child's id reserves its process-group id, set before exec above.
+    // SAFETY: the unreaped child's id reserves its process-group id, set before exec above;
+    // it is also reserved as its pid, so the signal cannot reach a reused pid.
     unsafe {
         libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+        libc::kill(child.id() as libc::pid_t, libc::SIGKILL);
     }
     child.wait()
 }

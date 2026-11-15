@@ -297,7 +297,8 @@ pub struct Response {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deliveries: Option<Vec<Delivery>>,
     /// The installed handler's answer: at most 4,096 bytes and 8 lines, with no controls
-    /// except newline and tab, and no invisible or format characters.
+    /// except newline and tab, and none of the invisible characters that room text replaces
+    /// with spaces.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<String>,
     /// The installed handler's process exit code, or 128 plus its terminating signal.
