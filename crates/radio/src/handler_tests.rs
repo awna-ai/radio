@@ -62,6 +62,17 @@ fn recorded_handler_gets_message_argument_and_body() {
 }
 
 #[test]
+fn bodies_naming_paths_still_run_only_the_recorded_handler() {
+    for body in ["/bin/sh", "../../x"] {
+        let f = Fixture::new("printf ran > \"$HOME/marker\"; printf '%s:' \"$1\"; /bin/cat");
+        assert!(
+            matches!(f.run(body), Ran::Reply { reply, exit: 0 } if reply == format!("message:{body}"))
+        );
+        assert_eq!(fs::read_to_string(f.dir.join("marker")).unwrap(), "ran");
+    }
+}
+
+#[test]
 fn child_has_only_the_listed_environment_and_root_working_folder() {
     // The shell recreates SHLVL on exec even after unset; exclude that shell addition.
     let f = Fixture::new("unset PWD SHLVL _; exec /usr/bin/env -u SHLVL");

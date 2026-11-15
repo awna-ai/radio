@@ -3169,3 +3169,85 @@ fn a_failed_response_drops_a_pending_message_and_its_slot() {
     assert!(server.pending_message.is_none());
     assert_eq!(server.waiting_messages.load(Ordering::Acquire), 0);
 }
+
+#[test]
+fn message_socket_returns_the_remote_handlers_reply_and_exit() {
+    use radio_link::handler::{Envelope, Handlers, Ran};
+
+    struct Replies;
+    impl Handlers for Replies {
+        fn has_handler(&self, app: &str) -> bool {
+            app == "notes"
+        }
+        fn run(&self, envelope: &Envelope<'_>) -> Ran {
+            assert_eq!(envelope.app, "notes");
+            assert_eq!(envelope.body, "hello");
+            Ran::Reply {
+                reply: "seen".into(),
+                exit: 3,
+            }
+        }
+        fn refused(
+            &self,
+            _from: &radio_link::EndpointId,
+            _name: Option<&str>,
+            _app: &str,
+            _reason: &str,
+        ) {
+        }
+    }
+
+    let target = Fixture::new();
+    let mut receiver = Server::bind(&target.socket(), &target.db(), "birch".into())
+        .unwrap()
+        .with_link_dir(target.0.join("link"))
+        .with_fleet_db(target.0.join("fleet.db"))
+        .with_link_port(0)
+        .with_handlers(Arc::new(Replies));
+    receiver
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    receiver
+        .apply(Request::FleetInit {
+            name: "garden".into(),
+        })
+        .unwrap();
+    let key = radio_link::key::load_or_create(&target.0.join("link")).unwrap();
+    let hints = radio_link::code::Hints {
+        direct: receiver.link.as_ref().unwrap().addrs(),
+    };
+    let code = receiver
+        .fleet_db()
+        .unwrap()
+        .create_code(&key, None, None, hints, now().unwrap())
+        .unwrap()
+        .0;
+
+    let sender = Fixture::new();
+    let mut server = sender
+        .bind()
+        .with_link_dir(sender.0.join("link"))
+        .with_fleet_db(sender.0.join("fleet.db"))
+        .with_link_port(0);
+    register_notes(&mut server);
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    server
+        .apply(Request::Join {
+            code: code.encode(),
+        })
+        .unwrap();
+    let worker = start(server, 2);
+    assert_eq!(
+        call(&sender.socket(), message_value("hello")),
+        serde_json::json!({"ok":true,"reply":"seen","exit":3})
+    );
+    // Keep the sender's link alive until its asynchronous answer has been read.
+    assert!(request(&sender.socket(), &Request::Hello {}).unwrap().ok);
+    worker.join().unwrap();
+}
