@@ -51,7 +51,7 @@ pub fn frame(data: &[u8]) -> u32 {
                 }
                 Request::Computer { record } => record.verify().is_ok(),
                 Request::Record { record } => record.verify().is_ok(),
-                Request::Hello { .. } | Request::App { .. } => true,
+                Request::Hello { .. } | Request::App { .. } | Request::Heartbeat {} => true,
             });
         }
         if decode!(Answer, framing::CONTROL_CAP).is_some() {
@@ -157,6 +157,7 @@ mod tests {
         for json in [
             serde_json::to_vec(&Request::Computer { record: computer() }).unwrap(),
             serde_json::to_vec(&Request::Hello { hello: hello() }).unwrap(),
+            serde_json::to_vec(&Request::Heartbeat {}).unwrap(),
             serde_json::to_vec(&Answer::Ok).unwrap(),
             serde_json::to_vec(&JoinRequest {
                 code: code().encode(),
