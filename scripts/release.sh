@@ -54,7 +54,7 @@ sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' -e '/^[[:space:]]
 awk 'length($0) >= 5' "$list" > "$long" || fail 'could not split the term list'
 awk 'length($0) < 5' "$list" > "$short" || fail 'could not split the term list'
 
-tools=(cargo rustup lipo strip codesign shasum tar)
+tools=(cargo rustup lipo strip codesign shasum tar strings)
 if [ "$publish" -eq 1 ]; then
     tools+=(gh)
 fi
@@ -132,13 +132,15 @@ normalize() {
 
 # A failed grep is distinct from a clean scan; never print the matched bytes.
 check_terms() {
-    local file=$1 status words
+    local bytes=$1 text=$2 file status words
     local flags
     for words in "$long" "$short"; do
         [ -s "$words" ] || continue
         flags=(-a -F -i)
+        file=$bytes
         if [ "$words" = "$short" ]; then
             flags+=(-w)
+            file=$text
         fi
         if grep "${flags[@]}" -f "$words" -- "$file" > /dev/null 2>&1; then
             fail "the $target binary names a private term"
@@ -173,9 +175,11 @@ for i in 0 1; do
         status=$?
         [ "$status" -eq 1 ] || fail "could not scan the $target binary"
     fi
-    check_terms "$bin"
+    strings -a -n 4 "$bin" > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
+    check_terms "$bin" "$work/strings"
     normalize "$bin" > "$work/normalized" 2> /dev/null || fail "could not scan the $target binary"
-    check_terms "$work/normalized"
+    normalize "$work/strings" > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
+    check_terms "$work/normalized" "$work/strings-normalized"
     codesign --force --sign - --identifier ai.awna.radio "$bin" > /dev/null 2>&1 || fail "could not sign the $target binary"
     codesign --verify --strict "$bin" > /dev/null 2>&1 || fail "could not verify the $target signature"
 done

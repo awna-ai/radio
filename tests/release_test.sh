@@ -105,6 +105,11 @@ for arg in "$@"; do
 done
 exec /usr/bin/grep "$@"
 STUB
+cat > "$tmp/bin/strings" <<'STUB'
+#!/usr/bin/env bash
+[ "${STUB_STRINGS_FAIL:-0}" != 1 ] || exit 1
+TMPDIR="$STUB_ROOT" exec /usr/bin/strings "$@"
+STUB
 cat > "$tmp/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -222,6 +227,7 @@ new_case() {
     unset STUB_ORIGIN STUB_GH_EXTRA_ASSET STUB_GH_MOVE_TAG
     unset CARGO_HOME RUSTUP_HOME RUSTC CARGO_BUILD_JOBS CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER CARGO_PROFILE_RELEASE_LTO
     unset STUB_EMBED_WORK STUB_GREP_FAIL STUB_GH_STILL_DRAFT STUB_GH_VIEW_ERROR
+    unset STUB_STRINGS_FAIL
     unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
     unset STUB_BINARY_TEXT STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
     unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
@@ -615,6 +621,29 @@ git -C "$STUB_ORIGIN" tag -f -a -m moved v0.1.0 "$moved" > /dev/null
 refused 1 'is not on example-org/example-repo at' v0.1.0 --publish
 no_build
 no_create
+
+new_case 38
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01zqv\x02'
+expect 0 'release: built v0.1.0' v0.1.0
+
+new_case 39
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01call zqv now\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 40
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01callZqvNow\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 41
+export STUB_BINARY_TEXT=$'\x01'"$term_title"$'\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 42
+export STUB_STRINGS_FAIL=1
+refused 1 'could not scan' v0.1.0
 
 if [ "$failed" -ne 0 ]; then
     exit 1
