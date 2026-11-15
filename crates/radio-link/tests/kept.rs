@@ -218,9 +218,10 @@ async fn an_unused_connection_closes_and_a_kept_one_does_not() {
         iroh::endpoint::ConnectionError::LocallyClosed
     ));
     wait(|| b.live_connections() == 0).await;
-    // Observe the same kept connection through more than two unused intervals.
+    // Observe the same kept connection through more than two unused intervals, and past the
+    // failed window, so it stays only because its heartbeats are answered.
     bounded(async {
-        let until = Instant::now() + Duration::from_millis(900);
+        let until = Instant::now() + limits().failed + Duration::from_millis(500);
         while Instant::now() < until {
             assert!(kept.close_reason().is_none());
             assert_eq!(a.kept("notes")[0].state.as_str(), "connected");
