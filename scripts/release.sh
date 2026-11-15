@@ -54,7 +54,7 @@ sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' -e '/^[[:space:]]
 awk 'length($0) >= 5' "$list" > "$long" || fail 'could not split the term list'
 awk 'length($0) < 5' "$list" > "$short" || fail 'could not split the term list'
 
-tools=(cargo rustup lipo strip codesign shasum tar strings)
+tools=(cargo rustup lipo strip codesign shasum tar)
 if [ "$publish" -eq 1 ]; then
     tools+=(gh)
 fi
@@ -175,7 +175,8 @@ for i in 0 1; do
         status=$?
         [ "$status" -eq 1 ] || fail "could not scan the $target binary"
     fi
-    strings -a -n 4 "$bin" > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
+    # Whole-file printable runs: strings -a skips Mach-O load commands and __LINKEDIT; no runs fails closed.
+    LC_ALL=C grep -a -o -E '[[:print:]]{4,}' -- "$bin" > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
     check_terms "$bin" "$work/strings"
     normalize "$bin" > "$work/normalized" 2> /dev/null || fail "could not scan the $target binary"
     normalize "$work/strings" > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"

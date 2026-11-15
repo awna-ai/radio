@@ -53,6 +53,9 @@ else
     if [ "${STUB_EMBED_WORK:-0}" = 1 ]; then
         dirname "$dest" >> "$dest/$target/release/radio"
     fi
+    if [ -n "${STUB_BINARY_TAIL:-}" ]; then
+        printf '%s' "$STUB_BINARY_TAIL" >> "$dest/$target/release/radio"
+    fi
     xattr -w com.example.test 1 "$dest/$target/release/radio"
     chmod 755 "$dest/$target/release/radio"
     while IFS= read -r variable; do
@@ -100,15 +103,16 @@ cat > "$tmp/bin/grep" <<'STUB'
 #!/usr/bin/env bash
 for arg in "$@"; do
     case "${STUB_GREP_FAIL:-0}:$arg" in
-        1:-a|terms:-f) exit 2 ;;
+        1:-a|terms:-f|runs:-o) exit 2 ;;
+        noruns:-o) exit 1 ;;
     esac
 done
 exec /usr/bin/grep "$@"
 STUB
 cat > "$tmp/bin/strings" <<'STUB'
 #!/usr/bin/env bash
-[ "${STUB_STRINGS_FAIL:-0}" != 1 ] || exit 1
-TMPDIR="$STUB_ROOT" exec /usr/bin/strings "$@"
+# A scan that relied on strings would miss every term.
+exit 0
 STUB
 cat > "$tmp/bin/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -227,9 +231,8 @@ new_case() {
     unset STUB_ORIGIN STUB_GH_EXTRA_ASSET STUB_GH_MOVE_TAG
     unset CARGO_HOME RUSTUP_HOME RUSTC CARGO_BUILD_JOBS CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER CARGO_PROFILE_RELEASE_LTO
     unset STUB_EMBED_WORK STUB_GREP_FAIL STUB_GH_STILL_DRAFT STUB_GH_VIEW_ERROR
-    unset STUB_STRINGS_FAIL
     unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
-    unset STUB_BINARY_TEXT STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
+    unset STUB_BINARY_TEXT STUB_BINARY_TAIL STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
     unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
     export RADIO_TERMS_FILE="$tmp/terms.txt"
     git init -q -b main "$repo" || exit 1
@@ -642,8 +645,22 @@ export STUB_BINARY_TEXT=$'\x01'"$term_title"$'\x02'
 refused 1 'names a private term' v0.1.0
 
 new_case 42
-export STUB_STRINGS_FAIL=1
+export STUB_GREP_FAIL=runs
 refused 1 'could not scan' v0.1.0
+
+new_case 43
+export STUB_GREP_FAIL=noruns
+refused 1 'could not scan' v0.1.0
+
+new_case 44
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TAIL=$'\x01call zqv'
+refused 1 'names a private term' v0.1.0
+
+new_case 45
+printf '%s\n%s\n' "$term_title" "Fennel"$'\xc3\xa9'"moor" > "$tmp/long-terms.txt"
+export RADIO_TERMS_FILE="$tmp/long-terms.txt" STUB_BINARY_TEXT=$'\x01'"Fennel"$'\xc3\xa9'"moor"$'\x02'
+refused 1 'names a private term' v0.1.0
 
 if [ "$failed" -ne 0 ]; then
     exit 1
