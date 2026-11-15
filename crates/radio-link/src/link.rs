@@ -6,6 +6,7 @@ use crate::{
     frame::{self, CONTROL_CAP},
     handler::{Envelope, Handlers, Messages, Ran, Reply, valid_reply},
     membership::SignedRecord,
+    peers::{Connector, KeptPeer, Peers, Use},
     wire::{self, Answer, Hello, LINK_MAJOR, LINK_MINOR, Protocol, Request},
 };
 use iroh::{
@@ -63,6 +64,7 @@ pub struct Link {
     gate: Arc<Gate>,
     local: Local,
     messages: Arc<Messages>,
+    peers: Arc<Peers<LinkConnector>>,
 }
 
 impl Link {
@@ -83,7 +85,16 @@ impl Link {
         let gate = Arc::new(Gate::with_handlers(admission, limits, handlers));
         let messages = gate.messages.clone();
         let endpoint = endpoint::bind(key, addrs, gate.clone()).await?;
+        let peers = Peers::new(
+            LinkConnector {
+                endpoint: endpoint.clone(),
+                gate: gate.clone(),
+            },
+            gate.limits.clone(),
+            tokio::runtime::Handle::current(),
+        );
         Ok(Self {
+            peers,
             endpoint,
             gate,
             local,
@@ -179,22 +190,41 @@ impl Link {
     }
 
     pub async fn dial(&self, peer: EndpointId, addrs: &[SocketAddr]) -> Result<Peer, &'static str> {
-        if self.gate.admission.standing(&peer) != Standing::Accepted {
+        let connection = dial(&self.endpoint, &self.gate, peer, addrs).await?;
+        Ok(Peer {
+            connection,
+            gate: self.gate.clone(),
+            _use: None,
+        })
+    }
+
+    pub async fn peer(&self, id: EndpointId, addrs: &[SocketAddr]) -> Result<Peer, &'static str> {
+        if self.gate.admission.standing(&id) != Standing::Accepted {
             return Err("the computer is not let in");
         }
         if addrs.is_empty() {
             return Err(endpoint::NO_ADDRESS);
         }
         let addrs = endpoint::usable(addrs)?;
-        let addr = EndpointAddr::from_parts(peer, addrs.into_iter().map(TransportAddr::Ip));
-        let connection = timeout(self.gate.limits.dial, self.endpoint.connect(addr, ALPN))
-            .await
-            .map_err(|_| "the computer could not be reached")?
-            .map_err(|_| "the computer could not be reached")?;
+        let (connection, guard) = self.peers.get(id, Some(addrs)).await?;
         Ok(Peer {
             connection,
             gate: self.gate.clone(),
+            _use: Some(guard),
         })
+    }
+
+    pub fn keep(&self, app: &str, ids: Vec<EndpointId>) {
+        self.peers.keep(app, ids);
+    }
+
+    pub fn kept(&self, app: &str) -> Vec<KeptPeer> {
+        self.peers.kept(app)
+    }
+
+    #[doc(hidden)]
+    pub fn live_connections(&self) -> usize {
+        self.gate.live_connections()
     }
 
     pub async fn dial_join(
@@ -229,6 +259,77 @@ impl Link {
 
     pub async fn close(&self) {
         self.endpoint.close().await;
+    }
+}
+
+async fn dial(
+    endpoint: &Endpoint,
+    gate: &Arc<Gate>,
+    peer: EndpointId,
+    addrs: &[SocketAddr],
+) -> Result<Connection, &'static str> {
+    if gate.admission.standing(&peer) != Standing::Accepted {
+        return Err("the computer is not let in");
+    }
+    if addrs.is_empty() {
+        return Err(endpoint::NO_ADDRESS);
+    }
+    let addrs = endpoint::usable(addrs)?;
+    let addr = EndpointAddr::from_parts(peer, addrs.into_iter().map(TransportAddr::Ip));
+    timeout(gate.limits.dial, endpoint.connect(addr, ALPN))
+        .await
+        .map_err(|_| "the computer could not be reached")?
+        .map_err(|_| "the computer could not be reached")
+}
+
+pub(crate) struct LinkConnector {
+    endpoint: Endpoint,
+    gate: Arc<Gate>,
+}
+
+impl Connector for LinkConnector {
+    type Conn = Connection;
+
+    async fn connect(
+        &self,
+        id: EndpointId,
+        addrs: Option<Vec<SocketAddr>>,
+    ) -> Result<Connection, &'static str> {
+        if self.gate.admission.standing(&id) != Standing::Accepted {
+            return Err("the computer is not let in");
+        }
+        let addrs = addrs.unwrap_or_else(|| self.gate.admission.addrs(&id));
+        dial(&self.endpoint, &self.gate, id, &addrs).await
+    }
+
+    async fn heartbeat(&self, conn: &Connection) -> Result<(), &'static str> {
+        let peer = Peer {
+            connection: conn.clone(),
+            gate: self.gate.clone(),
+            _use: None,
+        };
+        // A peer one link minor older resets this unknown request. The minder then
+        // fails the kept connection after 45 seconds and the keeper redials it.
+        match peer.request(&Request::Heartbeat {}).await? {
+            Answer::Ok => Ok(()),
+            _ => Err(UNANSWERED),
+        }
+    }
+
+    async fn closed(&self, conn: &Connection) {
+        conn.closed().await;
+    }
+
+    fn is_live(&self, conn: &Connection) -> bool {
+        conn.close_reason().is_none()
+    }
+
+    fn close_idle(&self, conn: &Connection) {
+        conn.close(IDLE.into(), &[]);
+    }
+
+    fn name(&self, id: &EndpointId) -> Option<String> {
+        self.gate.admission.name(id)
     }
 }
 
@@ -347,6 +448,18 @@ async fn serve_stream(
         let from = connection.remote_id();
         match request {
             Request::File { .. } => unreachable!(),
+            Request::Heartbeat {} => {
+                if gate.admission.standing(&from) != Standing::Accepted
+                    || connection.close_reason().is_some()
+                {
+                    if connection.close_reason().is_none() {
+                        connection.close(REFUSED.into(), &[]);
+                    }
+                    return Ok(());
+                }
+                frame::write(&mut send, &Answer::Ok, CONTROL_CAP).await?;
+                send.finish().map_err(|_| UNANSWERED)?;
+            }
             Request::Hello { hello } => {
                 if !wire::valid_hello(&hello) {
                     return Err(UNANSWERED);
@@ -802,6 +915,7 @@ async fn refuse_file(send: &mut SendStream, reason: &str) -> Result<(), &'static
 pub struct Peer {
     connection: Connection,
     gate: Arc<Gate>,
+    _use: Option<Arc<Use>>,
 }
 
 impl Peer {

@@ -7,7 +7,12 @@ fn defaults_bound_connections_and_deadlines() {
     assert_eq!(limits.per_key, 4);
     assert_eq!(limits.joins, 4);
     assert_eq!(limits.handshakes, 32);
-    assert_eq!(limits.idle, Duration::from_secs(30));
+    assert_eq!(limits.idle, Duration::from_secs(660));
+    assert_eq!(limits.unused, Duration::from_secs(600));
+    assert_eq!(limits.heartbeat, Duration::from_secs(15));
+    assert_eq!(limits.failed, Duration::from_secs(45));
+    assert_eq!(limits.backoff_min, Duration::from_secs(1));
+    assert_eq!(limits.backoff_max, Duration::from_secs(60));
     assert_eq!(limits.frame, Duration::from_secs(5));
     assert_eq!(limits.dial, Duration::from_secs(5));
     assert_eq!(limits.handshake, Duration::from_secs(5));

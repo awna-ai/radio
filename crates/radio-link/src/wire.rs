@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const LINK_MAJOR: u32 = 1;
-pub const LINK_MINOR: u32 = 4;
+pub const LINK_MINOR: u32 = 5;
 pub const NO_HANDLER: &str = "no_handler";
 pub const CLOCK: &str = "clock";
 pub const REPLAY: &str = "replay";
@@ -43,6 +43,7 @@ impl std::fmt::Debug for JoinRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    Heartbeat {},
     File {
         to: String,
         app: String,

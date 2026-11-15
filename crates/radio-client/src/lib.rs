@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 8;
+pub const PROTOCOL_MINOR: u32 = 9;
 
-/// The ops major 1, minor 8 serves, in this order.
+/// The ops major 1, minor 9 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -45,6 +45,8 @@ pub const OPS: &[&str] = &[
     "delivery_folder_clear",
     "deliveries",
     "message",
+    "keep",
+    "kept",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -186,6 +188,10 @@ pub enum Request {
         computer: String,
         body: String,
     },
+    /// Replaces this app's in-memory list of connections to keep ready.
+    Keep { app: String, computers: Vec<String> },
+    /// Reads this app's kept connections without starting the link.
+    Kept { app: String },
 }
 
 /// A member identified by a kind and a name.
@@ -304,6 +310,9 @@ pub struct Response {
     /// The installed handler's process exit code, or 128 plus its terminating signal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit: Option<i32>,
+    /// This app's kept computers, in the order requested with duplicates removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<Vec<KeptPeer>>,
 }
 
 /// A file that arrived for the requesting app on this computer.
@@ -408,6 +417,18 @@ pub struct JoinCodeInfo {
     pub uses: u32,
 }
 
+/// A computer whose connection the requesting app asked Radio to keep ready.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeptPeer {
+    /// The computer's public link id.
+    pub id: String,
+    /// The computer's name, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The connection state as an extensible word: connected, dialing or failed.
+    pub state: String,
+}
+
 /// A computer in this computer's view of its fleet.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Computer {
@@ -446,9 +467,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn kept_contract_round_trips() {
+        assert_eq!(PROTOCOL_MINOR, 9);
+        assert_eq!(&OPS[31..], &["keep", "kept"]);
+        for value in [
+            serde_json::json!({"op":"keep","app":"notes","computers":["birch","cedar"]}),
+            serde_json::json!({"op":"keep","app":"notes","computers":[]}),
+            serde_json::json!({"op":"kept","app":"notes"}),
+        ] {
+            let request: Request = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(request).unwrap(), value);
+            let mut unknown = value;
+            unknown["extra"] = true.into();
+            assert!(serde_json::from_value::<Request>(unknown).is_err());
+        }
+        for computers in [serde_json::json!("birch"), serde_json::json!([1])] {
+            assert!(
+                serde_json::from_value::<Request>(serde_json::json!({
+                    "op":"keep","app":"notes","computers":computers
+                }))
+                .is_err()
+            );
+        }
+        for kept in [
+            serde_json::json!([]),
+            serde_json::json!([
+                {"id":"birch-key","name":"birch","state":"connected"},
+                {"id":"cedar-key","state":"dialing"},
+                {"id":"alder-key","state":"failed"}
+            ]),
+        ] {
+            let value = serde_json::json!({"ok":true,"kept":kept});
+            let response: Response = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(response).unwrap(), value);
+        }
+    }
+
+    #[test]
     fn message_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 8);
-        assert_eq!(OPS.last(), Some(&"message"));
+        assert_eq!(PROTOCOL_MINOR, 9);
+        assert_eq!(OPS[30], "message");
         let value =
             serde_json::json!({"op":"message","app":"notes","computer":"birch","body":"hello"});
         let request: Request = serde_json::from_value(value.clone()).unwrap();
@@ -475,7 +533,7 @@ mod tests {
 
     #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 8);
+        assert_eq!(PROTOCOL_MINOR, 9);
         assert_eq!(
             &OPS[20..23],
             &[

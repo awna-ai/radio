@@ -543,7 +543,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":8},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":9},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -3249,5 +3249,135 @@ fn message_socket_returns_the_remote_handlers_reply_and_exit() {
     );
     // Keep the sender's link alive until its asynchronous answer has been read.
     assert!(request(&sender.socket(), &Request::Hello {}).unwrap().ok);
+    worker.join().unwrap();
+}
+
+#[test]
+fn keep_and_kept_through_the_socket() {
+    use radio_link::{SecretKey, code::Hints, membership};
+
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0);
+    register_notes(&mut server);
+    assert_eq!(
+        serde_json::to_value(
+            server
+                .dispatch(serde_json::json!({
+                    "v":1,"op":"kept","app":"notes"
+                }))
+                .unwrap()
+        )
+        .unwrap(),
+        serde_json::json!({"ok":true,"kept":[]})
+    );
+    server
+        .apply(Request::LinkAddressAdd {
+            address: "127.0.0.1".into(),
+        })
+        .unwrap();
+    server
+        .apply(Request::FleetInit {
+            name: "garden".into(),
+        })
+        .unwrap();
+    let key = radio_link::key::load_or_create(&fixture.0.join("link")).unwrap();
+    let other = SecretKey::generate();
+    let mut db = server.fleet_db().unwrap();
+    let code = db
+        .create_code(&key, None, None, Hints { direct: vec![] }, now().unwrap())
+        .unwrap()
+        .0;
+    db.admit(
+        &key,
+        "test-host",
+        &[],
+        &code,
+        &other.public(),
+        "birch",
+        &[],
+        &membership::consent(&other, &code.fleet, &key.public().to_string(), "birch", &[]),
+        now().unwrap(),
+    )
+    .unwrap();
+    drop(db);
+    let worker = start(server, 10);
+    for op in ["keep", "kept"] {
+        let mut value = serde_json::json!({"v":1,"op":op,"app":"garden"});
+        if op == "keep" {
+            value["computers"] = serde_json::json!([]);
+        }
+        assert_eq!(
+            call(&fixture.socket(), value),
+            serde_json::json!({
+                "ok":false,"error":"the app is not registered"
+            })
+        );
+    }
+    for (computers, phrase) in [
+        (vec!["birch"; 65], "too many computers to keep; at most 64"),
+        (vec!["cedar"], "no such computer"),
+    ] {
+        assert_eq!(
+            call(
+                &fixture.socket(),
+                serde_json::json!({
+                    "v":1,"op":"keep","app":"notes","computers":computers
+                })
+            ),
+            serde_json::json!({"ok":false,"error":phrase})
+        );
+    }
+    let kept = call(
+        &fixture.socket(),
+        serde_json::json!({
+            "v":1,"op":"keep","app":"notes","computers":["birch",other.public().to_string()]
+        }),
+    );
+    assert_eq!(kept["ok"], true);
+    assert_eq!(kept["kept"].as_array().unwrap().len(), 1);
+    assert_eq!(kept["kept"][0]["id"], other.public().to_string());
+    assert_eq!(kept["kept"][0]["name"], "birch");
+    assert!(
+        ["connected", "dialing", "failed"].contains(&kept["kept"][0]["state"].as_str().unwrap())
+    );
+    for index in 0..2 {
+        let listed = call(
+            &fixture.socket(),
+            serde_json::json!({"v":1,"op":"kept","app":"notes"}),
+        );
+        assert_eq!(listed["kept"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["kept"][0]["id"], other.public().to_string());
+        if index == 0 {
+            assert_eq!(
+                call(
+                    &fixture.socket(),
+                    serde_json::json!({
+                        "v":1,"op":"keep","app":"notes","computers":["birch","cedar"]
+                    })
+                ),
+                serde_json::json!({"ok":false,"error":"no such computer"})
+            );
+        }
+    }
+    assert_eq!(
+        call(
+            &fixture.socket(),
+            serde_json::json!({
+                "v":1,"op":"keep","app":"notes","computers":[]
+            })
+        ),
+        serde_json::json!({"ok":true,"kept":[]})
+    );
+    assert_eq!(
+        call(
+            &fixture.socket(),
+            serde_json::json!({"v":1,"op":"kept","app":"notes"})
+        ),
+        serde_json::json!({"ok":true,"kept":[]})
+    );
     worker.join().unwrap();
 }

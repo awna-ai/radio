@@ -165,7 +165,7 @@ fn record_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 4);
+    assert_eq!(LINK_MINOR, 5);
 }
 
 #[test]
@@ -237,7 +237,7 @@ fn computer_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 4);
+    assert_eq!(LINK_MINOR, 5);
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn file_wire_shapes_and_minor() {
     assert_eq!(serde_json::to_value(request).unwrap(), file);
     let answer: Answer = serde_json::from_value(refused.clone()).unwrap();
     assert_eq!(serde_json::to_value(answer).unwrap(), refused);
-    assert_eq!(LINK_MINOR, 4);
+    assert_eq!(LINK_MINOR, 5);
 }
 
 #[test]
@@ -337,4 +337,14 @@ fn app_envelope_and_reply_shapes_are_typed_and_strict() {
         value[field] = wrong;
         assert!(serde_json::from_value::<Answer>(value).is_err(), "{field}");
     }
+}
+
+#[test]
+fn heartbeats_have_no_fields_and_require_link_minor_five() {
+    let value = json!({"type":"heartbeat"});
+    let request = serde_json::from_value::<Request>(value.clone());
+    assert!(request.is_ok(), "the heartbeat request must decode");
+    assert_eq!(serde_json::to_value(request.unwrap()).unwrap(), value);
+    assert!(serde_json::from_value::<Request>(json!({"type":"heartbeat","extra":true})).is_err());
+    assert_eq!(LINK_MINOR, 5);
 }

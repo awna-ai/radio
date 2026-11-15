@@ -125,7 +125,7 @@ pub async fn answer(
 pub async fn deliver(link: &Link, record: &SignedRecord, to: &[Recipient]) -> usize {
     let mut delivered = 0;
     for (key, addrs) in to {
-        if let Ok(peer) = link.dial(*key, addrs).await
+        if let Ok(peer) = link.peer(*key, addrs).await
             && peer.send_record(record).await.is_ok()
         {
             delivered += 1;
@@ -188,7 +188,7 @@ pub async fn remove(
     let peer = if computer.addrs.is_empty() {
         None
     } else {
-        link.dial(subject, &computer.addrs).await.ok()
+        link.peer(subject, &computer.addrs).await.ok()
     };
     let (record, to) = {
         let mut db = db.lock().map_err(|_| READ)?;
@@ -225,7 +225,7 @@ pub async fn publish(link: &Link, db: &Mutex<FleetDb>, record: &ComputerRecord) 
     let Ok(recipients) = recipients else { return 0 };
     let mut delivered = 0;
     for (key, addrs) in recipients {
-        if let Ok(peer) = link.dial(key, &addrs).await
+        if let Ok(peer) = link.peer(key, &addrs).await
             && peer.send_computer(record).await.is_ok()
         {
             delivered += 1;

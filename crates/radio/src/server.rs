@@ -36,6 +36,17 @@ const NOT_MEMBER: &str = "not a member";
 const NOT_LINK_NAME: &str =
     "this computer's name breaks the computer-name rule; restart Radio with --name";
 
+fn kept_peers(peers: Vec<radio_link::KeptPeer>) -> Vec<radio_client::KeptPeer> {
+    peers
+        .into_iter()
+        .map(|peer| radio_client::KeptPeer {
+            id: peer.id.to_string(),
+            name: peer.name,
+            state: peer.state.as_str().into(),
+        })
+        .collect()
+}
+
 fn success() -> Response {
     Response {
         ok: true,
@@ -500,6 +511,27 @@ impl Server {
             Request::Leave {} => {
                 self.start_link()?;
                 response.delivered = Some(self.link.as_ref().unwrap().leave(now)? as u64);
+            }
+            Request::Keep { app, computers } => {
+                if !self.store.registered(&app)? {
+                    return Err("the app is not registered".into());
+                }
+                self.start_link()?;
+                response.kept = Some(kept_peers(
+                    self.link.as_ref().unwrap().keep(&app, &computers)?,
+                ));
+            }
+            Request::Kept { app } => {
+                if !self.store.registered(&app)? {
+                    return Err("the app is not registered".into());
+                }
+                response.kept = Some(kept_peers(
+                    self.link
+                        .as_ref()
+                        .filter(|node| node.running())
+                        .map(|node| node.kept(&app))
+                        .unwrap_or_default(),
+                ));
             }
             Request::Message {
                 app,

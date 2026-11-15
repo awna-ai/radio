@@ -37,12 +37,23 @@ pub trait Admission: Send + Sync + 'static {
     fn name(&self, _key: &EndpointId) -> Option<String> {
         None
     }
+    fn addrs(&self, _key: &EndpointId) -> Vec<std::net::SocketAddr> {
+        Vec::new()
+    }
     fn delivery_folder(&self, _app: &str) -> Option<crate::fleet_db::DeliveryFolder> {
         None
     }
 }
 
 impl Admission for Mutex<FleetDb> {
+    fn addrs(&self, key: &EndpointId) -> Vec<std::net::SocketAddr> {
+        self.lock()
+            .ok()
+            .and_then(|db| db.computer(&key.to_string()).ok())
+            .map(|computer| computer.addrs)
+            .unwrap_or_default()
+    }
+
     fn name(&self, key: &EndpointId) -> Option<String> {
         self.lock()
             .ok()
@@ -91,6 +102,11 @@ pub struct Limits {
     pub joins: usize,
     pub handshakes: usize,
     pub idle: Duration,
+    pub unused: Duration,
+    pub heartbeat: Duration,
+    pub failed: Duration,
+    pub backoff_min: Duration,
+    pub backoff_max: Duration,
     pub frame: Duration,
     pub dial: Duration,
     pub handshake: Duration,
@@ -107,7 +123,12 @@ impl Default for Limits {
             per_key: 4,
             joins: 4,
             handshakes: 32,
-            idle: Duration::from_secs(30),
+            idle: Duration::from_secs(660),
+            unused: Duration::from_secs(600),
+            heartbeat: Duration::from_secs(15),
+            failed: Duration::from_secs(45),
+            backoff_min: Duration::from_secs(1),
+            backoff_max: Duration::from_secs(60),
             frame: Duration::from_secs(5),
             dial: Duration::from_secs(5),
             handshake: Duration::from_secs(5),
@@ -167,6 +188,20 @@ impl fmt::Debug for Gate {
 }
 
 impl Gate {
+    pub(crate) fn live_connections(&self) -> usize {
+        self.live
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|entry| {
+                entry
+                    .connection
+                    .upgrade()
+                    .is_some_and(|connection| connection.close_reason().is_none())
+            })
+            .count()
+    }
+
     pub(crate) fn reserve_delivery(
         &self,
         key: EndpointId,

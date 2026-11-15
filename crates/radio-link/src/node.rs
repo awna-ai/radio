@@ -252,6 +252,38 @@ impl Node {
         self.start_message(computer, app, body)?.wait()
     }
 
+    pub fn keep(
+        &self,
+        app: &str,
+        computers: &[String],
+    ) -> Result<Vec<crate::KeptPeer>, &'static str> {
+        if !self.running() {
+            return Err("the link stopped");
+        }
+        if computers.len() > 64 {
+            return Err("too many computers to keep; at most 64");
+        }
+        let ids = {
+            let db = self.db.lock().map_err(|_| "the fleet store is busy")?;
+            computers
+                .iter()
+                .map(|name| {
+                    let computer = db.computer(name)?;
+                    if computer.state != State::Accepted {
+                        return Err("the computer is not let in");
+                    }
+                    computer.key.parse().map_err(|_| "not a computer key")
+                })
+                .collect::<Result<Vec<EndpointId>, &'static str>>()?
+        };
+        self.link.keep(app, ids);
+        Ok(self.link.kept(app))
+    }
+
+    pub fn kept(&self, app: &str) -> Vec<crate::KeptPeer> {
+        self.link.kept(app)
+    }
+
     pub fn block(&self, target: &str) -> Result<Computer, &'static str> {
         join::block(&self.link, &self.db, target)
     }
@@ -286,7 +318,7 @@ impl PendingMessage {
         let (sender, receiver) = sync_channel(1);
         self.runtime.spawn(async move {
             let result = async {
-                let peer = self.link.dial(self.id, &self.addrs).await?;
+                let peer = self.link.peer(self.id, &self.addrs).await?;
                 peer.send_app(&self.app, &self.body).await
             }
             .await;
@@ -313,7 +345,7 @@ impl PendingSend {
         let (sender, receiver) = sync_channel(1);
         self.runtime.spawn(async move {
             let result = async {
-                let peer = self.link.dial(self.id, &self.addrs).await?;
+                let peer = self.link.peer(self.id, &self.addrs).await?;
                 peer.send_file(&self.app, &self.name, self.file, self.size)
                     .await?;
                 Ok(self.size)

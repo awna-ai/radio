@@ -40,7 +40,7 @@ fn file_ops_and_protocol_minor_are_available() {
     ] {
         assert!(radio_client::OPS.contains(&op), "{op}");
     }
-    assert_eq!(radio_client::PROTOCOL_MINOR, 8);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 9);
 }
 
 #[test]

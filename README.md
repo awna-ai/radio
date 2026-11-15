@@ -338,9 +338,16 @@ Apps should expect `the message is empty`, `the message is larger than 8 KiB`,
 as well as `send`'s registration, link, computer-lookup, dial and answer phrases.
 Radio never logs the body or reply.
 
+Your registered app can ask Radio to keep connections ready with **`keep`**, sending `app` and a
+`computers` list of names or ids (at most 64). Sending it again replaces that app's list; an empty
+list lets them all go. **`kept`** reads the list, with each computer's id, name when known, and
+whether it is `connected`, `dialing` or `failed`. Radio checks kept connections regularly and tries
+again when one fails. These lists last only until Radio stops, so send `keep` again after a restart.
+These two operations are for apps through the socket.
+
 ### Using Radio from the command line
 
-Every op is also a `radio` command, so a shell script, a quick test or an app in any language can
+The ops below are also `radio` commands, so a shell script, a quick test or an app in any language can
 use Radio by running the binary it bundles. Each command sends exactly its op's request over the
 socket and prints Radio's answer, unchanged, as one line of JSON. It adds no op, field or phrase:
 the socket stays the contract.

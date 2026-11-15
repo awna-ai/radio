@@ -94,7 +94,7 @@ async fn hello_preserves_authenticated_sender_and_messages_need_a_handler() {
     assert_eq!(answer.sha, SHA);
     assert_eq!(answer.fleet, FLEET);
     assert_eq!(answer.arch, std::env::consts::ARCH);
-    assert_eq!((answer.protocol.major, answer.protocol.minor), (1, 4));
+    assert_eq!((answer.protocol.major, answer.protocol.minor), (1, 5));
     match bounded(events.recv()).await.unwrap() {
         Event::Hello {
             from,
@@ -916,4 +916,29 @@ async fn sender_rejects_hostile_reply_text() {
     }
     bounded(sender.close()).await;
     bounded(target.close()).await;
+}
+
+#[tokio::test]
+async fn a_heartbeat_is_answered_ok() {
+    let (a, b, _, mut events) = pair(Limits::default()).await;
+    let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+    let heartbeat = Request::Heartbeat {};
+    assert_eq!(request(peer.connection(), &heartbeat).await, Ok(Answer::Ok));
+    empty(&mut events).await;
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}
+
+#[tokio::test]
+async fn a_heartbeat_from_a_non_member_is_refused() {
+    let (a, b, book, mut events) = pair(Limits::default()).await;
+    let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+    // Change admission after the connection passed the hook: each new stream must recheck it.
+    book.set(b.id(), Standing::Refused);
+    let heartbeat = Request::Heartbeat {};
+    assert!(request(peer.connection(), &heartbeat).await.is_err());
+    closed(peer.connection(), REFUSED).await;
+    empty(&mut events).await;
+    bounded(a.close()).await;
+    bounded(b.close()).await;
 }
