@@ -69,6 +69,9 @@ else
     if [ -n "${STUB_BINARY_TRIE:-}" ]; then
         printf '\001%s\002\n' "$STUB_BINARY_TRIE" >> "$dest/$target/release/radio"
     fi
+    if [ -n "${STUB_BINARY_CODE:-}" ]; then
+        printf '\001%s\002\n' "$STUB_BINARY_CODE" >> "$dest/$target/release/radio"
+    fi
     printf '%s\n' "$dest" >> "$STUB_ROOT/calls/cargo-dirs"
     if [ "${STUB_EMBED_WORK:-0}" = 1 ]; then
         dirname "$dest" >> "$dest/$target/release/radio"
@@ -129,7 +132,8 @@ for arg in "$@"; do
 done
 exec /usr/bin/grep "$@"
 STUB
-# Real binaries keep the export trie in LC_DYLD_INFO_ONLY (x86_64 here) or LC_DYLD_EXPORTS_TRIE (arm64 here).
+# Real binaries keep the export trie in LC_DYLD_INFO_ONLY (x86_64 here) or LC_DYLD_EXPORTS_TRIE (arm64 here), and their
+# machine code in the __TEXT,__text section, whose size otool prints in hex.
 cat > "$tmp/bin/otool" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -141,12 +145,37 @@ if [ -n "${STUB_BINARY_TRIE:-}" ]; then
     off=$(LC_ALL=C /usr/bin/grep -a -b -o -F -- "$STUB_BINARY_TRIE" "$2" | head -1 | cut -d: -f1)
     size=$(printf '%s' "$STUB_BINARY_TRIE" | wc -c | tr -d ' ')
 fi
+code_off=0 code_size=0
+if [ -n "${STUB_BINARY_CODE:-}" ]; then
+    code_off=$(LC_ALL=C /usr/bin/grep -a -b -o -F -- "$STUB_BINARY_CODE" "$2" | head -1 | cut -d: -f1)
+    code_size=$(printf '%s' "$STUB_BINARY_CODE" | wc -c | tr -d ' ')
+fi
+code_size=$(printf '0x%016x' "$code_size")
+# The other sections cover the binary's string text, so zeroing the wrong one hides a term there.
+text_off=0 text_size=0
+if [ -n "${STUB_BINARY_TEXT:-}" ]; then
+    text_off=$(LC_ALL=C /usr/bin/grep -a -b -o -F -- "$STUB_BINARY_TEXT" "$2" | head -1 | cut -d: -f1 || true)
+    text_size=$(printf '%s' "$STUB_BINARY_TEXT" | wc -c | tr -d ' ')
+    [ -n "$text_off" ] || text_off=0 text_size=0
+fi
+text_size=$(printf '0x%016x' "$text_size")
 case "${STUB_OTOOL:-}" in
     none) printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72\n'; exit 0 ;;
     beyond) off=$(wc -c < "$2" | tr -d ' ') size=1 ;;
     word) size=many ;;
+    codebeyond) code_off=$(wc -c < "$2" | tr -d ' ') code_size=0x1 ;;
+    codeword) code_size=many ;;
 esac
-printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72\n'
+printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 232\n  segname __TEXT\n   vmaddr 0x0000000100000000\n'
+if [ "${STUB_OTOOL:-}" != nocode ]; then
+    printf 'Section\n  sectname __text\n   segname __TEXT\n      addr 0x0000000100000ac0\n      size %s\n' "$code_size"
+    printf '    offset %s\n     align 2^6 (64)\n    reloff 0\n' "$code_off"
+fi
+printf 'Section\n  sectname __const\n   segname __TEXT\n      addr 0x0000000100900000\n      size %s\n' "$text_size"
+printf '    offset %s\n     align 2^4 (16)\n' "$text_off"
+printf 'Load command 1\n      cmd LC_SEGMENT_64\n  cmdsize 152\n  segname __DATA\n'
+printf 'Section\n  sectname __text\n   segname __DATA\n      addr 0x0000000100a00000\n      size %s\n' "$text_size"
+printf '    offset %s\n     align 2^3 (8)\n' "$text_off"
 if /usr/bin/grep -q '^arch=x86_64$' "$2"; then
     printf 'Load command 4\n            cmd LC_DYLD_INFO_ONLY\n        cmdsize 48\n     rebase_off 4\n    rebase_size 8\n'
     printf '     export_off %s\n    export_size %s\n' "$off" "$size"
@@ -280,7 +309,7 @@ new_case() {
     unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
     unset STUB_BINARY_TEXT STUB_BINARY_TAIL STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
     unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS STUB_BINARY_TRIE STUB_OTOOL STUB_METADATA STUB_CRATES
-    unset STUB_CDYLIB_CRATES STUB_CDYLIB_ONLY_CRATES
+    unset STUB_CDYLIB_CRATES STUB_CDYLIB_ONLY_CRATES STUB_BINARY_CODE
     export RADIO_TERMS_FILE="$tmp/terms.txt"
     git init -q -b main "$repo" || exit 1
     git -C "$repo" config user.name Test
@@ -860,6 +889,36 @@ new_case 69
 printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
 export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvCs1aZqv9_7___rustc12___rust_alloc\x02'
 expect 0 'release: built v0.1.0' v0.1.0
+
+# Machine code holds no strings: a short word next to a tab there is chance, so the short scan skips __TEXT,__text.
+new_case 70
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01zqv\tab\x02'
+refused 1 'names a private term' v0.1.0
+unset STUB_BINARY_TEXT
+export STUB_BINARY_CODE=$'zqv\tab'
+expect 0 'release: built v0.1.0' v0.1.0
+
+new_case 71
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_CODE=$'zqv\tab' STUB_BINARY_TEXT=$'\x01_call_zqv_now\x02'
+refused 1 'names a private term' v0.1.0
+
+new_case 72
+export STUB_BINARY_CODE="code ${term_title} code"
+refused 1 'names a private term' v0.1.0
+
+new_case 73
+export STUB_OTOOL=nocode
+refused 1 'could not read the aarch64-apple-darwin machine code' v0.1.0
+
+new_case 74
+export STUB_OTOOL=codebeyond
+refused 1 'could not read the aarch64-apple-darwin machine code' v0.1.0
+
+new_case 75
+export STUB_OTOOL=codeword
+refused 1 'could not read the aarch64-apple-darwin machine code' v0.1.0
 
 if [ "$failed" -ne 0 ]; then
     exit 1

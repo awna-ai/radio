@@ -142,29 +142,44 @@ fi
 crate_names=$(awk '{ printf "%s%d%s%s", (NR > 1 ? "|" : ""), length($0), (substr($0, 1, 1) == "_" ? "_" : ""), $0 }' "$work/crates") || fail "$crate_failure"
 
 # The export trie stores names in fragments, so a crate hash can lose its Cs there; every exported name is whole in the
-# symbol table, which the short scan still reads. Long terms, paths and the account keep the whole file.
-without_trie() {
-    local failure="could not read the $target export trie" size off length end
-    otool -l "$1" > "$work/load-commands" 2> /dev/null || fail "$failure"
+# symbol table, which the short scan still reads. Machine code (__TEXT,__text) holds no strings, only chance runs of
+# letters. Long terms, paths and the account keep the whole file.
+without_trie_and_code() {
+    local trie_failure="could not read the $target export trie" code_failure="could not read the $target machine code"
+    local failure size kind off length end
+    otool -l "$1" > "$work/load-commands" 2> /dev/null || fail "$trie_failure"
     awk '
-        $1 == "cmd" { cmd = $2; off = "" }
+        $1 == "cmd" { cmd = $2; off = ""; sect = ""; seg = "" }
         cmd == "LC_DYLD_INFO_ONLY" && $1 == "export_off" { off = $2 }
-        cmd == "LC_DYLD_INFO_ONLY" && $1 == "export_size" { print off, $2 }
+        cmd == "LC_DYLD_INFO_ONLY" && $1 == "export_size" { print "trie", off, $2 }
         cmd == "LC_DYLD_EXPORTS_TRIE" && $1 == "dataoff" { off = $2 }
-        cmd == "LC_DYLD_EXPORTS_TRIE" && $1 == "datasize" { print off, $2 }
-    ' "$work/load-commands" > "$work/trie" 2> /dev/null || fail "$failure"
-    [ -s "$work/trie" ] || fail "$failure"
-    size=$(wc -c < "$1") || fail "$failure"
+        cmd == "LC_DYLD_EXPORTS_TRIE" && $1 == "datasize" { print "trie", off, $2 }
+        $1 == "Section" { sect = ""; seg = ""; sz = "" }
+        $1 == "sectname" { sect = $2 }
+        $1 == "segname" { seg = $2 }
+        sect == "__text" && seg == "__TEXT" && $1 == "size" { sz = $2 }
+        sect == "__text" && seg == "__TEXT" && $1 == "offset" { print "code", $2, sz }
+    ' "$work/load-commands" > "$work/zeroed" 2> /dev/null || fail "$trie_failure"
+    grep -q '^trie ' "$work/zeroed" 2> /dev/null || fail "$trie_failure"
+    grep -q '^code ' "$work/zeroed" 2> /dev/null || fail "$code_failure"
+    size=$(wc -c < "$1") || fail "$trie_failure"
     size=${size//[[:space:]]/}
-    cp "$1" "$2" || fail "$failure"
-    while read -r off length; do
+    cp "$1" "$2" || fail "$trie_failure"
+    while read -r kind off length; do
+        failure=$trie_failure
+        if [ "$kind" = code ]; then
+            # otool prints a section's size in hex, zero-padded.
+            failure=$code_failure
+            [[ "$length" =~ ^0x0*([0-9a-fA-F]{1,15})$ ]] || fail "$failure"
+            length=$((16#${BASH_REMATCH[1]}))
+        fi
         [[ "$off" =~ ^[0-9]+$ && "$length" =~ ^[0-9]+$ ]] || fail "$failure"
         end=$((off + length))
         [ "$length" -gt 0 ] || continue
         { head -c "$off" "$2" && head -c "$length" /dev/zero && tail -c "+$((end + 1))" "$2"; } > "$2.next" 2> /dev/null || fail "$failure"
         mv "$2.next" "$2" || fail "$failure"
-    done < "$work/trie"
-    [ "$(wc -c < "$2" | tr -d '[:space:]')" = "$size" ] || fail "$failure"
+        [ "$(wc -c < "$2" | tr -d '[:space:]')" = "$size" ] || fail "$failure"
+    done < "$work/zeroed"
 }
 
 normalize() {
@@ -216,9 +231,9 @@ for i in 0 1; do
         status=$?
         [ "$status" -eq 1 ] || fail "could not scan the $target binary"
     fi
-    # Whole-file printable runs but the export trie, tab, CR and LF counted as text: strings -a skips Mach-O load commands and
-    # __LINKEDIT; no runs fails closed.
-    without_trie "$bin" "$work/text-source"
+    # Whole-file printable runs but the export trie and machine code, tab, CR and LF counted as text: strings -a skips Mach-O
+    # load commands and __LINKEDIT; no runs fails closed.
+    without_trie_and_code "$bin" "$work/text-source"
     tr '\t\r\n' '   ' < "$work/text-source" | grep -a -o -E '[[:print:]]{4,}' > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
     check_terms "$bin" "$work/strings"
     normalize "$bin" > "$work/normalized" 2> /dev/null || fail "could not scan the $target binary"
