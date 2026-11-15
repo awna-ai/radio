@@ -296,7 +296,8 @@ pub struct Response {
     /// This app's arrivals in ascending id order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deliveries: Option<Vec<Delivery>>,
-    /// The installed handler's answer to an app message.
+    /// The installed handler's answer: at most 4,096 bytes and 8 lines, with no controls
+    /// except newline and tab, and no invisible or format characters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<String>,
     /// The installed handler's process exit code, or 128 plus its terminating signal.

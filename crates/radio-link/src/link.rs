@@ -4,7 +4,7 @@ use crate::{
     computer_record::ComputerRecord,
     endpoint::{self, ALPN, JOIN_ALPN},
     frame::{self, CONTROL_CAP},
-    handler::{Envelope, Handlers, Messages, Ran, Reply},
+    handler::{Envelope, Handlers, Messages, Ran, Reply, valid_reply},
     membership::SignedRecord,
     wire::{self, Answer, Hello, LINK_MAJOR, LINK_MINOR, Protocol, Request},
 };
@@ -80,13 +80,14 @@ impl Link {
         if !wire::hex64(&local.sha) {
             return Err("the build's hash is not usable");
         }
-        let gate = Arc::new(Gate::with_handlers(admission, limits, handlers.clone()));
+        let gate = Arc::new(Gate::with_handlers(admission, limits, handlers));
+        let messages = gate.messages.clone();
         let endpoint = endpoint::bind(key, addrs, gate.clone()).await?;
         Ok(Self {
             endpoint,
             gate,
             local,
-            messages: Arc::new(Messages::new(handlers)),
+            messages,
         })
     }
 
@@ -250,7 +251,7 @@ async fn serve_connection(
                 if gate.admission.standing(&connection.remote_id()) != Standing::Accepted {
                     let from = connection.remote_id();
                     let name = gate.admission.name(&from);
-                    messages.handlers.refused(&from, name.as_deref(), "", "not_member");
+                    messages.audit(&from, name.as_deref(), "", "not_member");
                     connection.close(REFUSED.into(), &[]);
                     break;
                 }
@@ -902,7 +903,7 @@ impl Peer {
                 .map_err(|_| UNANSWERED)?,
         };
         match self.request(&request).await? {
-            Answer::Reply { reply, exit } => Ok(Reply { reply, exit }),
+            Answer::Reply { reply, exit } if valid_reply(&reply) => Ok(Reply { reply, exit }),
             Answer::Refused { reason } => Err(message_refusal(&reason)),
             _ => Err(UNANSWERED),
         }

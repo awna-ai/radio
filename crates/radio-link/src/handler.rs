@@ -1,6 +1,6 @@
 use crate::EndpointId;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -8,6 +8,27 @@ use tokio::{
     sync::{OwnedSemaphorePermit, Semaphore},
     time::Instant,
 };
+
+/// Whether handler stdout is safe to return as a message reply.
+pub fn valid_reply(reply: &str) -> bool {
+    reply.len() <= 4096
+        && reply.lines().count() <= 8
+        && reply
+            .chars()
+            .all(|c| c == '\n' || c == '\t' || (!c.is_control() && !is_invisible(c)))
+}
+
+// Matches the invisible-character list in radio-rooms/src/text.rs.
+fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}' | '\u{061C}' | '\u{115F}'..='\u{1160}' | '\u{180E}'
+            | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}' | '\u{3164}' | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}' | '\u{FFA0}' | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{1D173}'..='\u{1D17A}' | '\u{E0000}'..='\u{E007F}'
+    )
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reply {
@@ -53,6 +74,30 @@ pub(crate) struct Messages {
     pub(crate) handlers: Arc<dyn Handlers>,
     senders: Mutex<HashMap<EndpointId, Sender>>,
     slots: Arc<Semaphore>,
+    not_members: Mutex<NotMembers>,
+}
+
+#[derive(Default)]
+struct NotMembers {
+    logged: VecDeque<(EndpointId, Instant)>,
+}
+
+impl NotMembers {
+    fn allow(&mut self, key: EndpointId) -> bool {
+        let now = Instant::now();
+        while self
+            .logged
+            .front()
+            .is_some_and(|(_, at)| now.duration_since(*at) >= Duration::from_secs(60))
+        {
+            self.logged.pop_front();
+        }
+        if self.logged.len() >= 60 || self.logged.iter().any(|(logged, _)| *logged == key) {
+            return false;
+        }
+        self.logged.push_back((key, now));
+        true
+    }
 }
 
 struct Sender {
@@ -66,6 +111,7 @@ impl Messages {
             handlers,
             senders: Mutex::new(HashMap::new()),
             slots: Arc::new(Semaphore::new(4)),
+            not_members: Mutex::new(NotMembers::default()),
         }
     }
 
@@ -129,9 +175,16 @@ impl Messages {
         Ok((sender_slot, slot))
     }
 
+    pub(crate) fn audit(&self, from: &EndpointId, name: Option<&str>, app: &str, reason: &str) {
+        if reason == "not_member" && !self.not_members.lock().unwrap().allow(*from) {
+            return;
+        }
+        let app = if crate::wire::app_name(app) { app } else { "" };
+        self.handlers.refused(from, name, app, reason);
+    }
+
     pub(crate) fn refused(&self, envelope: &Envelope<'_>, reason: &str) -> crate::wire::Answer {
-        self.handlers
-            .refused(&envelope.from, envelope.from_name, envelope.app, reason);
+        self.audit(&envelope.from, envelope.from_name, envelope.app, reason);
         crate::wire::Answer::Refused {
             reason: reason.into(),
         }
@@ -150,6 +203,50 @@ mod tests {
             body,
         }
     }
+    #[test]
+    fn replies_reject_oversized_and_unsafe_text() {
+        assert!(valid_reply(&"x".repeat(4096)));
+        assert!(valid_reply("1\n2\n3\n4\n5\n6\n7\n8\n"));
+        assert!(valid_reply("hello\tworld\n"));
+        assert!(!valid_reply("\u{1b}[2J"));
+        assert!(!valid_reply(&"x".repeat(4097)));
+        assert!(!valid_reply("1\n2\n3\n4\n5\n6\n7\n8\n9"));
+    }
+
+    #[test]
+    fn replies_reject_invisible_and_format_characters() {
+        for c in ['\u{202e}', '\u{2066}', '\u{200b}', '\u{feff}'] {
+            assert!(!valid_reply(&format!("hello{c}world")), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn refusal_audit_drops_invalid_app_names() {
+        struct Audit(Mutex<Vec<String>>);
+        impl Handlers for Audit {
+            fn has_handler(&self, _app: &str) -> bool {
+                false
+            }
+            fn run(&self, _envelope: &Envelope<'_>) -> Ran {
+                Ran::NoHandler
+            }
+            fn refused(&self, _key: &EndpointId, _name: Option<&str>, app: &str, _reason: &str) {
+                self.0.lock().unwrap().push(app.into());
+            }
+        }
+        let audit = Arc::new(Audit(Mutex::new(Vec::new())));
+        let state = Messages::new(audit.clone());
+        let key = crate::SecretKey::generate().public();
+        let app = "x".repeat(60_000);
+        let mut request = envelope(key, "", "");
+        request.app = &app;
+        state.refused(&request, "not_for_us");
+        assert!(audit.0.lock().unwrap()[0].is_empty());
+        request.app = "notes";
+        state.refused(&request, "clock");
+        assert_eq!(audit.0.lock().unwrap()[1], "notes");
+    }
+
     #[test]
     fn envelope_checks_run_in_order_and_keep_exact_boundaries() {
         let state = Messages::new(Arc::new(NoHandlers));

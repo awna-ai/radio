@@ -168,6 +168,69 @@ fn deadline_kills_the_handler_and_its_child() {
 }
 
 #[test]
+fn completed_handler_kills_its_background_child() {
+    assert_completed_child_killed(
+        "/bin/sleep 30 >/dev/null 2>&1 & echo $! > \"$HOME/child\"; printf done",
+    );
+}
+
+#[test]
+fn completed_handler_kills_a_child_holding_its_output_pipe() {
+    assert_completed_child_killed("/bin/sleep 30 & echo $! > \"$HOME/child\"; printf done");
+}
+
+fn assert_completed_child_killed(script: &str) {
+    struct Cleanup(Option<libc::pid_t>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            if let Some(pid) = self.0 {
+                // SAFETY: this pid belongs to the disposable sleep started below.
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+            }
+        }
+    }
+
+    let f = Fixture::new(script);
+    let start = Instant::now();
+    let result = f.run("hello");
+    let pid = read_pid(&f.dir.join("child"));
+    let mut child = Cleanup(Some(pid));
+    assert!(matches!(result, Ran::Reply { reply, exit: 0 } if reply == "done"));
+    assert!(start.elapsed() < Duration::from_secs(2));
+    assert_gone(pid);
+    child.0 = None;
+}
+
+#[test]
+fn reply_rejects_right_to_left_override() {
+    assert_rejected_character('\u{202e}');
+}
+
+#[test]
+fn reply_rejects_left_to_right_isolate() {
+    assert_rejected_character('\u{2066}');
+}
+
+#[test]
+fn reply_rejects_zero_width_space() {
+    assert_rejected_character('\u{200b}');
+}
+
+#[test]
+fn reply_rejects_byte_order_mark() {
+    assert_rejected_character('\u{feff}');
+}
+
+fn assert_rejected_character(character: char) {
+    let f = Fixture::new(&format!("printf '{character}'"));
+    assert!(
+        matches!(f.run("hello"), Ran::BadReply),
+        "U+{:04X}",
+        character as u32
+    );
+}
+
+#[test]
 fn exit_codes_and_signals_are_reported() {
     let f = Fixture::new("exit 3");
     assert!(matches!(f.run("hello"), Ran::Reply { exit: 3, .. }));
@@ -219,6 +282,16 @@ fn audit_is_private_escaped_and_contains_only_refusal_metadata() {
         fs::metadata(path).unwrap().permissions().mode() & 0o777,
         0o600
     );
+}
+
+#[test]
+fn audit_drops_an_invalid_app_name() {
+    let f = Fixture::new("exit 0");
+    f.handler
+        .refused(&f.key, None, &"x".repeat(60_000), "not_for_us");
+    let text = fs::read_to_string(f.dir.join("audit.log")).unwrap();
+    assert!(text.len() < 300, "audit line has {} bytes", text.len());
+    assert!(text.contains("app=\"\""));
 }
 
 #[test]

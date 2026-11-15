@@ -202,9 +202,10 @@ fn block_closes_the_keys_connections() {
     let peer = runtime
         .block_on(bounded(b.node.link().dial(a.node.id(), &a.node.addrs())))
         .unwrap();
-    runtime
-        .block_on(bounded(peer.hello(&common::hello())))
-        .unwrap();
+    assert_eq!(
+        runtime.block_on(bounded(peer.send_app("lantern", "ready"))),
+        Err("that app takes no messages on that computer")
+    );
     a.node.block(&b.node.id().to_string()).unwrap();
     runtime.block_on(common::closed(peer.connection(), REFUSED));
 }

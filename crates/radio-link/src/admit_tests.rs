@@ -126,8 +126,8 @@ fn delivery_reservations_bound_keys_slots_and_folder_bytes_and_drop_releases_the
     std::fs::remove_dir_all(path).unwrap();
 }
 
-#[test]
-fn nonmembers_are_audited_once_without_another_standing_lookup() {
+#[tokio::test(start_paused = true)]
+async fn nonmembers_are_audited_once_without_another_standing_lookup() {
     struct Audit(std::sync::Mutex<Vec<String>>);
     impl crate::handler::Handlers for Audit {
         fn has_handler(&self, _app: &str) -> bool {
@@ -151,11 +151,69 @@ fn nonmembers_are_audited_once_without_another_standing_lookup() {
     let key = crate::SecretKey::generate().public();
     assert!(gate.audited_member(&key, Standing::Accepted));
     assert!(audit.0.lock().unwrap().is_empty());
-    for (index, standing) in [Standing::Unknown, Standing::Refused]
-        .into_iter()
-        .enumerate()
-    {
+    for standing in [Standing::Unknown, Standing::Refused] {
         assert!(!gate.audited_member(&key, standing));
-        assert_eq!(*audit.0.lock().unwrap(), vec!["not_member"; index + 1]);
+        assert_eq!(*audit.0.lock().unwrap(), vec!["not_member"]);
     }
+    // Stream refusals and handshake refusals share this one budget.
+    gate.messages.refused(
+        &crate::handler::Envelope {
+            app: "",
+            from: key,
+            from_name: None,
+            id: "",
+            body: "",
+        },
+        "not_member",
+    );
+    assert_eq!(*audit.0.lock().unwrap(), vec!["not_member"]);
+    // Accepted members' other refusal reasons remain visible even during a flood.
+    for _ in 0..100 {
+        gate.messages.audit(&key, None, "", "clock");
+    }
+    assert_eq!(audit.0.lock().unwrap().len(), 101);
+}
+
+#[tokio::test(start_paused = true)]
+async fn nonmember_audit_is_capped_per_key_and_over_a_rolling_minute() {
+    struct Audit(std::sync::Mutex<usize>);
+    impl crate::handler::Handlers for Audit {
+        fn has_handler(&self, _app: &str) -> bool {
+            false
+        }
+        fn run(&self, _envelope: &crate::handler::Envelope<'_>) -> crate::handler::Ran {
+            crate::handler::Ran::NoHandler
+        }
+        fn refused(&self, _key: &EndpointId, _name: Option<&str>, _app: &str, reason: &str) {
+            assert_eq!(reason, "not_member");
+            *self.0.lock().unwrap() += 1;
+        }
+    }
+    let audit = Arc::new(Audit(std::sync::Mutex::new(0)));
+    let gate = Gate::with_handlers(
+        Arc::new(Book(Standing::Unknown)),
+        Limits::default(),
+        audit.clone(),
+    );
+    let key = crate::SecretKey::generate().public();
+    assert!(!gate.audited_member(&key, Standing::Unknown));
+    for _ in 1..100 {
+        assert!(!gate.audited_member(&crate::SecretKey::generate().public(), Standing::Unknown));
+    }
+    assert_eq!(*audit.0.lock().unwrap(), 60);
+    tokio::time::advance(Duration::from_secs(59)).await;
+    assert!(!gate.audited_member(&key, Standing::Unknown));
+    assert_eq!(*audit.0.lock().unwrap(), 60);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    assert!(!gate.audited_member(&key, Standing::Unknown));
+    assert_eq!(*audit.0.lock().unwrap(), 61);
+    // Expiry is per entry, rather than resetting the counter on a wall-clock minute.
+    tokio::time::advance(Duration::from_secs(1)).await;
+    for _ in 0..59 {
+        assert!(!gate.audited_member(&crate::SecretKey::generate().public(), Standing::Unknown));
+    }
+    tokio::time::advance(Duration::from_secs(59)).await;
+    assert!(!gate.audited_member(&key, Standing::Unknown));
+    assert!(!gate.audited_member(&crate::SecretKey::generate().public(), Standing::Unknown));
+    assert_eq!(*audit.0.lock().unwrap(), 121);
 }

@@ -101,7 +101,7 @@ App messages: before running anything, the target checks the accepted sender, de
 The handler is only the executable recorded at install, checked again before each run, invoked as `[handler, "message"]` with the body on stdin and working folder `/`.
 Its environment contains only `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, the daemon's `HOME`, `RADIO_FROM_KEY`, `RADIO_FROM_NAME` (Radio's name for the authenticated sender, or its key), and `RADIO_MESSAGE_ID`.
 At most 4 handlers run at once and 1 per sender; the process group is killed at 30 seconds or when stdout exceeds 4,096 bytes.
-A reply must be UTF-8, at most 4,096 bytes and 8 lines (a final newline does not add a line), containing only printable characters, newline and tab.
+A reply must be UTF-8, at most 4,096 bytes and 8 lines (a final newline does not add a line), containing only printable characters, newline and tab, excluding invisible and format characters.
 Refusals go to `audit.log` without the body, id or reply.
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a

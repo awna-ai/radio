@@ -63,7 +63,17 @@ file arriving.
 App messages have an 8 KiB decoded body cap, a 120 second clock window either way, and a per-sender
 replay set holding at most 1,024 ids for 300 seconds without evicting live ids.
 At most 4 handlers run at once and 1 per sender, with a 30 second deadline and a reply of at most
-4 KiB and 8 lines.
+4 KiB and 8 lines, checked on both the target and sender; replies exclude controls except newline
+and tab, and exclude invisible and format characters.
+A handler's process group, including grandchildren, is killed when the handler ends, at its deadline
+or on excess stdout; its pid stays reserved until the group is killed, then the handler is reaped.
+The audit log writes only valid app names and limits `not_member` lines to 1 per sender key and
+60 overall in any 60 seconds; other refusal reasons are not rate-limited.
+The shared rule and audit-name checks are tested in `crates/radio-link/src/handler.rs`, the shared
+handshake and stream audit budget with paused time in `src/admit_tests.rs`, and hostile replies at
+the sender in `tests/wire.rs::sender_rejects_hostile_reply_text`.
+`crates/radio/src/handler_tests.rs` tests invisible replies, short audit lines and cleanup of
+background children on normal exit, including children that keep stdout open.
 At most 4 socket messages wait independently of file sends; their outer wait is 45 seconds and
 the client waits 60 seconds.
 
@@ -169,6 +179,7 @@ address lookup). A relay, when it comes, gets its own rows here.
 
 | Gap | Why accepted | Accepted by | Revisit |
 | --- | --- | --- | --- |
+| A flood past the `not_member` audit cap hides further `not_member` lines | at most 1 line per sender key and 60 overall in any 60 seconds bound the flood; other reasons are not rate-limited; `audit.log` still truncates at 1 MiB | app-message review, 2026-11-14 | if complete refusal accounting is needed |
 | The message clock check trusts both computers' clocks | a message outside 120 seconds is refused before any handler runs; the person can correct the clocks | app-message design, 2026-11-14 | if clock drift interrupts honest messages |
 | The replay set is lost on restart, so a recently used id passes the replay check after a restart | an honest Radio never resends; a connection is bound to its key, so a peer can replay only its own messages; the clock window still applies | app-message design, 2026-11-14 | if apps require replay protection across restarts |
 | Checking the recorded executable and its folders before spawning still leaves a path replacement race for this user or root | the handler and its ancestors pass the install step's owner and mode rules, so another unprivileged user cannot change them; same-user processes are trusted already | app-message review, 2026-11-14 | if same-user processes become untrusted |

@@ -323,7 +323,8 @@ with the body on stdin, working folder `/`, and only `PATH=/usr/bin:/bin:/usr/sb
 The sender key is authenticated; the name is Radio's name for it, or its key when unnamed.
 A body is 1 to 8,192 decoded bytes, still within the socket's 16 KiB request line.
 A handler gets 30 seconds and returns UTF-8 stdout of at most 4,096 bytes and 8 lines, with only
-printable characters, newline and tab; a final newline does not add a line.
+printable characters, newline and tab, excluding invisible and format characters; a final newline
+does not add a line.
 Its exit code comes back as `exit`, or 128 plus its terminating signal.
 At most 4 messages wait on the sending computer and at most 4 handlers run on the receiving one,
 with 1 per sender; the socket answers within 45 seconds and the client waits 60 seconds.

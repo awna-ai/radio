@@ -859,3 +859,61 @@ async fn dials_without_addresses_fail_at_once() {
     bounded(a.close()).await;
     bounded(b.close()).await;
 }
+
+#[tokio::test]
+async fn sender_rejects_hostile_reply_text() {
+    let sender_book = Book::new();
+    let (sender, _) = bind(sender_book.clone(), Limits::default()).await;
+    let target_book = Book::new();
+    target_book.set(sender.id(), Standing::Accepted);
+    let target = bounded(radio_link::endpoint::bind(
+        SecretKey::generate(),
+        &["127.0.0.1:0".parse().unwrap()],
+        Arc::new(radio_link::admit::Gate::new(target_book, Limits::default())),
+    ))
+    .await
+    .unwrap();
+    sender_book.set(target.id(), Standing::Accepted);
+    let target_addrs = target.bound_sockets();
+    let dial = sender.dial(target.id(), &target_addrs);
+    let accept = async { bounded(target.accept()).await.unwrap().await.unwrap() };
+    let (peer, connection) = tokio::join!(dial, accept);
+    let peer = peer.unwrap();
+    for reply in [
+        "\u{1b}[2J".into(),
+        "x".repeat(4097),
+        "\u{202e}".into(),
+        "\u{2066}".into(),
+        "\u{200b}".into(),
+        "\u{feff}".into(),
+        "1\n2\n3\n4\n5\n6\n7\n8\n9".into(),
+        "hello\tworld\n".into(),
+        "x".repeat(4096),
+    ] {
+        let expected = if reply == "hello\tworld\n" || reply == "x".repeat(4096) {
+            Ok(radio_link::handler::Reply {
+                reply: reply.clone(),
+                exit: 3,
+            })
+        } else {
+            Err("the computer did not answer")
+        };
+        let answer = async {
+            let (mut send, mut recv) = bounded(connection.accept_bi()).await.unwrap();
+            let request: Request = bounded(frame::read(&mut recv, CONTROL_CAP)).await.unwrap();
+            assert!(matches!(request, Request::App { .. }));
+            bounded(frame::write(
+                &mut send,
+                &Answer::Reply { reply, exit: 3 },
+                CONTROL_CAP,
+            ))
+            .await
+            .unwrap();
+            send.finish().unwrap();
+        };
+        let (actual, ()) = tokio::join!(peer.send_app("notes", "hello"), answer);
+        assert_eq!(actual, expected);
+    }
+    bounded(sender.close()).await;
+    bounded(target.close()).await;
+}

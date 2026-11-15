@@ -125,7 +125,7 @@ struct Live {
 pub struct Gate {
     pub(crate) admission: Arc<dyn Admission>,
     pub(crate) limits: Limits,
-    handlers: Arc<dyn crate::handler::Handlers>,
+    pub(crate) messages: Arc<crate::handler::Messages>,
     live: Mutex<Vec<Live>>,
     files: Arc<Mutex<Files>>,
     pub(crate) deliveries: Arc<tokio::sync::Semaphore>,
@@ -228,7 +228,7 @@ impl Gate {
     ) -> Self {
         Self {
             admission,
-            handlers,
+            messages: Arc::new(crate::handler::Messages::new(handlers)),
             deliveries: Arc::new(tokio::sync::Semaphore::new(limits.deliveries)),
             limits,
             live: Mutex::new(Vec::new()),
@@ -240,7 +240,7 @@ impl Gate {
         if standing == Standing::Accepted {
             return true;
         }
-        self.handlers.refused(key, None, "", "not_member");
+        self.messages.audit(key, None, "", "not_member");
         false
     }
 
