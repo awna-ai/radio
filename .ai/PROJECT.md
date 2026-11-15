@@ -35,7 +35,7 @@ one's data (`.ai/DECISIONS.md` D3).
 | What | Where |
 | --- | --- |
 | Socket | `~/.local/state/radio/radio.sock` (folder 0700) |
-| State | `~/.local/state/radio/` (0700): `rooms.db`, `install.json`, `install.lock`, `clients/<app>.json`, `radio.log`, and `fleet.db` from the first fleet op, all 0600 |
+| State | `~/.local/state/radio/` (0700): `rooms.db`, `install.json`, `install.lock`, `clients/<app>.json`, `radio.log`, and `fleet.db` from the first fleet op and `status.json` once the link starts, all 0600 |
 | Config | `~/.config/radio/` (0700): `node.key`, 0600, made by the first `id` or fleet op; `recovery.key`, 0600, written once by `fleet_init` for the person to move into a password manager and delete |
 | Binaries | `~/.local/libexec/radio/<version>/radio` |
 | Launch agent | `~/Library/LaunchAgents/ai.awna.radio.plist` |

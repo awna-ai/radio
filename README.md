@@ -544,6 +544,13 @@ rest is being built. When it is, an app can count on this:
   with the identity of the computer that sent it, to the handler your app recorded at install
   (`--handler`); the handler's reply goes back. The handler's path only ever comes from that
   install record, never from a message.
+- **Radio remembers where each computer answered.** Every dial tries first the address that
+  computer's last connection used, then the others it gave, so two computers find each other again
+  after a restart with no new code. `~/.local/state/radio/status.json` lists the computers connected
+  now, rewritten whole on each connect and close: for each, `name`, `key`, `path` (`"direct"`),
+  `addr`, `rtt_ms` and `last_seen` (Unix seconds), and a `relay` line that reads `"none"` until
+  Radio uses relays. Read it to show the person what is connected; it is not part of the socket
+  contract.
 
 ## Where it stands
 

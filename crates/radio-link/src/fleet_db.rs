@@ -25,13 +25,14 @@ use std::{
 };
 
 pub const DB_FILE: &str = "fleet.db";
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 pub const JOIN_RECORDS_MAX: usize = 256 * 1024;
 pub const CODES_MAX: usize = 64;
 pub const TTL_DEFAULT: u64 = 30 * 60;
 pub const TTL_MIN: u64 = 60;
 pub const TTL_MAX: u64 = 24 * 60 * 60;
 pub const RECOVERY_FILE: &str = "recovery.key";
+pub const STATUS_FILE: &str = "status.json";
 pub const NOT_LINK_ADDRESS: &str = "not a link address";
 pub const FAMILY_TAKEN: &str =
     "this computer already has a link address of that family; remove it first";
@@ -115,6 +116,9 @@ CREATE TABLE arrivals (
 ) STRICT;
 ";
 
+// The direct address each computer's last dialed connection used; dials try it first.
+const SCHEMA_6: &str = "ALTER TABLE computers ADD COLUMN last_addr TEXT;";
+
 pub const INTRODUCTIONS_PER_DAY: i64 = 3;
 pub const DAY: f64 = 86400.0;
 pub const HELD_PER_SIGNER: i64 = 64;
@@ -186,16 +190,15 @@ pub struct Arrival {
 
 pub struct FleetDb {
     conn: Connection,
+    folder: PathBuf,
 }
 
 impl FleetDb {
     pub fn open(path: &Path) -> Result<Self, &'static str> {
         let parent = path.parent().ok_or("the fleet folder is not usable")?;
         let _folder = key::private_folder(parent).map_err(|_| "the fleet folder is not usable")?;
-        let path = parent
-            .canonicalize()
-            .map_err(|_| OPEN)?
-            .join(path.file_name().ok_or(OPEN)?);
+        let folder = parent.canonicalize().map_err(|_| OPEN)?;
+        let path = folder.join(path.file_name().ok_or(OPEN)?);
         let file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -226,7 +229,7 @@ impl FleetDb {
         conn.pragma_update(None, "trusted_schema", false)
             .map_err(|_| WRITE)?;
         migrate(&mut conn)?;
-        Ok(Self { conn })
+        Ok(Self { conn, folder })
     }
 
     pub fn set_delivery_folder(&mut self, app: &str, folder: &Path) -> Result<(), &'static str> {
@@ -541,6 +544,38 @@ impl FleetDb {
     }
     pub fn recipients(&self, except: &iroh::EndpointId) -> Result<Vec<Recipient>, &'static str> {
         recipients(&self.conn, except)
+    }
+    /// Where Radio writes the connected computers, beside this store.
+    pub fn status_path(&self) -> PathBuf {
+        self.folder.join(STATUS_FILE)
+    }
+    /// Keeps `addr` as the address to try first, only when the accepted computer gave it.
+    pub fn used(&mut self, key: &str, addr: SocketAddr) -> Result<bool, &'static str> {
+        let Some(computer) = find_computer(&self.conn, key)? else {
+            return Ok(false);
+        };
+        if computer.state != State::Accepted || !computer.addrs.contains(&addr) {
+            return Ok(false);
+        }
+        self.conn
+            .execute(
+                "UPDATE computers SET last_addr = ?2 WHERE key = ?1",
+                params![key, addr.to_string()],
+            )
+            .map_err(|_| WRITE)?;
+        Ok(true)
+    }
+    pub fn last_addr(&self, key: &str) -> Result<Option<SocketAddr>, &'static str> {
+        let text: Option<Option<String>> = self
+            .conn
+            .query_row(
+                "SELECT last_addr FROM computers WHERE key = ?1",
+                [key],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|_| READ)?;
+        Ok(text.flatten().and_then(|text| text.parse().ok()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1308,7 +1343,16 @@ fn computer_row(row: &Row<'_>) -> rusqlite::Result<Computer> {
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
     let text: String = row.get(5)?;
-    let addrs = serde_json::from_str(&text).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let mut addrs: Vec<SocketAddr> =
+        serde_json::from_str(&text).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let last: Option<String> = row.get(6)?;
+    if let Some(at) = last
+        .and_then(|text| text.parse::<SocketAddr>().ok())
+        .and_then(|last| addrs.iter().position(|addr| *addr == last))
+    {
+        let addr = addrs.remove(at);
+        addrs.insert(0, addr);
+    }
     Ok(Computer {
         key: row.get(0)?,
         name: row.get(1)?,
@@ -1320,7 +1364,7 @@ fn computer_row(row: &Row<'_>) -> rusqlite::Result<Computer> {
 }
 fn all_computers(conn: &Connection) -> Result<Vec<Computer>, &'static str> {
     let mut stmt = conn
-        .prepare("SELECT key, name, state, invited_by, trusted, addrs FROM computers ORDER BY name")
+        .prepare("SELECT key, name, state, invited_by, trusted, addrs, last_addr FROM computers ORDER BY name")
         .map_err(|_| READ)?;
     stmt.query_map([], computer_row)
         .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
@@ -1328,7 +1372,7 @@ fn all_computers(conn: &Connection) -> Result<Vec<Computer>, &'static str> {
 }
 fn find_computer(conn: &Connection, key: &str) -> Result<Option<Computer>, &'static str> {
     conn.query_row(
-        "SELECT key, name, state, invited_by, trusted, addrs FROM computers WHERE key = ?1",
+        "SELECT key, name, state, invited_by, trusted, addrs, last_addr FROM computers WHERE key = ?1",
         [key],
         computer_row,
     )
@@ -1533,7 +1577,7 @@ fn resolve(conn: &Connection, target: &str) -> Result<Computer, &'static str> {
         return Err("not a computer");
     }
     conn.query_row(
-        "SELECT key, name, state, invited_by, trusted, addrs FROM computers WHERE name = ?1",
+        "SELECT key, name, state, invited_by, trusted, addrs, last_addr FROM computers WHERE name = ?1",
         [target],
         computer_row,
     )
@@ -1565,7 +1609,7 @@ fn insert_computer(
     now: f64,
 ) -> Result<(), &'static str> {
     conn.execute(
-        "INSERT INTO computers VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
+        "INSERT INTO computers (key, name, state, invited_by, trusted, addrs, added) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
         params![
             known.key,
             known.name,
@@ -1674,7 +1718,7 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
             tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?;
         }
         2 => tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?,
-        3 | 4 => {}
+        3..=5 => {}
         SCHEMA_VERSION => return Ok(()),
         value if value > SCHEMA_VERSION => return Err("fleet.db is newer than this build"),
         _ => return Err(READ),
@@ -1682,7 +1726,10 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
     if version < 4 {
         tx.execute_batch(SCHEMA_4).map_err(|_| WRITE)?;
     }
-    tx.execute_batch(SCHEMA_5).map_err(|_| WRITE)?;
+    if version < 5 {
+        tx.execute_batch(SCHEMA_5).map_err(|_| WRITE)?;
+    }
+    tx.execute_batch(SCHEMA_6).map_err(|_| WRITE)?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|_| WRITE)?;
     tx.commit().map_err(|_| WRITE)

@@ -43,9 +43,24 @@ pub trait Admission: Send + Sync + 'static {
     fn delivery_folder(&self, _app: &str) -> Option<crate::fleet_db::DeliveryFolder> {
         None
     }
+    /// A dial to `key` worked over `addr`.
+    fn used(&self, _key: &EndpointId, _addr: std::net::SocketAddr) {}
+    fn status_file(&self) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 impl Admission for Mutex<FleetDb> {
+    fn used(&self, key: &EndpointId, addr: std::net::SocketAddr) {
+        if let Ok(mut db) = self.lock() {
+            let _ = db.used(&key.to_string(), addr);
+        }
+    }
+
+    fn status_file(&self) -> Option<std::path::PathBuf> {
+        self.lock().ok().map(|db| db.status_path())
+    }
+
     fn addrs(&self, key: &EndpointId) -> Vec<std::net::SocketAddr> {
         self.lock()
             .ok()
@@ -153,6 +168,7 @@ pub struct Gate {
     live: Mutex<Vec<Live>>,
     files: Arc<Mutex<Files>>,
     pub(crate) deliveries: Arc<tokio::sync::Semaphore>,
+    pub(crate) status: Option<Arc<crate::status::Status>>,
 }
 
 #[derive(Default)]
@@ -264,7 +280,11 @@ impl Gate {
         limits: Limits,
         handlers: Arc<dyn crate::handler::Handlers>,
     ) -> Self {
+        let status = admission
+            .status_file()
+            .map(|path| crate::status::Status::new(path, admission.clone()));
         Self {
+            status,
             admission,
             messages: Arc::new(crate::handler::Messages::new(handlers)),
             deliveries: Arc::new(tokio::sync::Semaphore::new(limits.deliveries)),
@@ -379,6 +399,9 @@ impl EndpointHooks for Gate {
             connection: conn.weak_handle(),
             admitted_at: Instant::now(),
         });
+        if !join && let Some(status) = &self.status {
+            status.track(key, conn);
+        }
         AfterHandshakeOutcome::Accept
     }
 }

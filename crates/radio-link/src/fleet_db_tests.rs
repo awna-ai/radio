@@ -537,7 +537,7 @@ fn computer(
 ) {
     db.conn
         .execute(
-            "INSERT INTO computers VALUES (?1, ?2, ?3, ?4, 0, ?5, 10.0)",
+            "INSERT INTO computers (key, name, state, invited_by, trusted, addrs, added) VALUES (?1, ?2, ?3, ?4, 0, ?5, 10.0)",
             params![
                 key.to_string(),
                 name,
@@ -2560,7 +2560,10 @@ fn migrates_schema_two_preserving_rows() {
     conn.execute("INSERT INTO local VALUES (1, 7, NULL)", [])
         .unwrap();
     let peer = iroh::SecretKey::generate().public();
-    let old = FleetDb { conn };
+    let old = FleetDb {
+        conn,
+        folder: temp.0.clone(),
+    };
     computer(
         &old,
         &peer,
@@ -3014,7 +3017,10 @@ fn migrates_schema_three_preserving_fleet_and_computers() {
     conn.execute("INSERT INTO local VALUES (1, 7, NULL)", [])
         .unwrap();
     let peer = iroh::SecretKey::generate().public();
-    let old = FleetDb { conn };
+    let old = FleetDb {
+        conn,
+        folder: temp.0.clone(),
+    };
     computer(
         &old,
         &peer,
@@ -3054,7 +3060,7 @@ fn migrates_schema_four_preserving_addresses() {
         db.conn
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        SCHEMA_VERSION
     );
     assert_eq!(
         db.link_addresses().unwrap(),
@@ -3315,4 +3321,117 @@ fn a_failed_delivery_folder_row_leaves_no_new_folder() {
     assert!(!replacement.exists());
     assert!(original.is_dir());
     assert_eq!(db.delivery_folder("notes").unwrap().unwrap().path, original);
+}
+
+fn insert_computer(db: &FleetDb, key: &str, addrs: &[SocketAddr]) {
+    db.conn
+        .execute(
+            "INSERT INTO computers (key, name, state, invited_by, trusted, addrs, added) VALUES (?1, 'birch', 'accepted', NULL, 0, ?2, 0)",
+            params![key, serde_json::to_string(addrs).unwrap()],
+        )
+        .unwrap();
+}
+
+#[test]
+fn migrates_schema_five_adding_the_last_address() {
+    let temp = Temp::new();
+    key::private_folder(&temp.0).unwrap();
+    let conn = Connection::open(temp.path()).unwrap();
+    for schema in [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5] {
+        conn.execute_batch(schema).unwrap();
+    }
+    let key = "a".repeat(64);
+    conn.execute(
+        "INSERT INTO computers VALUES (?1, 'birch', 'accepted', NULL, 0, '[\"10.0.0.2:7341\"]', 0)",
+        [&key],
+    )
+    .unwrap();
+    conn.pragma_update(None, "user_version", 5).unwrap();
+    drop(conn);
+    let db = temp.open();
+    assert_eq!(
+        db.conn
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        SCHEMA_VERSION
+    );
+    assert_eq!(
+        find_computer(&db.conn, &key).unwrap().unwrap().addrs,
+        vec!["10.0.0.2:7341".parse::<SocketAddr>().unwrap()]
+    );
+    assert_eq!(db.last_addr(&key).unwrap(), None);
+}
+
+#[test]
+fn the_address_that_last_worked_is_listed_first() {
+    let temp = Temp::new();
+    let (mut db, _) = temp.found();
+    let key = iroh::SecretKey::generate().public().to_string();
+    let stale: SocketAddr = "10.0.0.9:7341".parse().unwrap();
+    let good: SocketAddr = "10.0.0.2:7341".parse().unwrap();
+    insert_computer(&db, &key, &[stale, good]);
+    assert_eq!(db.computer(&key).unwrap().addrs, vec![stale, good]);
+    assert_eq!(db.used(&key, good), Ok(true));
+    assert_eq!(db.last_addr(&key).unwrap(), Some(good));
+    assert_eq!(db.computer(&key).unwrap().addrs, vec![good, stale]);
+    assert_eq!(db.computer("birch").unwrap().addrs, vec![good, stale]);
+    assert_eq!(db.computers().unwrap()[0].addrs, vec![good, stale]);
+    let none = iroh::SecretKey::generate().public();
+    assert_eq!(db.recipients(&none).unwrap()[0].1, vec![good, stale]);
+    drop(db);
+    let mut db = temp.open();
+    assert_eq!(db.computer(&key).unwrap().addrs, vec![good, stale]);
+    assert_eq!(db.used(&key, stale), Ok(true));
+    assert_eq!(db.computer(&key).unwrap().addrs, vec![stale, good]);
+}
+
+#[test]
+fn an_address_the_computer_never_gave_is_not_kept() {
+    let temp = Temp::new();
+    let (mut db, _) = temp.found();
+    let key = iroh::SecretKey::generate().public().to_string();
+    let first: SocketAddr = "10.0.0.9:7341".parse().unwrap();
+    let second: SocketAddr = "10.0.0.2:7341".parse().unwrap();
+    insert_computer(&db, &key, &[first, second]);
+    assert_eq!(db.used(&key, "10.0.0.7:7341".parse().unwrap()), Ok(false));
+    assert_eq!(db.last_addr(&key).unwrap(), None);
+    assert_eq!(db.computer(&key).unwrap().addrs, vec![first, second]);
+    let unknown = iroh::SecretKey::generate().public().to_string();
+    assert_eq!(db.used(&unknown, second), Ok(false));
+    db.conn
+        .execute(
+            "UPDATE computers SET state = 'blocked' WHERE key = ?1",
+            [&key],
+        )
+        .unwrap();
+    assert_eq!(db.used(&key, second), Ok(false));
+    assert_eq!(db.last_addr(&key).unwrap(), None);
+}
+
+#[test]
+fn a_last_address_the_computer_no_longer_gives_is_not_listed() {
+    let temp = Temp::new();
+    let (mut db, _) = temp.found();
+    let key = iroh::SecretKey::generate().public().to_string();
+    let old: SocketAddr = "10.0.0.9:7341".parse().unwrap();
+    let new: SocketAddr = "10.0.0.2:7341".parse().unwrap();
+    insert_computer(&db, &key, &[new, old]);
+    assert_eq!(db.used(&key, old), Ok(true));
+    db.conn
+        .execute(
+            "UPDATE computers SET addrs = ?2 WHERE key = ?1",
+            params![key, serde_json::to_string(&[new]).unwrap()],
+        )
+        .unwrap();
+    assert_eq!(db.computer(&key).unwrap().addrs, vec![new]);
+}
+
+#[test]
+fn the_status_file_sits_beside_the_fleet_store() {
+    let temp = Temp::new();
+    let db = temp.open();
+    assert_eq!(
+        db.status_path(),
+        temp.0.canonicalize().unwrap().join(STATUS_FILE)
+    );
 }

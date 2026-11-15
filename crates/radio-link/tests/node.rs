@@ -69,6 +69,32 @@ impl Computer {
         }
     }
 
+    /// Stops this computer's Radio and starts it again on the same key, address and store.
+    fn restart(self, name: &str, handlers: Arc<dyn radio_link::handler::Handlers>) -> Self {
+        let Self { node, key, db, dir } = self;
+        let addrs = node.addrs();
+        drop(node);
+        let node = Node::start(
+            key.clone(),
+            &addrs,
+            db.clone(),
+            Local {
+                name: name.into(),
+                sha: SHA.into(),
+                clients: None,
+            },
+            Limits::default(),
+            handlers,
+        )
+        .unwrap();
+        Self { node, key, db, dir }
+    }
+
+    fn status(&self) -> serde_json::Value {
+        let path = self.dir.0.join("status.json");
+        serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+    }
+
     fn found(&self) {
         self.db
             .lock()
@@ -425,4 +451,86 @@ fn a_message_reaches_the_recorded_name_and_returns_a_reply() {
             exit: 3
         })
     );
+}
+
+struct Notes;
+impl radio_link::handler::Handlers for Notes {
+    fn has_handler(&self, app: &str) -> bool {
+        app == "notes"
+    }
+    fn run(&self, envelope: &radio_link::handler::Envelope<'_>) -> radio_link::handler::Ran {
+        radio_link::handler::Ran::Reply {
+            reply: envelope.body.to_owned(),
+            exit: 0,
+        }
+    }
+    fn refused(&self, _: &radio_link::EndpointId, _: Option<&str>, _: &str, _: &str) {}
+}
+
+fn listed(status: &serde_json::Value, key: &str) -> Option<serde_json::Value> {
+    status["computers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["key"] == key)
+        .cloned()
+}
+
+#[test]
+fn restarted_radios_reconnect_from_the_stored_address_without_a_code() {
+    let target = Computer::with_handlers("garden", Arc::new(Notes));
+    let sender = Computer::new("birch");
+    target.found();
+    assert_eq!(sender.node.join(target.code(), now()), Ok(()));
+    wait(|| target.state(&sender) == Some(State::Accepted));
+    let target = target.restart("garden", Arc::new(Notes));
+    let sender = sender.restart("birch", Arc::new(radio_link::handler::NoHandlers));
+    for side in [&target, &sender] {
+        assert_eq!(side.status()["computers"], serde_json::json!([]));
+    }
+    assert_eq!(
+        sender.node.message("garden", "notes", "again"),
+        Ok(radio_link::handler::Reply {
+            reply: "again".into(),
+            exit: 0
+        })
+    );
+    let key = target.node.id().to_string();
+    assert_eq!(
+        sender.db.lock().unwrap().last_addr(&key).unwrap(),
+        Some(target.node.addrs()[0])
+    );
+}
+
+#[test]
+fn status_lists_a_connected_computer_until_its_connection_closes() {
+    let (a, b) = joined();
+    let a = a.restart("garden", Arc::new(Notes));
+    let b_key = b.node.id().to_string();
+    let a_key = a.node.id().to_string();
+    assert_eq!(
+        b.node
+            .message("garden", "notes", "ready")
+            .map(|reply| reply.reply),
+        Ok("ready".into())
+    );
+    wait(|| listed(&b.status(), &a_key).is_some());
+    let entry = listed(&b.status(), &a_key).unwrap();
+    assert_eq!(entry["name"], "garden");
+    assert_eq!(entry["path"], "direct");
+    assert_eq!(entry["addr"], a.node.addrs()[0].to_string());
+    assert!(entry["rtt_ms"].is_u64());
+    assert!(entry["last_seen"].as_u64().unwrap() >= now() as u64 - 60);
+    assert_eq!(b.status()["relay"], "none");
+    wait(|| listed(&a.status(), &b_key).is_some());
+    assert_eq!(listed(&a.status(), &b_key).unwrap()["name"], "birch");
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(b.dir.0.join("status.json"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600);
+    a.node.block(&b_key).unwrap();
+    wait(|| listed(&a.status(), &b_key).is_none());
+    wait(|| listed(&b.status(), &a_key).is_none());
 }

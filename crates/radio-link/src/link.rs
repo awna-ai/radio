@@ -85,6 +85,10 @@ impl Link {
         let gate = Arc::new(Gate::with_handlers(admission, limits, handlers));
         let messages = gate.messages.clone();
         let endpoint = endpoint::bind(key, addrs, gate.clone()).await?;
+        // A file left by an earlier run lists no live connection.
+        if let Some(status) = &gate.status {
+            status.write();
+        }
         let peers = Peers::new(
             LinkConnector {
                 endpoint: endpoint.clone(),
@@ -299,7 +303,11 @@ impl Connector for LinkConnector {
             return Err("the computer is not let in");
         }
         let addrs = addrs.unwrap_or_else(|| self.gate.admission.addrs(&id));
-        dial(&self.endpoint, &self.gate, id, &addrs).await
+        let connection = dial(&self.endpoint, &self.gate, id, &addrs).await?;
+        if let Some(addr) = crate::status::direct_addr(&connection) {
+            self.gate.admission.used(&id, addr);
+        }
+        Ok(connection)
     }
 
     async fn heartbeat(&self, conn: &Connection) -> Result<(), &'static str> {
