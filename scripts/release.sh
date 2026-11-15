@@ -132,7 +132,7 @@ grep -o -E '"kind":\[[^]]*"(lib|rlib|dylib|bin)"[^]]*\],"crate_types":\[[^]]*\],
 {
     sed -E 's/.*"name":"([^"]+)"$/\1/' "$work/targets" | tr - _
     printf '%s\n' std core alloc compiler_builtins panic_unwind panic_abort unwind std_detect rustc_demangle hashbrown \
-        addr2line gimli object miniz_oxide adler2 memchr cfg_if libc rustc_std_workspace_core rustc_std_workspace_alloc
+        addr2line gimli object miniz_oxide adler2 memchr cfg_if libc rustc_std_workspace_core rustc_std_workspace_alloc __rustc
 } | sort -u > "$work/crates" 2> /dev/null || fail "$crate_failure"
 grep -F -x -q radio "$work/crates" 2> /dev/null || fail "$crate_failure"
 if grep -v -E -q '^[A-Za-z_][A-Za-z0-9_]*$' "$work/crates" 2> /dev/null; then
@@ -224,7 +224,7 @@ for i in 0 1; do
     normalize "$bin" > "$work/normalized" 2> /dev/null || fail "could not scan the $target binary"
     # v0 crate hashes (Cs, 1 to 11 base-62 digits, _ before a crate of this build) are build noise: drop them before splitting words.
     # perl, since a real build's crate list is longer than macOS sed takes in one command.
-    CRATE_NAMES=$crate_names perl -pe 's/Cs[0-9A-Za-z]{1,11}_(u?)($ENV{CRATE_NAMES})/ $1$2/g' "$work/strings" 2> /dev/null | normalize > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
+    CRATE_NAMES=$crate_names perl -pe 's/Cs[0-9A-Za-z]{1,11}_(u?)($ENV{CRATE_NAMES})/ $1$2/g' < "$work/strings" 2> /dev/null | normalize > "$work/strings-normalized" 2> /dev/null || fail "could not scan the $target binary"
     check_terms "$work/normalized" "$work/strings-normalized"
     codesign --force --sign - --identifier ai.awna.radio "$bin" > /dev/null 2>&1 || fail "could not sign the $target binary"
     codesign --verify --strict "$bin" > /dev/null 2>&1 || fail "could not verify the $target signature"

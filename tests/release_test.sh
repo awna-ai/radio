@@ -855,6 +855,12 @@ printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
 export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_CRATES=_zzunder STUB_BINARY_TEXT=$'\x01_RNvNtCs1aZqv9_8__zzunder4main\x02'
 expect 0 'release: built v0.1.0' v0.1.0
 
+# The toolchain's own pseudo-crate for allocator shims.
+new_case 69
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvCs1aZqv9_7___rustc12___rust_alloc\x02'
+expect 0 'release: built v0.1.0' v0.1.0
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
