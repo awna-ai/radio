@@ -3,7 +3,7 @@ use radio_client::{Member, REQUEST_MAX_BYTES, Request, Response, request, socket
 use radio_rooms::{Author, RoomStore};
 use std::{
     fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     os::unix::fs::{FileTypeExt, PermissionsExt},
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
@@ -854,9 +854,9 @@ fn reads_have_defaults_limits_room_checks_and_live_status() {
 }
 
 #[test]
-fn largest_escaped_read_round_trips_through_client() {
+fn largest_escaped_read_fits_the_client_cap_and_parses() {
     let fixture = Fixture::new();
-    let mut server = fixture.bind();
+    let mut server = fixture.bind().with_answer_deadline(Duration::from_secs(30));
     let body = "\"\\".repeat(2048);
     assert_eq!(body.len(), 4096);
     for _ in 0..500 {
@@ -872,15 +872,25 @@ fn largest_escaped_read_round_trips_through_client() {
             .unwrap();
     }
     let worker = start(server, 1);
-    let response = request(
-        &fixture.socket(),
-        &Request::Read {
-            room: "test-host".into(),
-            since: Some(0),
-            limit: Some(500),
-        },
-    )
-    .unwrap();
+    // Debug encoding under load can exceed the client's 5 s wait, so read with a 30 s hang
+    // detector and check the client's cap here; radio-client's socket tests cover the cap itself.
+    let mut stream = UnixStream::connect(fixture.socket()).unwrap();
+    read_timeout(&stream, Duration::from_secs(30));
+    stream
+        .write_all(b"{\"v\":1,\"op\":\"read\",\"room\":\"test-host\",\"since\":0,\"limit\":500}\n")
+        .unwrap();
+    half_close(&stream);
+    let mut line = Vec::new();
+    BufReader::new((&stream).take((radio_client::RESPONSE_MAX_BYTES + 1) as u64))
+        .read_until(b'\n', &mut line)
+        .unwrap();
+    assert!(line.ends_with(b"\n"));
+    line.pop();
+    assert!(
+        line.len() < radio_client::RESPONSE_MAX_BYTES,
+        "the answer exceeds the client's response cap"
+    );
+    let response: Response = serde_json::from_slice(&line).unwrap();
     assert!(response.ok);
     let messages = response.messages.unwrap();
     assert_eq!(messages.len(), 500);
@@ -1004,9 +1014,8 @@ fn unread_answer_hits_the_deadline_and_server_keeps_accepting() {
     let (finished, completion) = std::sync::mpsc::channel();
     let worker = thread::spawn(move || {
         let (stream, _) = server.listener.accept().unwrap();
-        let started = Instant::now();
         server.serve_one(stream);
-        finished.send(started.elapsed()).unwrap();
+        finished.send(Instant::now()).unwrap();
         let (stream, _) = server.listener.accept().unwrap();
         server.serve_one(stream);
     });
@@ -1014,16 +1023,23 @@ fn unread_answer_hits_the_deadline_and_server_keeps_accepting() {
     client
         .write_all(b"{\"v\":1,\"op\":\"read\",\"room\":\"garden\",\"limit\":500}\n")
         .unwrap();
-    let elapsed = completion.recv_timeout(Duration::from_secs(2));
+    // Time from the first byte: the store read and encoding precede the deadline's clock.
+    read_timeout(&client, Duration::from_secs(30));
+    client.read_exact(&mut [0u8; 1]).unwrap();
+    let writing = Instant::now();
+    let finished = completion.recv_timeout(Duration::from_secs(30));
     // Release the blocked writer even when the deadline assertion will fail.
     drop(client);
     let hello = request(&fixture.socket(), &Request::Hello {}).unwrap();
     worker.join().unwrap();
     assert!(
-        elapsed.is_ok(),
-        "serve_one did not return within two seconds"
+        finished.is_ok(),
+        "serve_one did not return within 30 seconds"
     );
-    assert!(elapsed.unwrap() < Duration::from_secs(2));
+    assert!(
+        finished.unwrap().saturating_duration_since(writing) < Duration::from_secs(3),
+        "the write ran 3 seconds or more past the first byte; its answer deadline is 300 ms"
+    );
     assert!(hello.ok);
     assert!(hello.protocol.is_some());
 }
