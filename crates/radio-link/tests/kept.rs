@@ -66,8 +66,10 @@ impl Handlers for Echo {
 fn limits() -> Limits {
     Limits {
         unused: Duration::from_millis(400),
-        heartbeat: Duration::from_millis(100),
-        failed: Duration::from_secs(1),
+        // Each heartbeat must answer within one interval, on one thread shared by every link here,
+        // so leave a loaded machine room or the kept connection fails and redials mid-test.
+        heartbeat: Duration::from_millis(250),
+        failed: Duration::from_secs(3),
         backoff_min: Duration::from_millis(50),
         backoff_max: Duration::from_millis(400),
         idle: Duration::from_secs(2),
