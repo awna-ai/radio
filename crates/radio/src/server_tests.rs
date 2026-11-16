@@ -3591,3 +3591,65 @@ fn a_time_box_that_runs_out_ends_the_deliberation_open_with_its_result() {
     );
     worker.join().unwrap();
 }
+
+#[test]
+fn a_turn_or_a_result_first_after_the_box_runs_out_ends_it_and_keeps_that() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 6);
+    let socket = fixture.socket();
+    let sam = serde_json::json!({"kind":"human","name":"sam"});
+    let ada = serde_json::json!({"kind":"human","name":"ada"});
+    let mut store = fixture.reader();
+    // Each room is convened, sam posts, and its convening moves fifteen minutes back.
+    for room in ["turned", "resulted"] {
+        assert_eq!(
+            call(
+                &socket,
+                serde_json::json!({"v":1,"op":"deliberation_convene","room":room,"title":room,"author":sam,"kind":"list","n":1,"seats":[sam, ada],"time_box":"15m"}),
+            ),
+            serde_json::json!({"ok":true})
+        );
+        assert_eq!(
+            call(
+                &socket,
+                serde_json::json!({"v":1,"op":"deliberation_turn","room":room,"author":sam,"body":"```deliberation\nposition: propose\nitems: [\"oak\"]\n```"}),
+            )["seq"],
+            1
+        );
+        let mut record: serde_json::Value =
+            serde_json::from_str(&store.deliberation(room).unwrap().unwrap()).unwrap();
+        let convened_at = record["time_box"]["convened_at"].as_f64().unwrap();
+        record["time_box"]["convened_at"] = serde_json::json!(convened_at - 900.0);
+        store
+            .replace_deliberation(room, &record.to_string())
+            .unwrap();
+    }
+    let expired = |store: &RoomStore, room: &str| {
+        serde_json::from_str::<serde_json::Value>(&store.deliberation(room).unwrap().unwrap())
+            .unwrap()["expired"]
+            .clone()
+    };
+    // A late turn is the first op: it is refused, and the end is kept.
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_turn","room":"turned","author":ada,"body":"```deliberation\nposition: propose\nitems: [\"elm\"]\n```"}),
+        ),
+        serde_json::json!({"ok":false,"error":"the deliberation is closed"})
+    );
+    assert_eq!(expired(&store, "turned"), serde_json::json!(true));
+    // A result is the first op: the round steps with sam's post, and the end is kept.
+    let result = call(
+        &socket,
+        serde_json::json!({"v":1,"op":"deliberation_result","room":"resulted"}),
+    );
+    assert_eq!(
+        (
+            &result["result"]["outcome"],
+            &result["result"]["trajectory"]["rounds"]
+        ),
+        (&serde_json::json!("open"), &serde_json::json!(1))
+    );
+    assert_eq!(expired(&store, "resulted"), serde_json::json!(true));
+    worker.join().unwrap();
+}

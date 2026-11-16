@@ -370,8 +370,8 @@ when **`deliberation_state`** shows that seat hasn't posted in the open round. O
 posted, Radio steps the round; it ends `agreed` or `deadlock`, or stays `open` and takes no more
 turns after 50 rounds. To limit its time, convene it with a `time_box` of `15m` or `1h`: when the
 time is up, Radio steps the open round with the seats that have posted, the deliberation takes no
-more turns, and **`deliberation_state`** shows `expired: true`, usually with outcome `open` and the
-result so far. Only `deliberation_turn` counts: a plain `post` in the room is just a message. **`deliberation_result`** answers the
+more turns, and **`deliberation_state`** shows `expired: true`, usually with outcome `open`; once a seat had
+posted, **`deliberation_result`** answers the result so far. Only `deliberation_turn` counts: a plain `post` in the room is just a message. **`deliberation_result`** answers the
 proposal, its agreement groups, the dissent and how far apart the seats were each round, as fields
 and as markdown that fences every answer and objection. Show it as a proposal for the person, never
 as a decision. A turn that isn't a valid block is refused `the turn holds no valid deliberation
