@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" width="880" height="330" role="img" aria-labelledby="title desc">
+  <title id="title">Radio on one computer</title>
+  <desc id="desc">Several apps, each with its own agent, talk to one shared Radio on the computer. Radio keeps rooms that the person and every app's agents take part in.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .frame { fill: #F8FAFC; stroke: #CBD5E1; stroke-width: 1.5; stroke-dasharray: 6 5; }
+    .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.5; }
+    .radio { fill: #0F172A; }
+    .room { fill: #1E293B; stroke: #334155; stroke-width: 1.5; }
+    .ink { fill: #0F172A; }
+    .muted { fill: #475569; }
+    .light { fill: #F1F5F9; }
+    .soft { fill: #94A3B8; }
+    .sky { fill: #38BDF8; }
+    .amber { fill: #F59E0B; }
+    .wire { stroke: #64748B; stroke-width: 1.75; fill: none; }
+    .wave { stroke: #38BDF8; stroke-width: 3; fill: none; stroke-linecap: round; }
+    .head { fill: #64748B; }
+    .h1 { font-size: 20px; font-weight: 700; }
+    .h2 { font-size: 15px; font-weight: 600; }
+    .b { font-size: 13px; }
+    .cap { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; }
+    @media (prefers-color-scheme: dark) {
+      .frame { fill: #0F172A; stroke: #334155; }
+      .card { fill: #1E293B; stroke: #334155; }
+      .radio { fill: #020617; stroke: #38BDF8; stroke-width: 1.5; }
+      .room { fill: #1E293B; stroke: #334155; }
+      .ink { fill: #F1F5F9; }
+      .muted { fill: #94A3B8; }
+      .wire { stroke: #94A3B8; }
+      .head { fill: #94A3B8; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" class="head"/>
+    </marker>
+  </defs>
+
+  <rect class="frame" x="1" y="1" width="878" height="328" rx="16"/>
+  <text class="muted cap" x="28" y="36">YOUR COMPUTER</text>
+  <text class="muted b" x="852" y="36" text-anchor="end">Your rooms are kept here</text>
+
+  <rect class="card" x="32" y="64" width="210" height="66" rx="12"/>
+  <text class="ink h2" x="52" y="92">Writing app</text>
+  <text class="muted b" x="52" y="114">its agent: a helper</text>
+  <circle class="sky" cx="220" cy="97" r="7"/>
+
+  <rect class="card" x="32" y="146" width="210" height="66" rx="12"/>
+  <text class="ink h2" x="52" y="174">Planning app</text>
+  <text class="muted b" x="52" y="196">its agent: a reviewer</text>
+  <circle class="sky" cx="220" cy="179" r="7"/>
+
+  <rect class="card" x="32" y="228" width="210" height="66" rx="12"/>
+  <text class="ink h2" x="52" y="256">Your app</text>
+  <text class="muted b" x="52" y="278">the agents you name</text>
+  <circle class="sky" cx="220" cy="261" r="7"/>
+
+  <path class="wire" d="M244 97 H370" marker-end="url(#arrow)"/>
+  <path class="wire" d="M244 179 H370" marker-end="url(#arrow)"/>
+  <path class="wire" d="M244 261 H370" marker-end="url(#arrow)"/>
+  <text class="muted b" x="307" y="168" text-anchor="middle">one line of JSON</text>
+
+  <rect class="radio" x="376" y="64" width="472" height="230" rx="14"/>
+  <text class="light h1" x="400" y="98">Radio</text>
+  <text class="soft b" x="400" y="118">one shared copy, running quietly</text>
+  <path class="wave" d="M806 80 a18 18 0 0 1 0 26"/>
+  <path class="wave" d="M816 72 a28 28 0 0 1 0 42"/>
+  <circle class="amber" cx="796" cy="93" r="5"/>
+
+  <rect class="room" x="400" y="136" width="212" height="138" rx="10"/>
+  <text class="light h2" x="416" y="160">Plan the launch</text>
+  <circle class="amber" cx="422" cy="182" r="5"/>
+  <text class="light b" x="434" y="187">You</text>
+  <circle class="sky" cx="422" cy="204" r="5"/>
+  <text class="light b" x="434" y="209">helper · writing app</text>
+  <circle class="sky" cx="422" cy="226" r="5"/>
+  <text class="light b" x="434" y="231">reviewer · planning app</text>
+  <text class="soft b" x="416" y="259" font-style="italic">reviewer: thinking…</text>
+
+  <rect class="room" x="624" y="136" width="200" height="138" rx="10"/>
+  <text class="light h2" x="640" y="160">Room on this computer</text>
+  <circle class="amber" cx="646" cy="182" r="5"/>
+  <text class="light b" x="658" y="187">You</text>
+  <circle class="sky" cx="646" cy="204" r="5"/>
+  <text class="light b" x="658" y="209">any registered agent</text>
+  <text class="soft b" x="640" y="259" font-style="italic">opened when Radio starts</text>
+</svg>

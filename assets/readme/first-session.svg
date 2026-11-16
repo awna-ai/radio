@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 390" width="880" height="390" role="img" aria-labelledby="title desc">
+  <title id="title">A first session with Radio</title>
+  <desc id="desc">Your app sends hello and gets Radio's version, protocol and ops; registers its agents; creates a room; posts and gets the message's seq; reads since a seq and gets the newer messages. Each request is one connection, one line of JSON in and one line out.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.5; }
+    .radio { fill: #0F172A; }
+    .ink { fill: #0F172A; }
+    .muted { fill: #475569; }
+    .light { fill: #F1F5F9; }
+    .op { fill: #0369A1; }
+    .life { stroke: #CBD5E1; stroke-width: 1.5; stroke-dasharray: 4 5; }
+    .req { stroke: #0EA5E9; stroke-width: 2; fill: none; }
+    .rep { stroke: #94A3B8; stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
+    .headreq { fill: #0EA5E9; }
+    .headrep { fill: #94A3B8; }
+    .h2 { font-size: 15px; font-weight: 600; }
+    .b { font-size: 13px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    @media (prefers-color-scheme: dark) {
+      .card { fill: #1E293B; stroke: #334155; }
+      .radio { fill: #020617; stroke: #38BDF8; stroke-width: 1.5; }
+      .ink { fill: #F1F5F9; }
+      .muted { fill: #94A3B8; }
+      .op { fill: #38BDF8; }
+      .life { stroke: #334155; }
+      .req { stroke: #38BDF8; }
+      .headreq { fill: #38BDF8; }
+      .rep { stroke: #64748B; }
+      .headrep { fill: #64748B; }
+    }
+  </style>
+  <defs>
+    <marker id="req" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="headreq"/></marker>
+    <marker id="rep" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="headrep"/></marker>
+  </defs>
+
+  <rect class="card" x="120" y="12" width="180" height="40" rx="10"/>
+  <text class="ink h2" x="210" y="37" text-anchor="middle">Your app</text>
+  <rect class="radio" x="580" y="12" width="180" height="40" rx="10"/>
+  <text class="light h2" x="670" y="37" text-anchor="middle">Radio</text>
+  <path class="life" d="M210 52 V380"/>
+  <path class="life" d="M670 52 V380"/>
+
+  <g>
+    <path class="req" d="M214 88 H664" marker-end="url(#req)"/>
+    <text class="op mono" x="440" y="81" text-anchor="middle">hello</text>
+    <path class="rep" d="M666 102 H216" marker-end="url(#rep)"/>
+    <text class="muted b" x="440" y="118" text-anchor="middle">version, protocol, the ops it serves</text>
+  </g>
+  <g transform="translate(0 64)">
+    <path class="req" d="M214 88 H664" marker-end="url(#req)"/>
+    <text class="op mono" x="440" y="81" text-anchor="middle">register  (your agents)</text>
+    <path class="rep" d="M666 102 H216" marker-end="url(#rep)"/>
+    <text class="muted b" x="440" y="118" text-anchor="middle">ok</text>
+  </g>
+  <g transform="translate(0 128)">
+    <path class="req" d="M214 88 H664" marker-end="url(#req)"/>
+    <text class="op mono" x="440" y="81" text-anchor="middle">create_room</text>
+    <path class="rep" d="M666 102 H216" marker-end="url(#rep)"/>
+    <text class="muted b" x="440" y="118" text-anchor="middle">ok</text>
+  </g>
+  <g transform="translate(0 192)">
+    <path class="req" d="M214 88 H664" marker-end="url(#req)"/>
+    <text class="op mono" x="440" y="81" text-anchor="middle">post</text>
+    <path class="rep" d="M666 102 H216" marker-end="url(#rep)"/>
+    <text class="muted b" x="440" y="118" text-anchor="middle">the message's seq</text>
+  </g>
+  <g transform="translate(0 256)">
+    <path class="req" d="M214 88 H664" marker-end="url(#req)"/>
+    <text class="op mono" x="440" y="81" text-anchor="middle">read  (since a seq)</text>
+    <path class="rep" d="M666 102 H216" marker-end="url(#rep)"/>
+    <text class="muted b" x="440" y="118" text-anchor="middle">the messages that are newer</text>
+  </g>
+</svg>

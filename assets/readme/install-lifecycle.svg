@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 250" width="880" height="250" role="img" aria-labelledby="title desc">
+  <title id="title">How apps share one Radio</title>
+  <desc id="desc">The first app installs Radio. A newer app's copy takes over and the old one is kept for rollback. An older app changes nothing and joins as a client. When the last app is removed, Radio removes itself and the conversations are kept.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.5; }
+    .pill { fill: #E0F2FE; }
+    .pilltext { fill: #075985; }
+    .num { fill: #0F172A; }
+    .numtext { fill: #FFFFFF; }
+    .ink { fill: #0F172A; }
+    .muted { fill: #475569; }
+    .code { fill: #B45309; }
+    .wire { stroke: #64748B; stroke-width: 1.75; fill: none; }
+    .head { fill: #64748B; }
+    .h2 { font-size: 15px; font-weight: 600; }
+    .b { font-size: 13px; }
+    .s { font-size: 12px; font-weight: 600; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    @media (prefers-color-scheme: dark) {
+      .card { fill: #1E293B; stroke: #334155; }
+      .pill { fill: #0C4A6E; }
+      .pilltext { fill: #BAE6FD; }
+      .num { fill: #38BDF8; }
+      .numtext { fill: #0F172A; }
+      .ink { fill: #F1F5F9; }
+      .muted { fill: #94A3B8; }
+      .code { fill: #F59E0B; }
+      .wire { stroke: #94A3B8; }
+      .head { fill: #94A3B8; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" class="head"/>
+    </marker>
+  </defs>
+
+  <g transform="translate(24 16)">
+    <rect class="card" width="190" height="178" rx="12"/>
+    <circle class="num" cx="28" cy="30" r="13"/><text class="numtext s" x="28" y="34" text-anchor="middle">1</text>
+    <rect class="pill" x="96" y="18" width="80" height="24" rx="12"/><text class="pilltext s" x="136" y="34" text-anchor="middle">runs 0.1.0</text>
+    <text class="ink h2" x="16" y="76">First app installs</text>
+    <text class="muted b" x="16" y="100">Its copy is installed</text>
+    <text class="muted b" x="16" y="120">and started.</text>
+    <text class="code mono" x="16" y="160">radio install</text>
+  </g>
+  <path class="wire" d="M216 105 H236" marker-end="url(#arrow)"/>
+
+  <g transform="translate(238 16)">
+    <rect class="card" width="190" height="178" rx="12"/>
+    <circle class="num" cx="28" cy="30" r="13"/><text class="numtext s" x="28" y="34" text-anchor="middle">2</text>
+    <rect class="pill" x="96" y="18" width="80" height="24" rx="12"/><text class="pilltext s" x="136" y="34" text-anchor="middle">runs 0.1.1</text>
+    <text class="ink h2" x="16" y="76">A newer app installs</text>
+    <text class="muted b" x="16" y="100">Its copy takes over; the</text>
+    <text class="muted b" x="16" y="120">old one is kept for rollback.</text>
+    <text class="code mono" x="16" y="160">radio install</text>
+  </g>
+  <path class="wire" d="M430 105 H450" marker-end="url(#arrow)"/>
+
+  <g transform="translate(452 16)">
+    <rect class="card" width="190" height="178" rx="12"/>
+    <circle class="num" cx="28" cy="30" r="13"/><text class="numtext s" x="28" y="34" text-anchor="middle">3</text>
+    <rect class="pill" x="96" y="18" width="80" height="24" rx="12"/><text class="pilltext s" x="136" y="34" text-anchor="middle">runs 0.1.1</text>
+    <text class="ink h2" x="16" y="76">An older app installs</text>
+    <text class="muted b" x="16" y="100">Nothing is replaced;</text>
+    <text class="muted b" x="16" y="120">the app joins as a client.</text>
+    <text class="code mono" x="16" y="160">radio install</text>
+  </g>
+  <path class="wire" d="M644 105 H664" marker-end="url(#arrow)"/>
+
+  <g transform="translate(666 16)">
+    <rect class="card" width="190" height="178" rx="12"/>
+    <circle class="num" cx="28" cy="30" r="13"/><text class="numtext s" x="28" y="34" text-anchor="middle">4</text>
+    <rect class="pill" x="96" y="18" width="80" height="24" rx="12"/><text class="pilltext s" x="136" y="34" text-anchor="middle">runs none</text>
+    <text class="ink h2" x="16" y="76">Last app is removed</text>
+    <text class="muted b" x="16" y="100">Radio removes itself;</text>
+    <text class="muted b" x="16" y="120">conversations are kept.</text>
+    <text class="code mono" x="16" y="160">radio uninstall</text>
+  </g>
+
+  <text class="muted b" x="440" y="228" text-anchor="middle">Remove an app while others still use it, and Radio keeps running for them.</text>
+</svg>

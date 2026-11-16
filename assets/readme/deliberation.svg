@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 340" width="880" height="340" role="img" aria-labelledby="title desc">
+  <title id="title">How a deliberation runs</title>
+  <desc id="desc">An app convenes a deliberation with a question and 2 to 24 seats. Each seat posts a turn. When every seat has posted, Radio steps the round; with no outcome yet, the next round starts. It ends agreed or deadlock, or stays open after 50 rounds or when a time box runs out. The result is a proposal for the person, never a decision.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.5; }
+    .chip { fill: #F1F5F9; stroke: #CBD5E1; stroke-width: 1; }
+    .radio { fill: #0F172A; }
+    .result { fill: #FFFBEB; stroke: #F59E0B; stroke-width: 1.5; }
+    .ink { fill: #0F172A; }
+    .muted { fill: #475569; }
+    .light { fill: #F1F5F9; }
+    .soft { fill: #94A3B8; }
+    .sky { fill: #0EA5E9; }
+    .amber { fill: #F59E0B; }
+    .wire { stroke: #64748B; stroke-width: 1.75; fill: none; }
+    .loop { stroke: #0EA5E9; stroke-width: 1.75; fill: none; }
+    .head { fill: #64748B; }
+    .headsky { fill: #0EA5E9; }
+    .h2 { font-size: 15px; font-weight: 600; }
+    .b { font-size: 13px; }
+    @media (prefers-color-scheme: dark) {
+      .card { fill: #1E293B; stroke: #334155; }
+      .chip { fill: #0F172A; stroke: #334155; }
+      .radio { fill: #020617; stroke: #38BDF8; stroke-width: 1.5; }
+      .result { fill: #2A1E05; stroke: #F59E0B; }
+      .ink { fill: #F1F5F9; }
+      .muted { fill: #94A3B8; }
+      .sky { fill: #38BDF8; }
+      .wire { stroke: #94A3B8; }
+      .loop { stroke: #38BDF8; }
+      .head { fill: #94A3B8; }
+      .headsky { fill: #38BDF8; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="head"/></marker>
+    <marker id="arrowsky" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="headsky"/></marker>
+  </defs>
+
+  <rect class="card" x="24" y="86" width="180" height="124" rx="12"/>
+  <text class="ink h2" x="40" y="112">1 · Convene</text>
+  <text class="muted b" x="40" y="136">a room and a question</text>
+  <text class="muted b" x="40" y="156">a list of n, or one text</text>
+  <text class="muted b" x="40" y="176">2 to 24 seats</text>
+  <text class="muted b" x="40" y="196">an optional time box</text>
+  <path class="wire" d="M206 148 H232" marker-end="url(#arrow)"/>
+
+  <rect class="card" x="236" y="64" width="232" height="168" rx="12"/>
+  <text class="ink h2" x="252" y="90">2 · Each seat posts a turn</text>
+  <rect class="chip" x="252" y="104" width="200" height="32" rx="8"/>
+  <circle class="sky" cx="268" cy="120" r="5"/><text class="ink b" x="282" y="125">Seat A · turn posted</text>
+  <rect class="chip" x="252" y="144" width="200" height="32" rx="8"/>
+  <circle class="sky" cx="268" cy="160" r="5"/><text class="ink b" x="282" y="165">Seat B · turn posted</text>
+  <rect class="chip" x="252" y="184" width="200" height="32" rx="8"/>
+  <circle class="amber" cx="268" cy="200" r="5"/><text class="ink b" x="282" y="205">The person · waiting</text>
+  <path class="wire" d="M470 148 H496" marker-end="url(#arrow)"/>
+
+  <rect class="radio" x="500" y="100" width="150" height="96" rx="12"/>
+  <text class="light h2" x="516" y="128">3 · Radio steps</text>
+  <text class="soft b" x="516" y="152">the round once every</text>
+  <text class="soft b" x="516" y="172">seat has posted</text>
+
+  <path class="loop" d="M575 98 V36 H352 V60" marker-end="url(#arrowsky)"/>
+  <text class="muted b" x="464" y="28" text-anchor="middle">no outcome yet: next round</text>
+
+  <path class="wire" d="M652 148 C668 148 668 86 684 86" marker-end="url(#arrow)"/>
+  <path class="wire" d="M652 148 H684" marker-end="url(#arrow)"/>
+  <path class="wire" d="M652 148 C668 148 668 210 684 210" marker-end="url(#arrow)"/>
+
+  <rect class="card" x="688" y="62" width="168" height="48" rx="10"/>
+  <text class="ink h2" x="704" y="84">agreed</text>
+  <text class="muted b" x="704" y="102">one answer</text>
+  <rect class="card" x="688" y="124" width="168" height="48" rx="10"/>
+  <text class="ink h2" x="704" y="146">deadlock</text>
+  <text class="muted b" x="704" y="164">no agreement</text>
+  <rect class="card" x="688" y="186" width="168" height="48" rx="10"/>
+  <text class="ink h2" x="704" y="208">open</text>
+  <text class="muted b" x="704" y="226">50 rounds, or time is up</text>
+
+  <rect class="result" x="24" y="262" width="832" height="62" rx="12"/>
+  <text class="ink h2" x="44" y="288">4 · The result is a proposal for the person, never a decision</text>
+  <text class="muted b" x="44" y="310">The proposal, its agreement groups, the dissent, and how far apart the seats were each round.</text>
+</svg>
