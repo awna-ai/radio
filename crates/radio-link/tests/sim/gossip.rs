@@ -10,7 +10,7 @@ use radio_link::sim::*;
 use rand::{SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::OnceLock,
     time::Duration,
 };
@@ -58,7 +58,8 @@ pub struct Gossip {
     load: Load,
     updates: u32,
     applied: HashSet<u32>,
-    neighbors: HashSet<Member>,
+    /// Ordered, so a woken member drops its neighbors in the same order on every run.
+    neighbors: BTreeSet<Member>,
     most_neighbors: usize,
 }
 
@@ -92,7 +93,7 @@ impl Gossip {
             load,
             updates: 0,
             applied: HashSet::new(),
-            neighbors: HashSet::new(),
+            neighbors: BTreeSet::new(),
             most_neighbors: 0,
         };
         let peers = match boot {
@@ -202,7 +203,8 @@ impl Node for Gossip {
     fn undelivered(&mut self, to: Member, _: Msg, ctx: &mut Ctx<'_, Msg>) {
         self.handle(InEvent::PeerDisconnected(Peer(to)), ctx);
     }
-    /// A Mac that slept lost its connections, and its timers fire late, all at once, when it wakes.
+    /// A Mac that slept lost its connections; when it wakes, every pending timer fires at once, in
+    /// the order it was set, due or not.
     fn woke(&mut self, ctx: &mut Ctx<'_, Msg>) {
         for peer in std::mem::take(&mut self.neighbors) {
             self.handle(InEvent::PeerDisconnected(Peer(peer)), ctx);

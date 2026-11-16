@@ -8,7 +8,8 @@ use radio_link::{
 };
 use std::time::Instant;
 
-/// The largest signed introduction the wire allows today: a 32-byte name, two IPv6 addresses.
+/// An upper bound on a signed introduction: a 32-byte name and two IPv6 addresses, one more IPv6
+/// address than the wire accepts, so the bound errs large.
 fn introduction_bytes() -> u32 {
     let inviter = iroh::SecretKey::from_bytes(&[1; 32]);
     let newcomer = iroh::SecretKey::from_bytes(&[2; 32]);
