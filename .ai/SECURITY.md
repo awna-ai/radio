@@ -17,8 +17,10 @@ anywhere on the receiving computer but the folder its app chose.
 ## The link (being built: the key, the endpoint builder, the wire, the fleet record, join codes, joining, accepting, leaving, removing and blocking, and each computer's signed record, in the library; the daemon listens on its link addresses and joins, removes and leaves over them)
 
 The first link is direct only: two computers that can already reach each other (on one network, or
-over a VPN the user runs) dial each other at addresses the user configured (D15). There is no relay,
-no address lookup and no port mapping yet. Each row below whose proof says **not built** is the
+over a VPN the user runs) dial each other at addresses the user configured (D15). There is no relay
+and no port mapping yet, and no address lookup: mDNS stays off by decision, since it would announce
+the computer's key on whatever network it is on and can't cross the VPN the link is built for, and
+the addresses a computer last used already cover reconnecting on one network. Each row below whose proof says **not built** is the
 design the step that builds it is held to; that step replaces the proof with its tests. The steps, in
 order: the endpoint and the computer's key; the wire protocol; the fleet record and join codes;
 joining, accepting, leaving, removing and blocking; direct addresses; app delivery.
@@ -304,3 +306,4 @@ missing objects, and reads ref names.
 - 2026-11-16: the release scan reads short terms only in the binary's regions that hold text, and refuses a release whose binary has a region on neither of its lists; the scan's gap says so.
 - 2026-11-16: deliberations over the socket (protocol minor 10, D25): a boundary row; the two rendering gaps closed (stored names carry no control character, and seat names hold only the fence label's characters); the daemon ships with `radio-panels`' `serde_json` features.
 - 2026-11-16: a deliberation's time box (protocol minor 11, D26): the boundary row takes the time box, and a refused turn may save the expiry; the wall clock it runs on is an accepted risk.
+- 2026-11-16: address lookup over mDNS stays off by decision (the link section says why); the endpoint row is unchanged.
