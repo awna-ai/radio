@@ -69,9 +69,8 @@ else
     if [ -n "${STUB_BINARY_TRIE:-}" ]; then
         printf '\001%s\002\n' "$STUB_BINARY_TRIE" >> "$dest/$target/release/radio"
     fi
-    if [ -n "${STUB_BINARY_CODE:-}" ]; then
-        printf '\001%s\002\n' "$STUB_BINARY_CODE" >> "$dest/$target/release/radio"
-    fi
+    # Real machine code always holds some printable runs.
+    printf '\001%s\002\n' "${STUB_BINARY_CODE:-stub code}" >> "$dest/$target/release/radio"
     printf '%s\n' "$dest" >> "$STUB_ROOT/calls/cargo-dirs"
     if [ "${STUB_EMBED_WORK:-0}" = 1 ]; then
         dirname "$dest" >> "$dest/$target/release/radio"
@@ -145,11 +144,9 @@ if [ -n "${STUB_BINARY_TRIE:-}" ]; then
     off=$(LC_ALL=C /usr/bin/grep -a -b -o -F -- "$STUB_BINARY_TRIE" "$2" | head -1 | cut -d: -f1)
     size=$(printf '%s' "$STUB_BINARY_TRIE" | wc -c | tr -d ' ')
 fi
-code_off=0 code_size=0
-if [ -n "${STUB_BINARY_CODE:-}" ]; then
-    code_off=$(LC_ALL=C /usr/bin/grep -a -b -o -F -- "$STUB_BINARY_CODE" "$2" | head -1 | cut -d: -f1)
-    code_size=$(printf '%s' "$STUB_BINARY_CODE" | wc -c | tr -d ' ')
-fi
+code=${STUB_BINARY_CODE:-stub code}
+code_off=$(LC_ALL=C /usr/bin/grep -a -b -o -F -- "$code" "$2" | head -1 | cut -d: -f1)
+code_size=$(printf '%s' "$code" | wc -c | tr -d ' ')
 code_size=$(printf '0x%016x' "$code_size")
 # The other sections cover the binary's string text, so zeroing the wrong one hides a term there.
 text_off=0 text_size=0
@@ -890,18 +887,20 @@ printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
 export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01_RNvCs1aZqv9_7___rustc12___rust_alloc\x02'
 expect 0 'release: built v0.1.0' v0.1.0
 
-# Machine code holds no strings: a short word next to a tab there is chance, so the short scan skips __TEXT,__text.
+# In machine code a short word next to a tab is chance: tab, CR and LF break runs in __TEXT,__text, not in string text.
 new_case 70
 printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
 export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_TEXT=$'\x01zqv\tab\x02'
 refused 1 'names a private term' v0.1.0
 unset STUB_BINARY_TEXT
-export STUB_BINARY_CODE=$'zqv\tab'
+export STUB_BINARY_CODE=$'zqv\tab code'
+expect 0 'release: built v0.1.0' v0.1.0
+export STUB_BINARY_CODE=$'zqv\r\nab code'
 expect 0 'release: built v0.1.0' v0.1.0
 
 new_case 71
 printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
-export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_CODE=$'zqv\tab' STUB_BINARY_TEXT=$'\x01_call_zqv_now\x02'
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_CODE=$'zqv\tab code' STUB_BINARY_TEXT=$'\x01_call_zqv_now\x02'
 refused 1 'names a private term' v0.1.0
 
 new_case 72
@@ -918,6 +917,19 @@ refused 1 'could not read the aarch64-apple-darwin machine code' v0.1.0
 
 new_case 75
 export STUB_OTOOL=codeword
+refused 1 'could not read the aarch64-apple-darwin machine code' v0.1.0
+
+# x86_64 builds a short literal in place (movabs), so its bytes sit only in machine code: still read there.
+new_case 76
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_BINARY_CODE='zqv: bad '
+refused 1 'names a private term' v0.1.0
+export STUB_BINARY_CODE=$'\x03callZqvNow\x03'
+refused 1 'names a private term' v0.1.0
+
+# Real machine code always has printable runs; none means the section was not read.
+new_case 77
+export STUB_BINARY_CODE=$'\x03zqv\x03'
 refused 1 'could not read the aarch64-apple-darwin machine code' v0.1.0
 
 if [ "$failed" -ne 0 ]; then

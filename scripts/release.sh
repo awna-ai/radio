@@ -142,8 +142,9 @@ fi
 crate_names=$(awk '{ printf "%s%d%s%s", (NR > 1 ? "|" : ""), length($0), (substr($0, 1, 1) == "_" ? "_" : ""), $0 }' "$work/crates") || fail "$crate_failure"
 
 # The export trie stores names in fragments, so a crate hash can lose its Cs there; every exported name is whole in the
-# symbol table, which the short scan still reads. Machine code (__TEXT,__text) holds no strings, only chance runs of
-# letters. Long terms, paths and the account keep the whole file.
+# symbol table, which the short scan still reads. Machine code (__TEXT,__text) is zeroed in the copy too and its bytes go
+# to a third file, read with tab, CR and LF breaking runs: a literal built in place (x86_64 movabs) is text there, a tab
+# beside chance letters is not. Long terms, paths and the account keep the whole file.
 without_trie_and_code() {
     local trie_failure="could not read the $target export trie" code_failure="could not read the $target machine code"
     local failure size kind off length end
@@ -165,6 +166,7 @@ without_trie_and_code() {
     size=$(wc -c < "$1") || fail "$trie_failure"
     size=${size//[[:space:]]/}
     cp "$1" "$2" || fail "$trie_failure"
+    : > "$3" || fail "$code_failure"
     while read -r kind off length; do
         failure=$trie_failure
         if [ "$kind" = code ]; then
@@ -176,6 +178,12 @@ without_trie_and_code() {
         [[ "$off" =~ ^[0-9]+$ && "$length" =~ ^[0-9]+$ ]] || fail "$failure"
         end=$((off + length))
         [ "$length" -gt 0 ] || continue
+        if [ "$kind" = code ]; then
+            tail -c "+$((off + 1))" "$1" > "$3.tail" 2> /dev/null || fail "$failure"
+            head -c "$length" "$3.tail" > "$3.part" 2> /dev/null || fail "$failure"
+            [ "$(wc -c < "$3.part" | tr -d '[:space:]')" = "$length" ] || fail "$failure"
+            cat "$3.part" >> "$3" || fail "$failure"
+        fi
         { head -c "$off" "$2" && head -c "$length" /dev/zero && tail -c "+$((end + 1))" "$2"; } > "$2.next" 2> /dev/null || fail "$failure"
         mv "$2.next" "$2" || fail "$failure"
         [ "$(wc -c < "$2" | tr -d '[:space:]')" = "$size" ] || fail "$failure"
@@ -233,8 +241,10 @@ for i in 0 1; do
     fi
     # Whole-file printable runs but the export trie and machine code, tab, CR and LF counted as text: strings -a skips Mach-O
     # load commands and __LINKEDIT; no runs fails closed.
-    without_trie_and_code "$bin" "$work/text-source"
+    without_trie_and_code "$bin" "$work/text-source" "$work/code"
     tr '\t\r\n' '   ' < "$work/text-source" | grep -a -o -E '[[:print:]]{4,}' > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
+    # Then the machine code's own runs, where tab, CR and LF break them; real code always has some, so none fails closed.
+    grep -a -o -E '[[:print:]]{4,}' "$work/code" >> "$work/strings" 2> /dev/null || fail "could not read the $target machine code"
     check_terms "$bin" "$work/strings"
     normalize "$bin" > "$work/normalized" 2> /dev/null || fail "could not scan the $target binary"
     # v0 crate hashes (Cs, 1 to 11 base-62 digits, _ before a crate of this build) are build noise: drop them before splitting words.
