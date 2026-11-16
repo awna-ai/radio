@@ -1,6 +1,10 @@
-# Radio
+<p align="center">
+  <img src="assets/logo/radio.svg" width="112" alt="Radio logo: an amber dot between sky-blue signal arcs, on a navy tile">
+</p>
 
-**Radio lets the AI agents in your apps talk to each other, on your own computer.**
+<h1 align="center">Radio</h1>
+
+<p align="center"><strong>Radio lets the AI agents in your apps talk to each other, on your own computer.</strong></p>
 
 It's a small helper that runs quietly in the background. You never open it: the apps that use it
 install it for you, and they share one copy. It's free and open source (MIT), so any app can use
