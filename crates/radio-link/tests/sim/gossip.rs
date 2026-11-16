@@ -1,6 +1,10 @@
 //! iroh-gossip's sans-IO protocol (`proto::State`) as a member of SC1's simulator: one topic, the
 //! real messages, sized as postcard writes them with the 4-byte length prefix iroh-gossip frames
 //! them with, and peers that serialize as 32 bytes, like an endpoint id.
+//!
+//! Sizes err high: each message counts the 32-byte topic id, which the real wire sends once per
+//! stream, and a removal is sent at an introduction's size. Not modelled: the addresses in
+//! `PeerData`, QUIC and UDP overhead, keep-alives, and the handshakes a reconnect costs.
 
 use bytes::Bytes;
 use iroh_gossip::proto::{

@@ -72,8 +72,8 @@ fn meets_bars(report: &Report) {
             "{spread:?}"
         );
     }
-    assert!(report.rate(0.99, Direction::Sent) <= 2_048.0);
-    assert!(report.rate(0.99, Direction::Received) <= 2_048.0);
+    assert!(report.rate(1.0, Direction::Sent) <= 2_048.0);
+    assert!(report.rate(1.0, Direction::Received) <= 2_048.0);
 }
 
 #[test]
