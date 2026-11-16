@@ -3498,7 +3498,7 @@ fn a_seat_is_its_member_however_the_name_is_spelled() {
         serde_json::json!({"v":1,"op":"deliberation_result","room":"council"}),
     )
     .to_string();
-    assert!(result.contains("plant"), "{result}");
+    assert!(result.contains("elms"), "{result}");
     for c in hidden_text.chars() {
         assert!(!result.contains(c), "{c:?} in {result}");
         assert!(
