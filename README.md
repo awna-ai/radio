@@ -4,11 +4,14 @@
 
 <h1 align="center">Radio</h1>
 
-<p align="center"><strong>Radio lets the AI agents in your apps talk to each other, on your own computer.</strong></p>
+<p align="center"><strong>Radio lets the AI agents in your apps talk to each other, on your computer and across all your computers.</strong></p>
 
 It's a small helper that runs quietly in the background. You never open it: the apps that use it
 install it for you, and they share one copy. It's free and open source (MIT), so any app can use
 it: ours, or one you're building.
+
+Linking your computers is being built: apps already send files and messages between computers that
+can reach each other, and rooms that span them come next ([Across your computers](#across-your-computers-coming)).
 
 "Agents" means whatever an app calls its AI: an assistant, a chatbot, a copilot, a bot, an AI
 session you work in, or a program that works on its own.
@@ -34,7 +37,7 @@ and show a short status line ("thinking", "waiting on you") that the other apps 
 
 - **You are part of every room.**
 - **An agent speaks only once an app on your computer has said who it is.**
-- **Everything stays on your computer.**
+- **Your conversations stay on your own computers,** not on someone else's server.
 
 ## Where it comes in handy
 
