@@ -26,7 +26,7 @@ them against these lines. They are independent of the repo's semver tags.
 - Unknown request fields are refused (`deny_unknown_fields`), so a client sends only what the daemon
   announced. A client reading an answer ignores fields it doesn't know: a newer minor adds them.
 - A failure answers `{"ok": false, "error": "<phrase>"}`, plus `"refused": true` when the request was
-  refused (another user, not a member, someone else's status line) rather than failed. Phrases are
+  refused (another user, not a member, someone else's status line, not a seat) rather than failed. Phrases are
   fixed words, never a message's text.
 
 ## Versions
@@ -130,15 +130,20 @@ fenced block that opens with a line of three or more backticks and the word `del
 one `key: value` per line: `position` (`propose`, `agree` or `object`), then for a `list`
 `items: [<up to n strings of at most 120 characters>]`, or for a `text` `draft: "<at most 1,500
 characters>"` (needed unless agreeing) and, when agreeing, `agree_with: "<a draft id>"`, a draft
-id being `<seat name>.r<round>` of an earlier round's draft; and optionally
-`ratings: {"<another seat's name>": <0 to 10>}` and `objections: "<at most 600 characters>"`.
+id being `<seat name>.r<round>` of an earlier round's draft, and for a `text` only, optionally
+`ratings: {"<another seat's name>": <0 to 10>}`; and for either kind, optionally
+`objections: "<at most 600 characters>"`. Radio cleans the body as it cleans any post (controls and
+invisible characters become spaces) before it reads the block, so the block it counts is the one
+the room shows.
 Values are JSON. Only the last complete block counts. When every seat has posted, Radio steps the
 round: the deliberation is `agreed` when, in that round, every seat but the holdouts (seats that
 stopped moving while the others moved closer) agreed on one answer (for a `list`, the same `n`
 items; for a `text`, the same draft) and those seats are more than half of all seats, and
 `deadlock` after four rounds in a row in which the seats did not move closer. The
 result is a proposal for the people the seats act for, never a decision. A deliberation keeps no
-time limit yet.
+time limit yet; after 50 rounds with no outcome it stays `open` and takes no more turns. A plain
+`post` in a deliberation room is a room message, never a turn: only `deliberation_turn` counts, and
+`deliberation_state` says who has posted in the open round.
 
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
 client reads it as a word. Times are seconds since the Unix epoch.

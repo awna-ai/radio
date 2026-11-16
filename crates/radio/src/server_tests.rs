@@ -3455,7 +3455,7 @@ fn keep_and_kept_through_the_socket() {
 #[test]
 fn a_seat_is_its_member_however_the_name_is_spelled() {
     let fixture = Fixture::new();
-    let worker = start(fixture.bind(), 3);
+    let worker = start(fixture.bind(), 6);
     let socket = fixture.socket();
     let sam = serde_json::json!({"kind":"human","name":"sam"});
     let hidden = serde_json::json!({"kind":"human","name":"sam\u{200b}"});
@@ -3479,5 +3479,32 @@ fn a_seat_is_its_member_however_the_name_is_spelled() {
         serde_json::json!({"v":1,"op":"deliberation_turn","room":"council","author":sam,"body":"```deliberation\nposition: propose\ndraft: \"plant oaks\"\n```"}),
     );
     assert_eq!(turn["deliberation"]["posted"], serde_json::json!([sam]));
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_convene","room":"other","title":"Other","author":{"kind":"scribe","name":"wren"},"kind":"text","seats":[sam, ada]}),
+        ),
+        serde_json::json!({"ok":false,"error":"not a member","refused":true})
+    );
+    // Text the room strips never reaches the record, the result or its markdown.
+    let hidden_text = "\u{E0049}\u{E0047}\u{00AD}\u{061C}\u{FE0F}\u{206A}";
+    let ada_turn = call(
+        &socket,
+        serde_json::json!({"v":1,"op":"deliberation_turn","room":"council","author":ada,"body":format!("```deliberation\nposition: propose\ndraft: \"plant{hidden_text} elms\"\nobjections: \"no{hidden_text}\"\n```")}),
+    );
+    assert_eq!(ada_turn["deliberation"]["round"], 1);
+    let result = call(
+        &socket,
+        serde_json::json!({"v":1,"op":"deliberation_result","room":"council"}),
+    )
+    .to_string();
+    assert!(result.contains("plant"), "{result}");
+    for c in hidden_text.chars() {
+        assert!(!result.contains(c), "{c:?} in {result}");
+        assert!(
+            !result.contains(&format!("\\u{:04x}", c as u32)),
+            "{result}"
+        );
+    }
     worker.join().unwrap();
 }

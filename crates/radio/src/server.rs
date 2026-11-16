@@ -909,6 +909,8 @@ impl Server {
             }
             Request::DeliberationTurn { room, author, body } => {
                 let author = self.seat(author)?;
+                // Parse the text the room keeps, so the counted block is the one the room shows.
+                let body = radio_rooms::clean_body(&body);
                 let mut record = self.deliberation(&room)?;
                 record.turn(&author, &body)?;
                 response.seq = Some(self.store.post_turn(

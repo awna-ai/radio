@@ -2693,3 +2693,28 @@ fn deliberation_records_open_their_room_and_change_only_with_a_turn() {
         Some("{\"r\":1}")
     );
 }
+
+#[test]
+fn a_turn_whose_post_fails_keeps_the_old_record() {
+    let dir = Store::new("deliberation-atomic");
+    let mut store = dir.open();
+    store
+        .create_deliberation("council", "node-a", "Council", "{\"r\":0}", 1.0)
+        .unwrap();
+    store
+        .conn()
+        .execute(
+            "INSERT INTO messages (room, seq, author_host, author_kind, author, body, sent_at) VALUES ('council', ?1, 'node-a', 'human', 'sam', 'last', 1.0)",
+            [i64::MAX],
+        )
+        .unwrap();
+    assert!(
+        store
+            .post_turn("council", "node-a", &author(), "turn", "{\"r\":1}", 2.0)
+            .is_err()
+    );
+    assert_eq!(
+        store.deliberation("council").unwrap().as_deref(),
+        Some("{\"r\":0}")
+    );
+}

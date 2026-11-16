@@ -757,6 +757,11 @@ fn name(text: &str) -> Result<String, String> {
     }
 }
 
+/// Cleans a message body as `post` stores it, before its size is checked.
+pub fn clean_body(body: &str) -> String {
+    crate::text::clean(body, usize::MAX)
+}
+
 /// Checks a member's kind and cleans its name as the store keeps it.
 pub fn clean_author(author: &Author) -> Result<Author, String> {
     if !is_kind(&author.kind) {

@@ -364,10 +364,11 @@ objections: "Too few native trees."
 ````
 
 For a `text`, the block holds a `draft` (or, to agree, `agree_with` naming an earlier draft as
-`<seat name>.r<round>`), and either kind may add `ratings` of the other seats from 0 to 10. Radio
+`<seat name>.r<round>`) and may add `ratings` of the other seats from 0 to 10. Radio
 runs no app: your app posts the turns of the seats it registered, so it asks its agent for a turn
 when **`deliberation_state`** shows that seat hasn't posted in the open round. Once every seat has
-posted, Radio steps the round; it ends `agreed` or `deadlock`. **`deliberation_result`** answers the
+posted, Radio steps the round; it ends `agreed` or `deadlock`, or stays `open` and takes no more
+turns after 50 rounds. Only `deliberation_turn` counts: a plain `post` in the room is just a message. **`deliberation_result`** answers the
 proposal, its agreement groups, the dissent and how far apart the seats were each round, as fields
 and as markdown that fences every answer and objection. Show it as a proposal for the person, never
 as a decision. A turn that isn't a valid block is refused `the turn holds no valid deliberation
