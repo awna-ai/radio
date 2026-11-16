@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 10);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 11);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1356,10 +1356,33 @@ fn deliberation_commands_build_their_requests() {
                 kind: "list".into(),
                 n: Some(2),
                 seats: vec![member("helper", "juniper"), member("helper", "fern")],
+                time_box: None,
             },
             body: None,
         }
     );
+    let boxed = parse(&args(&[
+        "deliberation",
+        "convene",
+        "council",
+        "--title",
+        "Council",
+        "--as",
+        "human:sam",
+        "--kind",
+        "text",
+        "--seat",
+        "helper:juniper",
+        "--seat",
+        "helper:fern",
+        "--time-box",
+        "15m",
+    ]))
+    .unwrap();
+    assert!(matches!(
+        boxed.request,
+        Request::DeliberationConvene { time_box: Some(ref word), .. } if word == "15m"
+    ));
     let turn = parse(&args(&[
         "deliberation",
         "turn",

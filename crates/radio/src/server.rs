@@ -892,13 +892,15 @@ impl Server {
                 kind,
                 n,
                 seats,
+                time_box,
             } => {
                 self.member(author)?;
                 let seats = seats
                     .into_iter()
                     .map(|seat| self.seat(seat))
                     .collect::<Result<Vec<_>, _>>()?;
-                let record = Record::convene(&kind, n, seats)?;
+                let record =
+                    Record::convene(&kind, n, seats)?.time_boxed(time_box.as_deref(), now)?;
                 self.store.create_deliberation(
                     &room,
                     &self.host,
@@ -911,7 +913,7 @@ impl Server {
                 let author = self.seat(author)?;
                 // Parse the text the room keeps, so the counted block is the one the room shows.
                 let body = radio_rooms::clean_body(&body);
-                let mut record = self.deliberation(&room)?;
+                let mut record = self.deliberation(&room, now)?;
                 record.turn(&author, &body)?;
                 response.seq = Some(self.store.post_turn(
                     &room,
@@ -924,10 +926,10 @@ impl Server {
                 response.deliberation = Some(record.view());
             }
             Request::DeliberationState { room } => {
-                response.deliberation = Some(self.deliberation(&room)?.view());
+                response.deliberation = Some(self.deliberation(&room, now)?.view());
             }
             Request::DeliberationResult { room } => {
-                let (result, markdown) = self.deliberation(&room)?.result()?;
+                let (result, markdown) = self.deliberation(&room, now)?.result()?;
                 response.result = Some(result);
                 response.markdown = Some(markdown);
             }
@@ -964,9 +966,15 @@ impl Server {
         radio_rooms::clean_author(&self.member(member)?)
     }
 
-    fn deliberation(&self, room: &str) -> Result<Record, String> {
+    /// A deliberation's record, first ended and kept so if its time box has run out at `now`.
+    fn deliberation(&mut self, room: &str, now: f64) -> Result<Record, String> {
         self.require_room(room)?;
-        Record::from_json(&self.store.deliberation(room)?.ok_or(NOT_DELIBERATION)?)
+        let mut record =
+            Record::from_json(&self.store.deliberation(room)?.ok_or(NOT_DELIBERATION)?)?;
+        if record.expire(now) {
+            self.store.replace_deliberation(room, &record.to_json()?)?;
+        }
+        Ok(record)
     }
 
     /// Accepts and answers connections one at a time until the process stops.

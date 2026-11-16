@@ -368,7 +368,10 @@ For a `text`, the block holds a `draft` (or, to agree, `agree_with` naming an ea
 runs no app: your app posts the turns of the seats it registered, so it asks its agent for a turn
 when **`deliberation_state`** shows that seat hasn't posted in the open round. Once every seat has
 posted, Radio steps the round; it ends `agreed` or `deadlock`, or stays `open` and takes no more
-turns after 50 rounds. Only `deliberation_turn` counts: a plain `post` in the room is just a message. **`deliberation_result`** answers the
+turns after 50 rounds. To limit its time, convene it with a `time_box` of `15m` or `1h`: when the
+time is up, Radio steps the open round with the seats that have posted, the deliberation takes no
+more turns, and **`deliberation_state`** shows `expired: true`, usually with outcome `open` and the
+result so far. Only `deliberation_turn` counts: a plain `post` in the room is just a message. **`deliberation_result`** answers the
 proposal, its agreement groups, the dissent and how far apart the seats were each round, as fields
 and as markdown that fences every answer and objection. Show it as a proposal for the person, never
 as a decision. A turn that isn't a valid block is refused `the turn holds no valid deliberation
@@ -416,7 +419,7 @@ the socket stays the contract.
 | `radio message <computer> --app <app>` (body on standard input) | `message` |
 | `radio keep [<computer>]... --app <app>` | `keep` |
 | `radio kept --app <app>` | `kept` |
-| `radio deliberation convene <room> --title <title> --as <kind>:<name> --kind list\|text [--n <n>] --seat <kind>:<name>` (repeat `--seat`) | `deliberation_convene` |
+| `radio deliberation convene <room> --title <title> --as <kind>:<name> --kind list\|text [--n <n>] --seat <kind>:<name> [--time-box 15m\|1h\|deadlock]` (repeat `--seat`) | `deliberation_convene` |
 | `radio deliberation turn <room> --as <kind>:<name> --body <text>`, or `--body-file <path>` (`-` reads stdin) | `deliberation_turn` |
 | `radio deliberation state <room>` | `deliberation_state` |
 | `radio deliberation result <room>` | `deliberation_result` |
@@ -590,9 +593,8 @@ rest is being built. When it is, an app can count on this:
 
 - It works on Mac today, on one computer.
 - **Built:** rooms, posts, status lines, the shared install and upgrade, group discussions that
-  any app can start, a ready-built download, a command for every step, and a log to read when
-  something goes wrong.
-- **Next:** a time limit for a group discussion.
+  any app can start, with a time limit if they want one, a ready-built download, a command for
+  every step, and a log to read when something goes wrong.
 - **Later:** linking your computers, as [Across your computers](#across-your-computers-coming)
   describes.
 

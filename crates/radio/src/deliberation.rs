@@ -3,8 +3,8 @@
 
 use radio_client::{Deliberation, DeliberationResult, Member};
 use radio_panels::{
-    Block, DeliberationState, Kind, Outcome, ProtocolError, RoundReport, build_result, parse_block,
-    render_markdown, step_round,
+    Block, DeliberationState, Kind, Outcome, ProtocolError, RoundReport, TimeBox, build_result,
+    parse_block, render_markdown, step_round, timebox_decision,
 };
 use radio_rooms::Author;
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ pub(crate) const CLOSED: &str = "the deliberation is closed";
 pub(crate) const POSTED: &str = "this seat has already posted in this round";
 pub(crate) const ROUND_LIMIT: &str = "the deliberation has had its 50 rounds";
 pub(crate) const NO_ROUND: &str = "no round has finished yet";
+pub(crate) const TIME_BOX: &str = "a time box is 15m, 1h or deadlock";
 const NOT_KIND: &str = "not a deliberation kind";
 const LIST_N: &str = "a list deliberation needs n from 1 to 12";
 const TEXT_N: &str = "a text deliberation takes no n";
@@ -35,6 +36,14 @@ pub(crate) struct Record {
     /// The open round's blocks, by seat name.
     pending: BTreeMap<String, Block>,
     last: Option<RoundReport>,
+    /// The time box asked at convene, as `TimeBox` parses it; absent means until an outcome.
+    #[serde(default)]
+    time_box: Option<String>,
+    #[serde(default)]
+    convened_at: f64,
+    /// Whether the time box ran out while the deliberation was open; it then takes no turns.
+    #[serde(default)]
+    expired: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,7 +83,58 @@ impl Record {
             state,
             pending: BTreeMap::new(),
             last: None,
+            time_box: None,
+            convened_at: 0.0,
+            expired: false,
         })
+    }
+
+    /// Sets the time box asked at convene, counted from `now`.
+    pub(crate) fn time_boxed(mut self, time_box: Option<&str>, now: f64) -> Result<Self, String> {
+        if let Some(word) = time_box {
+            TimeBox::parse(word).map_err(|_| TIME_BOX)?;
+        }
+        self.time_box = time_box.map(str::to_owned);
+        self.convened_at = now;
+        Ok(self)
+    }
+
+    /// Ends an open deliberation whose time box has run out at `now`: the open round steps with
+    /// the seats that posted, if any, and the outcome stays as the step leaves it. Answers whether
+    /// the record changed.
+    pub(crate) fn expire(&mut self, now: f64) -> bool {
+        let Some(time_box) = self
+            .time_box
+            .as_deref()
+            .and_then(|w| TimeBox::parse(w).ok())
+        else {
+            return false;
+        };
+        if self.expired
+            || self.state.closed.is_some()
+            || !timebox_decision(
+                now - self.convened_at,
+                &[],
+                &[],
+                Some(time_box),
+                false,
+                false,
+            )
+            .expired
+        {
+            return false;
+        }
+        let mut next = self.clone();
+        if !next.pending.is_empty() {
+            let blocks = std::mem::take(&mut next.pending);
+            let Ok(report) = step_round(&mut next.state, &blocks) else {
+                return false;
+            };
+            next.last = Some(report);
+        }
+        next.expired = true;
+        *self = next;
+        true
     }
 
     pub(crate) fn from_json(text: &str) -> Result<Self, String> {
@@ -94,7 +154,7 @@ impl Record {
         if !self.seats.contains(&seat) {
             return Err(NOT_SEAT.into());
         }
-        if self.state.closed.is_some() {
+        if self.state.closed.is_some() || self.expired {
             return Err(CLOSED.into());
         }
         if self.state.round_no >= ROUNDS_MAX {
@@ -144,6 +204,8 @@ impl Record {
                 .map(Seat::member)
                 .collect(),
             outcome: outcome(self.state.closed).into(),
+            time_box: self.time_box.clone(),
+            expired: self.expired,
         }
     }
 

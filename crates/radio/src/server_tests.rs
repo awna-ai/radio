@@ -543,7 +543,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":10},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":11},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -3506,5 +3506,87 @@ fn a_seat_is_its_member_however_the_name_is_spelled() {
             "{result}"
         );
     }
+    worker.join().unwrap();
+}
+
+#[test]
+fn a_time_box_that_runs_out_ends_the_deliberation_open_with_its_result() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 8);
+    let socket = fixture.socket();
+    let sam = serde_json::json!({"kind":"human","name":"sam"});
+    let ada = serde_json::json!({"kind":"human","name":"ada"});
+    let convene = |time_box: &str| {
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_convene","room":"council","title":"Council","author":sam,"kind":"list","n":1,"seats":[sam, ada],"time_box":time_box}),
+        )
+    };
+    let turn = |author: &serde_json::Value| {
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_turn","room":"council","author":author,"body":"```deliberation\nposition: propose\nitems: [\"oak\"]\n```"}),
+        )
+    };
+    let state = || {
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_state","room":"council"}),
+        )["deliberation"]
+            .clone()
+    };
+    assert_eq!(
+        convene("5m"),
+        serde_json::json!({"ok":false,"error":"a time box is 15m, 1h or deadlock"})
+    );
+    assert_eq!(convene("15m"), serde_json::json!({"ok":true}));
+    assert_eq!(turn(&sam)["seq"], 1);
+    let open = state();
+    assert_eq!(
+        (&open["round"], &open["time_box"], open.get("expired")),
+        (&serde_json::json!(0), &serde_json::json!("15m"), None)
+    );
+    // Move the convening fifteen minutes back, as if the box had run out.
+    let mut store = fixture.reader();
+    let mut record: serde_json::Value =
+        serde_json::from_str(&store.deliberation("council").unwrap().unwrap()).unwrap();
+    record["convened_at"] = serde_json::json!(record["convened_at"].as_f64().unwrap() - 900.0);
+    store
+        .replace_deliberation("council", &record.to_string())
+        .unwrap();
+    let ended = state();
+    assert_eq!(
+        (&ended["round"], &ended["outcome"], &ended["expired"]),
+        (
+            &serde_json::json!(1),
+            &serde_json::json!("open"),
+            &serde_json::json!(true)
+        )
+    );
+    assert_eq!(
+        turn(&ada),
+        serde_json::json!({"ok":false,"error":"the deliberation is closed"})
+    );
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"read","room":"council"}),
+        )["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let result = call(
+        &socket,
+        serde_json::json!({"v":1,"op":"deliberation_result","room":"council"}),
+    );
+    assert_eq!(
+        (
+            &result["result"]["outcome"],
+            &result["result"]["trajectory"]["rounds"]
+        ),
+        (&serde_json::json!("open"), &serde_json::json!(1))
+    );
     worker.join().unwrap();
 }

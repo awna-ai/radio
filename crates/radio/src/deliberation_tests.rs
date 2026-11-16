@@ -255,3 +255,119 @@ fn a_deliberation_takes_no_turn_after_its_round_limit() {
         Err(ROUND_LIMIT.to_owned())
     );
 }
+
+const PROPOSE: &str = "```deliberation\nposition: propose\nitems: [\"oak\"]\n```";
+
+#[test]
+fn an_expired_time_box_steps_the_posted_seats_and_ends_open_with_a_result() {
+    let mut record = Record::convene("list", Some(1), seats(&["juniper", "fern", "moss"]))
+        .unwrap()
+        .time_boxed(Some("15m"), 1000.0)
+        .unwrap();
+    assert_eq!(record.turn(&seat("juniper"), PROPOSE), Ok(false));
+    assert!(!record.expire(1000.0 + 899.0));
+    assert!(record.expire(1000.0 + 900.0));
+    let view = record.view();
+    assert_eq!(
+        (
+            view.round,
+            view.outcome.as_str(),
+            view.time_box.as_deref(),
+            view.expired
+        ),
+        (1, "open", Some("15m"), true)
+    );
+    assert!(view.posted.is_empty());
+    let (result, _) = record.result().unwrap();
+    assert_eq!(
+        (result.outcome.as_str(), result.trajectory.rounds),
+        ("open", 1)
+    );
+    assert_eq!(record.turn(&seat("fern"), PROPOSE), Err(CLOSED.to_owned()));
+    assert!(!record.expire(1000.0 + 3600.0));
+    let reread = Record::from_json(&record.to_json().unwrap()).unwrap();
+    assert_eq!(reread.view(), record.view());
+}
+
+#[test]
+fn an_unexpired_or_absent_time_box_changes_nothing() {
+    let mut boxed = Record::convene("list", Some(1), seats(&["juniper", "fern"]))
+        .unwrap()
+        .time_boxed(Some("1h"), 1000.0)
+        .unwrap();
+    boxed.turn(&seat("juniper"), PROPOSE).unwrap();
+    let before = boxed.to_json().unwrap();
+    assert!(!boxed.expire(1000.0 + 3599.0));
+    assert_eq!(boxed.to_json().unwrap(), before);
+    for word in [None, Some("deadlock")] {
+        let mut record = Record::convene("list", Some(1), seats(&["juniper", "fern"]))
+            .unwrap()
+            .time_boxed(word, 1000.0)
+            .unwrap();
+        record.turn(&seat("juniper"), PROPOSE).unwrap();
+        assert!(!record.expire(1000.0 + 1e9));
+        assert!(!record.view().expired);
+        assert_eq!(record.view().time_box.as_deref(), word);
+        assert_eq!(record.turn(&seat("fern"), PROPOSE), Ok(true));
+    }
+}
+
+#[test]
+fn a_time_box_that_runs_out_before_any_turn_ends_with_no_round() {
+    let mut record = Record::convene("text", None, seats(&["juniper", "fern"]))
+        .unwrap()
+        .time_boxed(Some("15m"), 0.0)
+        .unwrap();
+    assert!(record.expire(900.0));
+    let view = record.view();
+    assert_eq!(
+        (view.round, view.outcome.as_str(), view.expired),
+        (0, "open", true)
+    );
+    assert_eq!(record.result().unwrap_err(), NO_ROUND);
+    assert_eq!(
+        record.turn(
+            &seat("juniper"),
+            "```deliberation\nposition: propose\ndraft: \"oaks\"\n```"
+        ),
+        Err(CLOSED.to_owned())
+    );
+}
+
+#[test]
+fn an_agreed_deliberation_never_expires_and_an_unknown_time_box_is_refused() {
+    let mut record = Record::convene("list", Some(2), seats(&["juniper", "fern"]))
+        .unwrap()
+        .time_boxed(Some("15m"), 0.0)
+        .unwrap();
+    record.turn(&seat("juniper"), AGREE).unwrap();
+    record.turn(&seat("fern"), AGREE).unwrap();
+    assert!(!record.expire(900.0));
+    assert_eq!(
+        (record.view().outcome.as_str(), record.view().expired),
+        ("agreed", false)
+    );
+    for word in ["5m", "", "15M", "1h "] {
+        assert_eq!(
+            Record::convene("list", Some(1), seats(&["juniper", "fern"]))
+                .unwrap()
+                .time_boxed(Some(word), 0.0)
+                .unwrap_err(),
+            TIME_BOX
+        );
+    }
+}
+
+#[test]
+fn a_record_written_before_time_boxes_still_reads() {
+    let mut record = Record::convene("list", Some(1), seats(&["juniper", "fern"])).unwrap();
+    record.turn(&seat("juniper"), PROPOSE).unwrap();
+    let mut json: Value = serde_json::from_str(&record.to_json().unwrap()).unwrap();
+    let object = json.as_object_mut().unwrap();
+    for key in ["time_box", "convened_at", "expired"] {
+        object.remove(key);
+    }
+    let mut old = Record::from_json(&json.to_string()).unwrap();
+    assert!(!old.expire(1e12));
+    assert_eq!(old.view(), record.view());
+}

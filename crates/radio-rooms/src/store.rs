@@ -414,6 +414,19 @@ impl RoomStore {
             .map_err(|_| UNREADABLE.to_owned())
     }
 
+    /// Replaces a room's deliberation record without a post.
+    pub fn replace_deliberation(&mut self, room: &str, record: &str) -> Result<(), String> {
+        let updated = self
+            .conn
+            .prepare_cached("UPDATE deliberations SET record = ?2 WHERE room = ?1")
+            .and_then(|mut stmt| stmt.execute(params![room, record]))
+            .map_err(|_| UNWRITABLE)?;
+        if updated != 1 {
+            return Err("not a deliberation".into());
+        }
+        Ok(())
+    }
+
     /// Appends a turn as a post and replaces the room's deliberation record, in one transaction.
     pub fn post_turn(
         &mut self,

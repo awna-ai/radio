@@ -1,0 +1,29 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_convene",
+    "room": "vote",
+    "title": "Vote",
+    "author": {
+      "kind": "human",
+      "name": "sam"
+    },
+    "kind": "text",
+    "seats": [
+      {
+        "kind": "helper",
+        "name": "juniper"
+      },
+      {
+        "kind": "helper",
+        "name": "fern"
+      }
+    ],
+    "time_box": "5m"
+  },
+  "response": {
+    "ok": false,
+    "error": "a time box is 15m, 1h or deadlock"
+  },
+  "exact": true
+}

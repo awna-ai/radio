@@ -40,7 +40,7 @@ fn file_ops_and_protocol_minor_are_available() {
     ] {
         assert!(radio_client::OPS.contains(&op), "{op}");
     }
-    assert_eq!(radio_client::PROTOCOL_MINOR, 10);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 11);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn delivery_type_round_trips_and_accepts_future_fields() {
 fn deliberation_contract_round_trips() {
     use radio_client::{Request, Response};
     use serde_json::json;
-    assert_eq!(radio_client::PROTOCOL_MINOR, 10);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 11);
     assert_eq!(
         &radio_client::OPS[33..],
         &[
@@ -109,6 +109,7 @@ fn deliberation_contract_round_trips() {
     for value in [
         json!({"op":"deliberation_convene","room":"council","title":"Council","author":seat,"kind":"list","n":2,"seats":[seat, {"kind":"helper","name":"fern"}]}),
         json!({"op":"deliberation_convene","room":"council","title":"Council","author":seat,"kind":"text","seats":[]}),
+        json!({"op":"deliberation_convene","room":"council","title":"Council","author":seat,"kind":"text","seats":[],"time_box":"15m"}),
         json!({"op":"deliberation_turn","room":"council","author":seat,"body":"turn"}),
         json!({"op":"deliberation_state","room":"council"}),
         json!({"op":"deliberation_result","room":"council"}),
@@ -122,6 +123,7 @@ fn deliberation_contract_round_trips() {
     for value in [
         json!({"ok":true,"seq":3,"deliberation":{"kind":"list","n":2,"seats":[seat],"round":1,"posted":[],"outcome":"agreed"}}),
         json!({"ok":true,"deliberation":{"kind":"text","seats":[seat],"round":0,"posted":[seat],"outcome":"open"}}),
+        json!({"ok":true,"deliberation":{"kind":"text","seats":[seat],"round":1,"posted":[],"outcome":"open","time_box":"1h","expired":true}}),
         json!({"ok":true,"markdown":"# m\n","result":{"label":"Proposal for the principals, not a decision","outcome":"agreed","kind":"list:2","answer":["a","b"],"groups":[{"members":["fern","juniper"],"weight":1.0,"answer":["a","b"]}],"dissent":[{"member":"fern","holdout":false,"objections":"none"}],"trajectory":{"D":[0.0],"rounds":1}}}),
         json!({"ok":true,"result":{"label":"l","outcome":"open","kind":"text","answer":null,"groups":[{"members":["fern"],"weight":0.5,"answer":"draft"}],"dissent":[],"trajectory":{"D":[1.0,0.5],"rounds":2}}}),
     ] {

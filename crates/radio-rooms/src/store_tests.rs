@@ -2695,6 +2695,27 @@ fn deliberation_records_open_their_room_and_change_only_with_a_turn() {
 }
 
 #[test]
+fn a_record_is_replaced_without_a_post_only_in_a_deliberation() {
+    let dir = Store::new("deliberation-replace");
+    let mut store = dir.open();
+    store.create_room("plain", "node-a", "Plain", 1.0).unwrap();
+    store
+        .create_deliberation("council", "node-a", "Council", "{\"r\":0}", 2.0)
+        .unwrap();
+    store.replace_deliberation("council", "{\"r\":1}").unwrap();
+    assert_eq!(
+        store.deliberation("council").unwrap().as_deref(),
+        Some("{\"r\":1}")
+    );
+    assert!(store.tail("council", 10).unwrap().is_empty());
+    assert_eq!(
+        store.replace_deliberation("plain", "{}").unwrap_err(),
+        "not a deliberation"
+    );
+    assert_eq!(store.deliberation("plain").unwrap(), None);
+}
+
+#[test]
 fn a_turn_whose_post_fails_keeps_the_old_record() {
     let dir = Store::new("deliberation-atomic");
     let mut store = dir.open();

@@ -1,0 +1,28 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_convene",
+    "room": "vote",
+    "title": "Vote",
+    "author": {
+      "kind": "human",
+      "name": "sam"
+    },
+    "kind": "text",
+    "seats": [
+      {
+        "kind": "helper",
+        "name": "juniper"
+      },
+      {
+        "kind": "helper",
+        "name": "fern"
+      }
+    ],
+    "time_box": "1h"
+  },
+  "response": {
+    "ok": true
+  },
+  "exact": true
+}

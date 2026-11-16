@@ -44,7 +44,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
             "deliberation_convene",
             1,
             rest,
-            &["--title", "--as", "--kind", "--n", "--seat"],
+            &["--title", "--as", "--kind", "--n", "--seat", "--time-box"],
         ),
         ["deliberation", "turn", rest @ ..] => (
             "deliberation_turn",
@@ -134,6 +134,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
             kind: required("--kind")?.into(),
             n: seen.get("--n").map(|value| digits(value)).transpose()?,
             seats: members,
+            time_box: seen.get("--time-box").map(|value| (*value).into()),
         },
         "deliberation_turn" => {
             body = Some(match (seen.get("--body"), seen.get("--body-file")) {
