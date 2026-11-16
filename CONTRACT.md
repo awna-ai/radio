@@ -62,11 +62,11 @@ them against these lines. They are independent of the repo's semver tags.
   numbered from 1; `last_seq` is the newest number, 0 for none.
 - Radio opens one room itself when it starts: this computer's own room, always there for the members
   on this computer and the person at it, so apps need not agree on one. Its id and its `home` are the
-  daemon's name (the host name up to its first dot, in lowercase letters, digits and `-`, `local` when
-  that leaves nothing; or `radio serve --name`), and its title is `Room on <name>`. It is a room like
-  any other, and Radio posts nothing in it.
-- Radio opens it only when no room has that id: an existing room keeps its title. A daemon started
-  under a new name opens a room for that name and keeps the old one.
+  daemon's name (the host name up to its first dot, in lowercase letters, digits and `-`, at most 64,
+  `local` when that leaves nothing; or `radio serve --name`), and its title is `Room on <name>`. It is
+  a room like any other, and Radio posts nothing in it.
+- Radio opens it only when no room has that id: an existing room keeps its title and its `home`. A
+  daemon started under a new name opens a room for that name and keeps the old one.
 - So a fresh daemon's `list_rooms` answers that one room.
 
 ## Ops in major 1
