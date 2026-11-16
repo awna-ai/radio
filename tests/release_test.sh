@@ -1071,7 +1071,7 @@ refused 1 'could not read the aarch64-apple-darwin load commands' v0.1.0
 # A skipped region is zeroed to its last byte and no further: a term right after it is read.
 new_case 85
 printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
-export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_REGION_AFTER=' zqv read'
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_REGION_AFTER='zqv read'
 for region in 'symbols|||' 'dysymtab|indirectsymoff||' 'info|rebase||' 'data|LC_CODE_SIGNATURE||' \
     'section|__TEXT|__unwind_info|0x00000000'; do
     case_number="85 ($region)"
