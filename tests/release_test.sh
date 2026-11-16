@@ -1037,7 +1037,7 @@ region_cases 80 1 'region the short scan does not list (load command 6)' 'other 
     'section|__TEXT|__literal16|0x0000000e' 'section|__DATA|__text|0x00000000' 'section|__TEXT|__zzcode|0x00000000' \
     'section|__DATA|__mod_init_func|0x00000009' 'data|LC_SEGMENT_SPLIT_INFO||' 'data|LC_DYLD_ZZNEW||' \
     'dysymtab|tocoff||' 'dysymtab|modtaboff||' 'dysymtab|extrefsymoff||' 'dysymtab|extreloff||' 'dysymtab|locreloff||' \
-    'section|__TEXT|__const|0x80000400' 'section|__DATA_CONST|__const|0x00000400' 'data|?(0x99)||' 'relocs|||' \
+    'section|__TEXT|__const|0x80000400' 'section|__DATA_CONST|__const|0x00000400' 'count|?(0x99)|zzfield|' 'relocs|||' \
     'count|LC_TWOLEVEL_HINTS|nhints|' 'count|LC_SYMSEG|size|' 'count|LC_NOTE|size|' 'count|LC_ENCRYPTION_INFO_64|cryptsize|'
 
 # A region with no bytes is no region, whatever its kind.
