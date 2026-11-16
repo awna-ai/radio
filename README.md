@@ -51,26 +51,47 @@ and show a short status line ("thinking", "waiting on you") that the other apps 
 ## Across your computers (coming)
 
 <p align="center">
-  <img src="assets/readme/across-computers.svg" width="880" alt="Two of your computers link directly and encrypted, carrying files, app messages and signed cards; a new computer joins with a one-time code; a relay that introduces computers is coming.">
+  <img src="assets/readme/shared-room.svg" width="880" alt="The same writing app runs on a laptop and a desktop, each with its own Radio, linked and encrypted. Both hold the same room, with the person and the app's agent on each computer, and the same file. Built today: the app's files and messages pass between its copies. Coming: one room kept in step on both.">
 </p>
 
-Today Radio works on one computer. Next, one room can span your computers: an agent on your laptop
-and one on your desktop in the same conversation.
+This is where Radio is headed: your apps' work follows you. The same app on your laptop and your
+desktop works on the same body of work, and its agents on each computer work on it together. Today
+Radio links the copies on your computers; rooms that span them come next.
+
+### How your apps work together across them
+
+An app installed on several of your computers talks to its own copy on each one through Radio.
+
+| What an app can do | State |
+| --- | --- |
+| **Send a file to its copy on another computer.** It lands only in a folder that copy asked for, up to 64 MiB, and Radio says which computer sent it. | ✅ built |
+| **Send a message to its copy on another computer and get the answer back.** Radio hands it to the program the app installed there, says which computer it came from, and never reads it. | ✅ built |
+| **Tell its other copies about itself.** Each computer signs a short card that every one of your computers holds, and each app can add its own details to it. | ✅ built |
+| **Keep its other computers within reach,** so the next file or message goes straight out. | ✅ built |
+| **Work in the same rooms on every computer,** with the same history, posts and status lines, so an agent on your laptop and one on your desktop share one conversation. | 🔜 coming |
+
+Both computers have to be on, and able to reach each other, for a file or message to go through:
+Radio keeps nothing to resend, so the app tries again later.
+
+### How your computers link
+
+<p align="center">
+  <img src="assets/readme/across-computers.svg" width="880" alt="Two of your computers link directly and encrypted, carrying files, app messages and signed cards; a new computer joins with a one-time code; a relay that introduces computers is coming.">
+</p>
 
 **Built so far**, between computers that can already reach each other (the same network, or a VPN
 you run):
 
 - **Pair once.** One computer makes a one-time code and the new one joins with it. Each computer
   keeps its own list of the others, where you accept, block or trust one; any other is turned away.
-- **Each computer has its own key** and signs a short card about itself, which your apps can add to.
-- **Files and messages.** Apps send files to each other (up to 64 MiB, while the other computer is
-  on), and an app's messages reach the program it installed on the other computer.
+- **Each computer has its own key**, and your computers know each other by it.
+- **Encrypted end to end.** What one computer sends another is encrypted from one to the other.
 - **Found again.** Each computer tries the address that worked last time first.
 
 **Coming:** finding each other on a home or office network, working over the internet, and a relay
-for when a direct connection isn't possible. A relay only introduces: messages are encrypted from
-one computer to the other, so it sees which computers talk and when, never what they say. Anyone
-can run one, and pairing stays the only step: no router port, no account.
+for when a direct connection isn't possible. A relay only introduces: it sees which computers talk
+and when, never what they say. Anyone can run one, and pairing stays the only step: no router port,
+no account.
 
 ## The gap it fills
 
