@@ -149,12 +149,13 @@ crate_names=$(awk '{ printf "%s%d%s%s", (NR > 1 ? "|" : ""), length($0), (substr
 # __gcc_except_tab; __got, __la_symbol_ptr and __thread_vars; in __LINKEDIT rebase, the export trie (it stores names in
 # fragments, so a crate hash can lose its Cs there; every exported name is whole in the symbol strings), function
 # starts, data in code, the symbol entries, the indirect symbols and the code signature. A region with file bytes on
-# neither list refuses the release, as does a skipped region over a read one; bytes between regions are read. Adding a
-# region to READ only widens the scan; a move to SKIP, or out of READ, is the owner's call. Long terms, paths and the
-# account keep the whole file.
+# neither list refuses the release: a section of another name, a read name carrying instructions, relocations, a load
+# command otool can't name, or a table of one that isn't listed. So does a skipped region over a read one. Bytes between
+# regions are read. Adding a region to READ only widens the scan; a move to SKIP, or out of READ, is the owner's call.
+# Long terms, paths and the account keep the whole file.
 partition() {
     local size verdict where layout_failure="could not read the $target load commands"
-    otool -l "$1" > "$work/load-commands" 2> /dev/null || fail "could not read the $target export trie"
+    otool -l "$1" > "$work/load-commands" 2> /dev/null || fail "$layout_failure"
     size=$(wc -c < "$1") || fail "$layout_failure"
     size=${size//[[:space:]]/}
     awk -v size="$size" '
@@ -168,44 +169,57 @@ partition() {
         # kind: trie and code fail with their own messages; other with the layout one.
         function region(list, kind, off, len) {
             seen[kind] = 1
-            if (off !~ /^[0-9]+$/ || len !~ /^[0-9]+$/) { bad[kind] = 1; return }
+            if (lc == "" || off !~ /^[0-9]+$/ || len !~ /^[0-9]+$/) { bad[kind] = 1; return }
             if (len + 0 == 0) return
-            if (list == "unlisted") { if (unlisted == "") unlisted = lc; return }
+            if (list == "unlisted") { if (!has_unlisted) unlisted = lc; has_unlisted = 1; return }
             if (off + len > size + 0) { bad[kind] = 1; return }
             n++
             lists[n] = list; offs[n] = off + 0; lens[n] = len + 0; lcs[n] = lc
         }
-        function flush(   kind, f, type, name, list) {
+        function flush(   kind, f, type, name, list, instructions) {
             if (!insect) return
             insect = 0
             kind = (seg == "__TEXT" && sect == "__text") ? "code" : "other"
-            if (seg == "" || sect == "" || sz !~ /^0x[0-9a-fA-F]+$/ || fl !~ /^0x[0-9a-fA-F]+$/) { bad[kind] = 1; return }
+            if (seg == "" || sect == "" || sz !~ /^0x[0-9a-fA-F]+$/ || fl !~ /^0x[0-9a-fA-F]+$/ || nreloc !~ /^[0-9]+$/) {
+                bad[kind] = 1
+                return
+            }
+            region("unlisted", kind, 0, nreloc)
             f = hex(fl)
             type = f % 256
             # Zero-fill (S_ZEROFILL, S_GB_ZEROFILL, S_THREAD_LOCAL_ZEROFILL) has no file bytes.
             if (type == 1 || type == 12 || type == 18) return
             name = seg "," sect
-            if (kind == "code") list = "code"
             # S_ATTR_PURE_INSTRUCTIONS or S_ATTR_SOME_INSTRUCTIONS.
-            else if (int(f / 2147483648) % 2 || int(f / 1024) % 2) list = "skip"
-            else if (name ~ /^__TEXT,__(cstring|const|ustring|oslogstring)$/) list = "read"
-            else if (name ~ /^__DATA(_CONST)?,__(const|data|static_data|thread_data)$/) list = "read"
+            instructions = int(f / 2147483648) % 2 || int(f / 1024) % 2
+            if (kind == "code") list = "code"
+            else if (name ~ /^__TEXT,__(cstring|const|ustring|oslogstring)$/) list = instructions ? "unlisted" : "read"
+            else if (name ~ /^__DATA(_CONST)?,__(const|data|static_data|thread_data)$/) list = instructions ? "unlisted" : "read"
+            else if (instructions) list = "skip"
             else if (name ~ /^__TEXT,__(eh_frame|unwind_info|gcc_except_tab)$/) list = "skip"
             else if (name ~ /^__DATA(_CONST)?,__(got|la_symbol_ptr|thread_vars)$/) list = "skip"
             else list = "unlisted"
             region(list, kind, soff, hex(sz))
         }
         function count(n, width) { return n ~ /^[0-9]+$/ ? n * width : n }
-        $1 == "Load" && $2 == "command" { flush(); lc = $3; cmd = ""; delete val; next }
-        $1 == "cmd" { cmd = $2; next }
+        $1 == "Load" && $2 == "command" {
+            flush()
+            lc = $3
+            if (lc !~ /^[0-9]+$/) bad["other"] = 1
+            cmd = ""
+            delete val
+            next
+        }
+        $1 == "cmd" { cmd = $2; if (cmd !~ /^LC_[A-Z0-9_]+$/) region("unlisted", "other", 0, 1); next }
         $1 == "cmdsize" { if ($2 ~ /^[0-9]+$/) cmds += $2; else bad["other"] = 1; next }
-        $1 == "Section" { flush(); insect = 1; sect = ""; seg = ""; sz = ""; soff = ""; fl = ""; next }
+        $1 == "Section" { flush(); insect = 1; sect = ""; seg = ""; sz = ""; soff = ""; fl = ""; nreloc = ""; next }
         insect {
             if ($1 == "sectname") sect = $2
             else if ($1 == "segname") seg = $2
             else if ($1 == "size") sz = $2
             else if ($1 == "offset") soff = $2
             else if ($1 == "flags") fl = $2
+            else if ($1 == "nreloc") nreloc = $2
             next
         }
         { val[$1] = $2 }
@@ -220,7 +234,9 @@ partition() {
         cmd == "LC_SYMTAB" && $1 == "strsize" { region("read", "other", val["stroff"], $2) }
         cmd == "LC_DYSYMTAB" && $1 == "nindirectsyms" { region("skip", "other", val["indirectsymoff"], count($2, 4)) }
         cmd == "LC_DYSYMTAB" && $1 ~ /^(ntoc|nmodtab|nextrefsyms|nextrel|nlocrel)$/ { region("unlisted", "other", 0, $2) }
-        cmd == "LC_NOTE" && $1 == "size" { region("unlisted", "other", val["offset"], $2) }
+        cmd ~ /^LC_(NOTE|SYMSEG)$/ && $1 == "size" { region("unlisted", "other", 0, $2) }
+        cmd == "LC_TWOLEVEL_HINTS" && $1 == "nhints" { region("unlisted", "other", 0, $2) }
+        cmd ~ /^LC_ENCRYPTION_INFO(_64)?$/ && $1 == "cryptsize" { region("unlisted", "other", 0, $2) }
         $1 == "datasize" {
             if (cmd == "LC_DYLD_EXPORTS_TRIE") region("skip", "trie", val["dataoff"], $2)
             else if (cmd ~ /^LC_(FUNCTION_STARTS|DATA_IN_CODE|CODE_SIGNATURE)$/) region("skip", "other", val["dataoff"], $2)
@@ -234,7 +250,7 @@ partition() {
             if (bad["trie"] || !seen["trie"]) { print "fail trie"; exit }
             if (bad["code"] || !seen["code"]) { print "fail code"; exit }
             if (bad["other"]) { print "fail layout"; exit }
-            if (unlisted != "") { print "fail unlisted", unlisted; exit }
+            if (has_unlisted) { print "fail unlisted", unlisted; exit }
             for (i = 1; i <= n; i++) {
                 if (lists[i] == "read") continue
                 for (j = 1; j <= n; j++) {
@@ -336,8 +352,8 @@ for i in 0 1; do
         status=$?
         [ "$status" -eq 1 ] || fail "could not scan the $target binary"
     fi
-    # The read regions' printable runs, tab, CR and LF counted as text: strings -a skips Mach-O load commands and __LINKEDIT;
-    # no runs fails closed.
+    # The copy's printable runs, tab, CR and LF counted as text; not strings -a, which skips Mach-O load commands and
+    # __LINKEDIT. No runs fails closed.
     partition "$bin" "$work/text-source" "$work/code"
     tr '\t\r\n' '   ' < "$work/text-source" | grep -a -o -E '[[:print:]]{4,}' > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
     # Then the machine code's own runs, where tab, CR and LF break them; real code always has some, so none fails closed.

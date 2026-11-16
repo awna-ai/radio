@@ -71,7 +71,7 @@ else
         printf '\001%s\002\n' "$STUB_BINARY_TRIE" >> "$dest/$target/release/radio"
     fi
     if [ -n "${STUB_REGION:-}" ]; then
-        printf '\001%s\002\n' "${STUB_REGION##*|}" >> "$dest/$target/release/radio"
+        printf '\001%s%s\002\n' "${STUB_REGION##*|}" "${STUB_REGION_AFTER:-}" >> "$dest/$target/release/radio"
     fi
     # Real machine code always holds some printable runs.
     printf '\001%s\002\n' "${STUB_BINARY_CODE:-stub code}" >> "$dest/$target/release/radio"
@@ -169,6 +169,7 @@ case "${STUB_OTOOL:-}" in
     codeword) code_size=many ;;
     noflags) const_flags='' ;;
     cmdword) cmdsize=many ;;
+    cmdbig) cmdsize=20 ;;
     readbeyond) str_off=$(wc -c < "$2" | tr -d ' ') str_size=1 ;;
 esac
 # One more region, from STUB_REGION='<kind>|<a>|<b>|<flags>|<marker>', covering its marker in the binary.
@@ -180,20 +181,24 @@ if [ -n "${STUB_REGION:-}" ]; then
         region_size=$(printf '%s' "$region_marker" | wc -c | tr -d ' ')
     fi
 fi
-printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize %s\n  segname __TEXT\n   vmaddr 0x0000000100000000\n' "$cmdsize"
+lc0=0
+[ "${STUB_OTOOL:-}" != lcword ] || lc0=zero
+printf 'Load command %s\n      cmd LC_SEGMENT_64\n  cmdsize %s\n  segname __TEXT\n   vmaddr 0x0000000100000000\n' "$lc0" "$cmdsize"
 if [ "${STUB_OTOOL:-}" != nocode ]; then
     printf 'Section\n  sectname __text\n   segname __TEXT\n      addr 0x0000000100000ac0\n      size %s\n' "$code_size"
     printf '    offset %s\n     align 2^6 (64)\n    reloff 0\n    nreloc 0\n     flags 0x80000400\n' "$code_off"
 fi
 printf 'Section\n  sectname __const\n   segname __TEXT\n      addr 0x0000000100900000\n      size %s\n' "$text_size"
-printf '    offset %s\n     align 2^4 (16)\n' "$text_off"
+printf '    offset %s\n     align 2^4 (16)\n    reloff 0\n    nreloc 0\n' "$text_off"
 [ -z "$const_flags" ] || printf '     flags %s\n' "$const_flags"
 printf 'Load command 1\n      cmd LC_SEGMENT_64\n  cmdsize 0\n  segname __DATA\n'
 printf 'Section\n  sectname __data\n   segname __DATA\n      addr 0x0000000100a00000\n      size %s\n' "$text_size"
-printf '    offset %s\n     align 2^3 (8)\n     flags 0x00000000\n' "$text_off"
+printf '    offset %s\n     align 2^3 (8)\n    reloff 0\n    nreloc 0\n     flags 0x00000000\n' "$text_off"
 # Zero-fill holds no file bytes, whatever its size; otool prints its offset as 0.
-printf 'Section\n  sectname __bss\n   segname __DATA\n      addr 0x0000000100b00000\n      size 0x0000000000100000\n'
-printf '    offset 0\n     align 2^3 (8)\n     flags 0x00000001\n'
+for zerofill in __bss:0x00000001 __gbzero:0x0000000c __thread_bss:0x00000012; do
+    printf 'Section\n  sectname %s\n   segname __DATA\n      addr 0x0000000100b00000\n      size 0x0000000000100000\n' "${zerofill%%:*}"
+    printf '    offset 0\n     align 2^3 (8)\n    reloff 0\n    nreloc 0\n     flags %s\n' "${zerofill#*:}"
+done
 if /usr/bin/grep -q '^arch=x86_64$' "$2"; then
     printf 'Load command 4\n            cmd LC_DYLD_INFO_ONLY\n        cmdsize 0\n     rebase_off 0\n    rebase_size 0\n'
     printf '       bind_off 0\n      bind_size 0\n  weak_bind_off 0\n weak_bind_size 0\n  lazy_bind_off 0\n lazy_bind_size 0\n'
@@ -206,8 +211,14 @@ case "${region_kind:-}" in
     section)
         printf 'Load command 6\n      cmd LC_SEGMENT_64\n  cmdsize 0\n  segname %s\n' "$region_a"
         printf 'Section\n  sectname %s\n   segname %s\n      addr 0x0000000100c00000\n      size 0x%016x\n' "$region_b" "$region_a" "$region_size"
-        printf '    offset %s\n     align 2^3 (8)\n     flags %s\n' "$region_off" "$region_flags"
+        printf '    offset %s\n     align 2^3 (8)\n    reloff 0\n    nreloc 0\n     flags %s\n' "$region_off" "$region_flags"
         ;;
+    relocs)
+        printf 'Load command 6\n      cmd LC_SEGMENT_64\n  cmdsize 0\n  segname __DATA\n'
+        printf 'Section\n  sectname __data\n   segname __DATA\n      addr 0x0000000100c00000\n      size 0x%016x\n' "$region_size"
+        printf '    offset %s\n     align 2^3 (8)\n    reloff %s\n    nreloc 2\n     flags 0x00000000\n' "$region_off" "$region_off"
+        ;;
+    count) printf 'Load command 6\n      cmd %s\n  cmdsize 0\n  %s %s\n' "$region_a" "$region_b" "$region_size" ;;
     data) printf 'Load command 6\n      cmd %s\n  cmdsize 0\n  dataoff %s\n datasize %s\n' "$region_a" "$region_off" "$region_size" ;;
     info)
         printf 'Load command 6\n            cmd LC_DYLD_INFO_ONLY\n        cmdsize 0\n'
@@ -360,7 +371,7 @@ new_case() {
     unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
     unset STUB_BINARY_TEXT STUB_BINARY_TAIL STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
     unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS STUB_BINARY_TRIE STUB_OTOOL STUB_METADATA STUB_CRATES
-    unset STUB_CDYLIB_CRATES STUB_CDYLIB_ONLY_CRATES STUB_BINARY_CODE STUB_REGION
+    unset STUB_CDYLIB_CRATES STUB_CDYLIB_ONLY_CRATES STUB_BINARY_CODE STUB_REGION STUB_REGION_AFTER
     export RADIO_TERMS_FILE="$tmp/terms.txt"
     git init -q -b main "$repo" || exit 1
     git -C "$repo" config user.name Test
@@ -855,7 +866,7 @@ refused 1 'names a private term' v0.1.0
 
 new_case 57
 export STUB_OTOOL=fail
-refused 1 'could not read the aarch64-apple-darwin export trie' v0.1.0
+refused 1 'could not read the aarch64-apple-darwin load commands' v0.1.0
 
 new_case 58
 export STUB_OTOOL=none
@@ -1012,9 +1023,9 @@ region_cases 78 1 'names a private term' 'read zqv region.' \
     'section|__DATA|__static_data|0x00000000' 'section|__DATA|__thread_data|0x00000011' \
     'strings|||' 'info|bind||' 'info|weak_bind||' 'info|lazy_bind||' 'data|LC_DYLD_CHAINED_FIXUPS||'
 
-region_cases 79 0 'release: built v0.1.0' 'skip zqv region.' \
+region_cases 79 0 'release: built v0.1.0' 'skip region. zqv' \
     'section|__TEXT|__stubs|0x80000408' 'section|__TEXT|__stub_helper|0x80000400' \
-    'section|__TEXT|__zzpure|0x80000000' 'section|__DATA|__zzsome|0x00000400' 'section|__TEXT|__const|0x80000400' \
+    'section|__TEXT|__zzpure|0x80000000' 'section|__DATA|__zzsome|0x00000400' \
     'section|__TEXT|__eh_frame|0x6800000b' 'section|__TEXT|__unwind_info|0x00000000' \
     'section|__TEXT|__gcc_except_tab|0x00000000' 'section|__DATA_CONST|__got|0x00000006' \
     'section|__DATA|__got|0x00000006' 'section|__DATA|__la_symbol_ptr|0x00000007' \
@@ -1025,7 +1036,9 @@ region_cases 79 0 'release: built v0.1.0' 'skip zqv region.' \
 region_cases 80 1 'region the short scan does not list (load command 6)' 'other region....' \
     'section|__TEXT|__literal16|0x0000000e' 'section|__DATA|__text|0x00000000' 'section|__TEXT|__zzcode|0x00000000' \
     'section|__DATA|__mod_init_func|0x00000009' 'data|LC_SEGMENT_SPLIT_INFO||' 'data|LC_DYLD_ZZNEW||' \
-    'dysymtab|tocoff||' 'dysymtab|modtaboff||' 'dysymtab|extrefsymoff||' 'dysymtab|extreloff||' 'dysymtab|locreloff||'
+    'dysymtab|tocoff||' 'dysymtab|modtaboff||' 'dysymtab|extrefsymoff||' 'dysymtab|extreloff||' 'dysymtab|locreloff||' \
+    'section|__TEXT|__const|0x80000400' 'section|__DATA_CONST|__const|0x00000400' 'data|?(0x99)||' 'relocs|||' \
+    'count|LC_TWOLEVEL_HINTS|nhints|' 'count|LC_SYMSEG|size|' 'count|LC_NOTE|size|' 'count|LC_ENCRYPTION_INFO_64|cryptsize|'
 
 # A region with no bytes is no region, whatever its kind.
 region_cases 81 0 'release: built v0.1.0' '' 'data|LC_SEGMENT_SPLIT_INFO||' 'section|__TEXT|__literal16|0x0000000e'
@@ -1052,6 +1065,24 @@ export STUB_OTOOL=cmdword
 refused 1 'could not read the aarch64-apple-darwin load commands' v0.1.0
 export STUB_OTOOL=readbeyond
 refused 1 'could not read the aarch64-apple-darwin load commands' v0.1.0
+export STUB_OTOOL=lcword
+refused 1 'could not read the aarch64-apple-darwin load commands' v0.1.0
+
+# A skipped region is zeroed to its last byte and no further: a term right after it is read.
+new_case 85
+printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+export RADIO_TERMS_FILE="$tmp/short-terms.txt" STUB_REGION_AFTER=' zqv read'
+for region in 'symbols|||' 'dysymtab|indirectsymoff||' 'info|rebase||' 'data|LC_CODE_SIGNATURE||' \
+    'section|__TEXT|__unwind_info|0x00000000'; do
+    case_number="85 ($region)"
+    export STUB_REGION="$region|skip region....."
+    refused 1 'names a private term' v0.1.0
+done
+
+# The header and load commands run to 32 bytes past the sum of every cmdsize, and a skipped region inside them refuses.
+new_case 86
+export STUB_OTOOL=cmdbig STUB_BINARY_TRIE='edge trie edge'
+refused 1 'skipped region over a read one (load command 4)' v0.1.0
 
 if [ "$failed" -ne 0 ]; then
     exit 1
