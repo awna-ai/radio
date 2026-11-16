@@ -21,3 +21,6 @@ data-encoding = "=2.11.1"
 
 [dev-dependencies]
 tokio = { version = "=1.54.1", features = ["test-util"] }
+bytes = "=1.12.1"
+iroh-gossip = { version = "=0.101.0", default-features = false }
+rand = { version = "=0.10.3", default-features = false, features = ["std_rng"] }
