@@ -3550,7 +3550,8 @@ fn a_time_box_that_runs_out_ends_the_deliberation_open_with_its_result() {
     let mut store = fixture.reader();
     let mut record: serde_json::Value =
         serde_json::from_str(&store.deliberation("council").unwrap().unwrap()).unwrap();
-    record["convened_at"] = serde_json::json!(record["convened_at"].as_f64().unwrap() - 900.0);
+    let convened_at = record["time_box"]["convened_at"].as_f64().unwrap();
+    record["time_box"]["convened_at"] = serde_json::json!(convened_at - 900.0);
     store
         .replace_deliberation("council", &record.to_string())
         .unwrap();

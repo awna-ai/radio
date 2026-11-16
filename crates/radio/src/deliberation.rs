@@ -36,14 +36,21 @@ pub(crate) struct Record {
     /// The open round's blocks, by seat name.
     pending: BTreeMap<String, Block>,
     last: Option<RoundReport>,
-    /// The time box asked at convene, as `TimeBox` parses it; absent means until an outcome.
-    #[serde(default)]
-    time_box: Option<String>,
-    #[serde(default)]
-    convened_at: f64,
+    /// The time box asked at convene; absent means until an outcome. Absent and unexpired fields
+    /// are not written, so a record with no time box reads as it did before time boxes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    time_box: Option<Boxed>,
     /// Whether the time box ran out while the deliberation was open; it then takes no turns.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     expired: bool,
+}
+
+/// A time box, as `TimeBox` parses its word, and the time it counts from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Boxed {
+    word: String,
+    convened_at: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,7 +91,6 @@ impl Record {
             pending: BTreeMap::new(),
             last: None,
             time_box: None,
-            convened_at: 0.0,
             expired: false,
         })
     }
@@ -94,46 +100,39 @@ impl Record {
         if let Some(word) = time_box {
             TimeBox::parse(word).map_err(|_| TIME_BOX)?;
         }
-        self.time_box = time_box.map(str::to_owned);
-        self.convened_at = now;
+        self.time_box = time_box.map(|word| Boxed {
+            word: word.to_owned(),
+            convened_at: now,
+        });
         Ok(self)
     }
 
     /// Ends an open deliberation whose time box has run out at `now`: the open round steps with
-    /// the seats that posted, if any, and the outcome stays as the step leaves it. Answers whether
-    /// the record changed.
+    /// the seats that posted, if any, and the outcome stays as the step leaves it; a round that
+    /// can't step is dropped, and the deliberation still ends. Answers whether the record changed.
     pub(crate) fn expire(&mut self, now: f64) -> bool {
-        let Some(time_box) = self
+        let Some((time_box, convened_at)) = self
             .time_box
-            .as_deref()
-            .and_then(|w| TimeBox::parse(w).ok())
+            .as_ref()
+            .and_then(|boxed| Some((TimeBox::parse(&boxed.word).ok()?, boxed.convened_at)))
         else {
             return false;
         };
         if self.expired
             || self.state.closed.is_some()
-            || !timebox_decision(
-                now - self.convened_at,
-                &[],
-                &[],
-                Some(time_box),
-                false,
-                false,
-            )
-            .expired
+            || !timebox_decision(now - convened_at, &[], &[], Some(time_box), false, false).expired
         {
             return false;
         }
-        let mut next = self.clone();
-        if !next.pending.is_empty() {
-            let blocks = std::mem::take(&mut next.pending);
-            let Ok(report) = step_round(&mut next.state, &blocks) else {
-                return false;
-            };
-            next.last = Some(report);
+        let blocks = std::mem::take(&mut self.pending);
+        if !blocks.is_empty() {
+            let mut state = self.state.clone();
+            if let Ok(report) = step_round(&mut state, &blocks) {
+                self.state = state;
+                self.last = Some(report);
+            }
         }
-        next.expired = true;
-        *self = next;
+        self.expired = true;
         true
     }
 
@@ -204,7 +203,7 @@ impl Record {
                 .map(Seat::member)
                 .collect(),
             outcome: outcome(self.state.closed).into(),
-            time_box: self.time_box.clone(),
+            time_box: self.time_box.as_ref().map(|boxed| boxed.word.clone()),
             expired: self.expired,
         }
     }

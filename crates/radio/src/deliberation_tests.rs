@@ -371,3 +371,36 @@ fn a_record_written_before_time_boxes_still_reads() {
     assert!(!old.expire(1e12));
     assert_eq!(old.view(), record.view());
 }
+
+#[test]
+fn a_record_with_no_time_box_is_written_as_before_time_boxes() {
+    for word in [None, Some("15m")] {
+        let mut record = Record::convene("list", Some(1), seats(&["juniper", "fern"]))
+            .unwrap()
+            .time_boxed(word, 1000.0)
+            .unwrap();
+        record.turn(&seat("juniper"), PROPOSE).unwrap();
+        let json: Value = serde_json::from_str(&record.to_json().unwrap()).unwrap();
+        let object = json.as_object().unwrap();
+        assert_eq!(object.contains_key("time_box"), word.is_some());
+        assert!(!object.contains_key("convened_at"));
+        assert!(!object.contains_key("expired"));
+    }
+}
+
+#[test]
+fn a_time_box_that_runs_out_ends_the_deliberation_even_when_its_round_cannot_step() {
+    let mut record = Record::convene("list", Some(1), seats(&["juniper", "fern"]))
+        .unwrap()
+        .time_boxed(Some("15m"), 0.0)
+        .unwrap();
+    record.turn(&seat("juniper"), PROPOSE).unwrap();
+    let mut json: Value = serde_json::from_str(&record.to_json().unwrap()).unwrap();
+    json["state"]["round_no"] = Value::from(u32::MAX);
+    let mut record = Record::from_json(&json.to_string()).unwrap();
+    assert!(record.expire(900.0));
+    let view = record.view();
+    assert_eq!((view.round, view.expired), (u32::MAX, true));
+    assert!(view.posted.is_empty());
+    assert_eq!(record.turn(&seat("fern"), PROPOSE), Err(CLOSED.to_owned()));
+}

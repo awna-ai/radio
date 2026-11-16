@@ -2,6 +2,18 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-16: D26. A deliberation may end on a clock
+
+D25's round steps only when the last seat posts. `deliberation_convene` now takes an optional
+`time_box` (protocol minor 11): `15m` or `1h`, as `radio-panels`' `TimeBox` parses it, or `deadlock`,
+which like no box means until an outcome. Once the box has run out on an open deliberation, the open
+round steps with the seats that posted (if any) and the deliberation takes no more turns; its outcome
+is what that step decided, usually `open`. Radio holds no timer: it applies the box when an op reads
+or turns the deliberation and saves the end once, so a refused turn can still write that. A round
+that can't step is dropped and the deliberation still ends, so the box never fails open. The box
+counts on this computer's wall clock (an accepted risk in `SECURITY.md`). A record with no box is
+written as before, so a rolled-back daemon can still read it.
+
 ## 2026-11-16: D25. A deliberation is a room with a record, and the daemon steps it
 
 Any app convenes a deliberation with `deliberation_convene` (protocol minor 10): a new room, plus a
