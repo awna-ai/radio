@@ -65,9 +65,13 @@ else
         *) exit 1 ;;
     esac
     mkdir -p "$dest/$target/release"
-    printf 'arch=%s\n%s\n' "$arch" "${STUB_BINARY_TEXT:-}" > "$dest/$target/release/radio"
+    # The dots stand for the Mach-O header and load commands, so no other region starts inside them.
+    printf 'arch=%s\n%s\n%s\n' "$arch" ............................... "${STUB_BINARY_TEXT:-}" > "$dest/$target/release/radio"
     if [ -n "${STUB_BINARY_TRIE:-}" ]; then
         printf '\001%s\002\n' "$STUB_BINARY_TRIE" >> "$dest/$target/release/radio"
+    fi
+    if [ -n "${STUB_REGION:-}" ]; then
+        printf '\001%s\002\n' "${STUB_REGION##*|}" >> "$dest/$target/release/radio"
     fi
     # Real machine code always holds some printable runs.
     printf '\001%s\002\n' "${STUB_BINARY_CODE:-stub code}" >> "$dest/$target/release/radio"
@@ -156,30 +160,80 @@ if [ -n "${STUB_BINARY_TEXT:-}" ]; then
     [ -n "$text_off" ] || text_off=0 text_size=0
 fi
 text_size=$(printf '0x%016x' "$text_size")
+const_flags=0x00000000 cmdsize=0 str_off=0 str_size=0
 case "${STUB_OTOOL:-}" in
     none) printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72\n'; exit 0 ;;
     beyond) off=$(wc -c < "$2" | tr -d ' ') size=1 ;;
     word) size=many ;;
     codebeyond) code_off=$(wc -c < "$2" | tr -d ' ') code_size=0x1 ;;
     codeword) code_size=many ;;
+    noflags) const_flags='' ;;
+    cmdword) cmdsize=many ;;
+    readbeyond) str_off=$(wc -c < "$2" | tr -d ' ') str_size=1 ;;
 esac
-printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 232\n  segname __TEXT\n   vmaddr 0x0000000100000000\n'
+# One more region, from STUB_REGION='<kind>|<a>|<b>|<flags>|<marker>', covering its marker in the binary.
+region_off=0 region_size=0
+if [ -n "${STUB_REGION:-}" ]; then
+    IFS='|' read -r region_kind region_a region_b region_flags region_marker <<< "$STUB_REGION"
+    if [ -n "$region_marker" ]; then
+        region_off=$(LC_ALL=C /usr/bin/grep -a -b -o -F -- "$region_marker" "$2" | head -1 | cut -d: -f1)
+        region_size=$(printf '%s' "$region_marker" | wc -c | tr -d ' ')
+    fi
+fi
+printf 'Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize %s\n  segname __TEXT\n   vmaddr 0x0000000100000000\n' "$cmdsize"
 if [ "${STUB_OTOOL:-}" != nocode ]; then
     printf 'Section\n  sectname __text\n   segname __TEXT\n      addr 0x0000000100000ac0\n      size %s\n' "$code_size"
-    printf '    offset %s\n     align 2^6 (64)\n    reloff 0\n' "$code_off"
+    printf '    offset %s\n     align 2^6 (64)\n    reloff 0\n    nreloc 0\n     flags 0x80000400\n' "$code_off"
 fi
 printf 'Section\n  sectname __const\n   segname __TEXT\n      addr 0x0000000100900000\n      size %s\n' "$text_size"
 printf '    offset %s\n     align 2^4 (16)\n' "$text_off"
-printf 'Load command 1\n      cmd LC_SEGMENT_64\n  cmdsize 152\n  segname __DATA\n'
-printf 'Section\n  sectname __text\n   segname __DATA\n      addr 0x0000000100a00000\n      size %s\n' "$text_size"
-printf '    offset %s\n     align 2^3 (8)\n' "$text_off"
+[ -z "$const_flags" ] || printf '     flags %s\n' "$const_flags"
+printf 'Load command 1\n      cmd LC_SEGMENT_64\n  cmdsize 0\n  segname __DATA\n'
+printf 'Section\n  sectname __data\n   segname __DATA\n      addr 0x0000000100a00000\n      size %s\n' "$text_size"
+printf '    offset %s\n     align 2^3 (8)\n     flags 0x00000000\n' "$text_off"
+# Zero-fill holds no file bytes, whatever its size; otool prints its offset as 0.
+printf 'Section\n  sectname __bss\n   segname __DATA\n      addr 0x0000000100b00000\n      size 0x0000000000100000\n'
+printf '    offset 0\n     align 2^3 (8)\n     flags 0x00000001\n'
 if /usr/bin/grep -q '^arch=x86_64$' "$2"; then
-    printf 'Load command 4\n            cmd LC_DYLD_INFO_ONLY\n        cmdsize 48\n     rebase_off 4\n    rebase_size 8\n'
+    printf 'Load command 4\n            cmd LC_DYLD_INFO_ONLY\n        cmdsize 0\n     rebase_off 0\n    rebase_size 0\n'
+    printf '       bind_off 0\n      bind_size 0\n  weak_bind_off 0\n weak_bind_size 0\n  lazy_bind_off 0\n lazy_bind_size 0\n'
     printf '     export_off %s\n    export_size %s\n' "$off" "$size"
 else
-    printf 'Load command 4\n      cmd LC_DYLD_EXPORTS_TRIE\n  cmdsize 16\n  dataoff %s\n datasize %s\n' "$off" "$size"
+    printf 'Load command 4\n      cmd LC_DYLD_EXPORTS_TRIE\n  cmdsize 0\n  dataoff %s\n datasize %s\n' "$off" "$size"
 fi
-printf 'Load command 5\n      cmd LC_SYMTAB\n  cmdsize 24\n   symoff 8\n'
+printf 'Load command 5\n     cmd LC_SYMTAB\n cmdsize 0\n  symoff 0\n   nsyms 0\n  stroff %s\n strsize %s\n' "$str_off" "$str_size"
+case "${region_kind:-}" in
+    section)
+        printf 'Load command 6\n      cmd LC_SEGMENT_64\n  cmdsize 0\n  segname %s\n' "$region_a"
+        printf 'Section\n  sectname %s\n   segname %s\n      addr 0x0000000100c00000\n      size 0x%016x\n' "$region_b" "$region_a" "$region_size"
+        printf '    offset %s\n     align 2^3 (8)\n     flags %s\n' "$region_off" "$region_flags"
+        ;;
+    data) printf 'Load command 6\n      cmd %s\n  cmdsize 0\n  dataoff %s\n datasize %s\n' "$region_a" "$region_off" "$region_size" ;;
+    info)
+        printf 'Load command 6\n            cmd LC_DYLD_INFO_ONLY\n        cmdsize 0\n'
+        for field in rebase bind weak_bind lazy_bind export; do
+            if [ "$field" = "$region_a" ]; then
+                printf '  %s_off %s\n  %s_size %s\n' "$field" "$region_off" "$field" "$region_size"
+            else
+                printf '  %s_off 0\n  %s_size 0\n' "$field" "$field"
+            fi
+        done
+        ;;
+    symbols) printf 'Load command 6\n     cmd LC_SYMTAB\n cmdsize 0\n  symoff %s\n   nsyms %s\n  stroff 0\n strsize 0\n' "$region_off" $((region_size / 16)) ;;
+    strings) printf 'Load command 6\n     cmd LC_SYMTAB\n cmdsize 0\n  symoff 0\n   nsyms 0\n  stroff %s\n strsize %s\n' "$region_off" "$region_size" ;;
+    dysymtab)
+        printf 'Load command 6\n            cmd LC_DYSYMTAB\n        cmdsize 0\n      ilocalsym 0\n      nlocalsym 0\n'
+        for field in tocoff:ntoc modtaboff:nmodtab extrefsymoff:nextrefsyms indirectsymoff:nindirectsyms extreloff:nextrel locreloff:nlocrel; do
+            if [ "${field%%:*}" = "$region_a" ]; then
+                count=1
+                [ "$region_a" != indirectsymoff ] || count=$((region_size / 4))
+                printf '  %s %s\n  %s %s\n' "${field%%:*}" "$region_off" "${field#*:}" "$count"
+            else
+                printf '  %s 0\n  %s 0\n' "${field%%:*}" "${field#*:}"
+            fi
+        done
+        ;;
+esac
 STUB
 cat > "$tmp/bin/strings" <<'STUB'
 #!/usr/bin/env bash
@@ -306,7 +360,7 @@ new_case() {
     unset STUB_GH_CORRUPT_ARCHIVE STUB_GH_DROP STUB_GH_EXTRA GH_REPO
     unset STUB_BINARY_TEXT STUB_BINARY_TAIL STUB_TARGETS STUB_LIPO_ARCH STUB_GH_EXISTS STUB_GH_CORRUPT STUB_STRIP_FAIL
     unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS STUB_BINARY_TRIE STUB_OTOOL STUB_METADATA STUB_CRATES
-    unset STUB_CDYLIB_CRATES STUB_CDYLIB_ONLY_CRATES STUB_BINARY_CODE
+    unset STUB_CDYLIB_CRATES STUB_CDYLIB_ONLY_CRATES STUB_BINARY_CODE STUB_REGION
     export RADIO_TERMS_FILE="$tmp/terms.txt"
     git init -q -b main "$repo" || exit 1
     git -C "$repo" config user.name Test
@@ -931,6 +985,73 @@ refused 1 'names a private term' v0.1.0
 new_case 77
 export STUB_BINARY_CODE=$'\x03zqv\x03'
 refused 1 'could not read the aarch64-apple-darwin machine code' v0.1.0
+
+# The short scan reads one partition of the binary: each READ region is read, each SKIP region is not, and a region on
+# neither list refuses the release. Each marker is 16 bytes, so it fills whole symbol entries (16) and indirect ones (4).
+region_cases() {
+    local number=$1 status=$2 wanted=$3 marker=$4 region
+    shift 4
+    new_case "$number"
+    printf '%s\nzqv\n' "$term_title" > "$tmp/short-terms.txt"
+    export RADIO_TERMS_FILE="$tmp/short-terms.txt"
+    for region in "$@"; do
+        case_number="$number ($region)"
+        export STUB_REGION="$region|$marker"
+        if [ "$status" -eq 0 ]; then
+            expect 0 "$wanted" v0.1.0
+        else
+            refused "$status" "$wanted" v0.1.0
+        fi
+    done
+}
+
+region_cases 78 1 'names a private term' 'read zqv region.' \
+    'section|__TEXT|__cstring|0x00000002' 'section|__TEXT|__const|0x00000000' 'section|__TEXT|__ustring|0x00000000' \
+    'section|__TEXT|__oslogstring|0x00000002' 'section|__DATA|__const|0x00000000' \
+    'section|__DATA_CONST|__const|0x00000000' 'section|__DATA|__data|0x00000000' \
+    'section|__DATA|__static_data|0x00000000' 'section|__DATA|__thread_data|0x00000011' \
+    'strings|||' 'info|bind||' 'info|weak_bind||' 'info|lazy_bind||' 'data|LC_DYLD_CHAINED_FIXUPS||'
+
+region_cases 79 0 'release: built v0.1.0' 'skip zqv region.' \
+    'section|__TEXT|__stubs|0x80000408' 'section|__TEXT|__stub_helper|0x80000400' \
+    'section|__TEXT|__zzpure|0x80000000' 'section|__DATA|__zzsome|0x00000400' 'section|__TEXT|__const|0x80000400' \
+    'section|__TEXT|__eh_frame|0x6800000b' 'section|__TEXT|__unwind_info|0x00000000' \
+    'section|__TEXT|__gcc_except_tab|0x00000000' 'section|__DATA_CONST|__got|0x00000006' \
+    'section|__DATA|__got|0x00000006' 'section|__DATA|__la_symbol_ptr|0x00000007' \
+    'section|__DATA|__thread_vars|0x00000013' 'info|rebase||' 'info|export||' 'data|LC_DYLD_EXPORTS_TRIE||' \
+    'data|LC_FUNCTION_STARTS||' 'data|LC_DATA_IN_CODE||' 'data|LC_CODE_SIGNATURE||' 'symbols|||' \
+    'dysymtab|indirectsymoff||'
+
+region_cases 80 1 'region the short scan does not list (load command 6)' 'other region....' \
+    'section|__TEXT|__literal16|0x0000000e' 'section|__DATA|__text|0x00000000' 'section|__TEXT|__zzcode|0x00000000' \
+    'section|__DATA|__mod_init_func|0x00000009' 'data|LC_SEGMENT_SPLIT_INFO||' 'data|LC_DYLD_ZZNEW||' \
+    'dysymtab|tocoff||' 'dysymtab|modtaboff||' 'dysymtab|extrefsymoff||' 'dysymtab|extreloff||' 'dysymtab|locreloff||'
+
+# A region with no bytes is no region, whatever its kind.
+region_cases 81 0 'release: built v0.1.0' '' 'data|LC_SEGMENT_SPLIT_INFO||' 'section|__TEXT|__literal16|0x0000000e'
+
+# Long terms keep the whole file, skipped regions included.
+new_case 82
+export STUB_REGION="section|__TEXT|__unwind_info|0x00000000|xx ${term_title} xx"
+refused 1 'names a private term' v0.1.0
+
+# Zeroing a skipped region must never hide read bytes: the header and load commands, or a read section.
+new_case 83
+export STUB_REGION='data|LC_FUNCTION_STARTS|||arch='
+refused 1 'skipped region over a read one (load command 6)' v0.1.0
+export STUB_BINARY_TEXT='plain text here.' STUB_REGION='section|__TEXT|__unwind_info|0x00000000|plain text here.'
+refused 1 'skipped region over a read one (load command 6)' v0.1.0
+unset STUB_REGION
+export STUB_BINARY_CODE='plain text here.'
+refused 1 'skipped region over a read one (load command 0)' v0.1.0
+
+new_case 84
+export STUB_OTOOL=noflags STUB_BINARY_TEXT='plain text here.'
+refused 1 'could not read the aarch64-apple-darwin load commands' v0.1.0
+export STUB_OTOOL=cmdword
+refused 1 'could not read the aarch64-apple-darwin load commands' v0.1.0
+export STUB_OTOOL=readbeyond
+refused 1 'could not read the aarch64-apple-darwin load commands' v0.1.0
 
 if [ "$failed" -ne 0 ]; then
     exit 1

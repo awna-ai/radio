@@ -141,53 +141,150 @@ fi
 # v0 writes a separator _ between the length and a name that starts with _.
 crate_names=$(awk '{ printf "%s%d%s%s", (NR > 1 ? "|" : ""), length($0), (substr($0, 1, 1) == "_" ? "_" : ""), $0 }' "$work/crates") || fail "$crate_failure"
 
-# The export trie stores names in fragments, so a crate hash can lose its Cs there; every exported name is whole in the
-# symbol table, which the short scan still reads. Machine code (__TEXT,__text) is zeroed in the copy too and its bytes go
-# to a third file, read with tab, CR and LF breaking runs: a literal built in place (x86_64 movabs) is text there, a tab
-# beside chance letters is not. Long terms, paths and the account keep the whole file.
-without_trie_and_code() {
-    local trie_failure="could not read the $target export trie" code_failure="could not read the $target machine code"
-    local failure size kind off length end
-    otool -l "$1" > "$work/load-commands" 2> /dev/null || fail "$trie_failure"
-    awk '
-        $1 == "cmd" { cmd = $2; off = ""; sect = ""; seg = "" }
-        cmd == "LC_DYLD_INFO_ONLY" && $1 == "export_off" { off = $2 }
-        cmd == "LC_DYLD_INFO_ONLY" && $1 == "export_size" { print "trie", off, $2 }
-        cmd == "LC_DYLD_EXPORTS_TRIE" && $1 == "dataoff" { off = $2 }
-        cmd == "LC_DYLD_EXPORTS_TRIE" && $1 == "datasize" { print "trie", off, $2 }
-        $1 == "Section" { sect = ""; seg = ""; sz = "" }
-        $1 == "sectname" { sect = $2 }
-        $1 == "segname" { seg = $2 }
-        sect == "__text" && seg == "__TEXT" && $1 == "size" { sz = $2 }
-        sect == "__text" && seg == "__TEXT" && $1 == "offset" { print "code", $2, sz }
-    ' "$work/load-commands" > "$work/zeroed" 2> /dev/null || fail "$trie_failure"
-    grep -q '^trie ' "$work/zeroed" 2> /dev/null || fail "$trie_failure"
-    grep -q '^code ' "$work/zeroed" 2> /dev/null || fail "$code_failure"
-    size=$(wc -c < "$1") || fail "$trie_failure"
+# The short scan reads one partition of the binary. READ: the header and load commands; __TEXT __cstring, __const,
+# __ustring and __oslogstring; __DATA and __DATA_CONST __const, __data, __static_data and __thread_data; in __LINKEDIT the
+# symbol strings, the bind, weak-bind and lazy-bind streams and the chained fixups. __TEXT,__text is read on its own, in a
+# third file where tab, CR and LF break runs: a literal built in place (x86_64 movabs) is text there, a tab beside chance
+# letters is not. SKIP, code and tables: every other section of instructions; __eh_frame, __unwind_info and
+# __gcc_except_tab; __got, __la_symbol_ptr and __thread_vars; in __LINKEDIT rebase, the export trie (it stores names in
+# fragments, so a crate hash can lose its Cs there; every exported name is whole in the symbol strings), function
+# starts, data in code, the symbol entries, the indirect symbols and the code signature. A region with file bytes on
+# neither list refuses the release, as does a skipped region over a read one; bytes between regions are read. Adding a
+# region to READ only widens the scan; a move to SKIP, or out of READ, is the owner's call. Long terms, paths and the
+# account keep the whole file.
+partition() {
+    local size verdict where layout_failure="could not read the $target load commands"
+    otool -l "$1" > "$work/load-commands" 2> /dev/null || fail "could not read the $target export trie"
+    size=$(wc -c < "$1") || fail "$layout_failure"
     size=${size//[[:space:]]/}
-    cp "$1" "$2" || fail "$trie_failure"
-    : > "$3" || fail "$code_failure"
-    while read -r kind off length; do
-        failure=$trie_failure
-        if [ "$kind" = code ]; then
-            # otool prints a section's size in hex, zero-padded.
-            failure=$code_failure
-            [[ "$length" =~ ^0x0*([0-9a-fA-F]{1,15})$ ]] || fail "$failure"
-            length=$((16#${BASH_REMATCH[1]}))
-        fi
-        [[ "$off" =~ ^[0-9]+$ && "$length" =~ ^[0-9]+$ ]] || fail "$failure"
-        end=$((off + length))
-        [ "$length" -gt 0 ] || continue
-        if [ "$kind" = code ]; then
-            tail -c "+$((off + 1))" "$1" > "$3.tail" 2> /dev/null || fail "$failure"
-            head -c "$length" "$3.tail" > "$3.part" 2> /dev/null || fail "$failure"
-            [ "$(wc -c < "$3.part" | tr -d '[:space:]')" = "$length" ] || fail "$failure"
-            cat "$3.part" >> "$3" || fail "$failure"
-        fi
-        { head -c "$off" "$2" && head -c "$length" /dev/zero && tail -c "+$((end + 1))" "$2"; } > "$2.next" 2> /dev/null || fail "$failure"
-        mv "$2.next" "$2" || fail "$failure"
-        [ "$(wc -c < "$2" | tr -d '[:space:]')" = "$size" ] || fail "$failure"
-    done < "$work/zeroed"
+    awk -v size="$size" '
+        function hex(s,   v, i) {
+            s = tolower(s)
+            sub(/^0x/, "", s)
+            v = 0
+            for (i = 1; i <= length(s); i++) v = v * 16 + index("0123456789abcdef", substr(s, i, 1)) - 1
+            return v
+        }
+        # kind: trie and code fail with their own messages; other with the layout one.
+        function region(list, kind, off, len) {
+            seen[kind] = 1
+            if (off !~ /^[0-9]+$/ || len !~ /^[0-9]+$/) { bad[kind] = 1; return }
+            if (len + 0 == 0) return
+            if (list == "unlisted") { if (unlisted == "") unlisted = lc; return }
+            if (off + len > size + 0) { bad[kind] = 1; return }
+            n++
+            lists[n] = list; offs[n] = off + 0; lens[n] = len + 0; lcs[n] = lc
+        }
+        function flush(   kind, f, type, name, list) {
+            if (!insect) return
+            insect = 0
+            kind = (seg == "__TEXT" && sect == "__text") ? "code" : "other"
+            if (seg == "" || sect == "" || sz !~ /^0x[0-9a-fA-F]+$/ || fl !~ /^0x[0-9a-fA-F]+$/) { bad[kind] = 1; return }
+            f = hex(fl)
+            type = f % 256
+            # Zero-fill (S_ZEROFILL, S_GB_ZEROFILL, S_THREAD_LOCAL_ZEROFILL) has no file bytes.
+            if (type == 1 || type == 12 || type == 18) return
+            name = seg "," sect
+            if (kind == "code") list = "code"
+            # S_ATTR_PURE_INSTRUCTIONS or S_ATTR_SOME_INSTRUCTIONS.
+            else if (int(f / 2147483648) % 2 || int(f / 1024) % 2) list = "skip"
+            else if (name ~ /^__TEXT,__(cstring|const|ustring|oslogstring)$/) list = "read"
+            else if (name ~ /^__DATA(_CONST)?,__(const|data|static_data|thread_data)$/) list = "read"
+            else if (name ~ /^__TEXT,__(eh_frame|unwind_info|gcc_except_tab)$/) list = "skip"
+            else if (name ~ /^__DATA(_CONST)?,__(got|la_symbol_ptr|thread_vars)$/) list = "skip"
+            else list = "unlisted"
+            region(list, kind, soff, hex(sz))
+        }
+        function count(n, width) { return n ~ /^[0-9]+$/ ? n * width : n }
+        $1 == "Load" && $2 == "command" { flush(); lc = $3; cmd = ""; delete val; next }
+        $1 == "cmd" { cmd = $2; next }
+        $1 == "cmdsize" { if ($2 ~ /^[0-9]+$/) cmds += $2; else bad["other"] = 1; next }
+        $1 == "Section" { flush(); insect = 1; sect = ""; seg = ""; sz = ""; soff = ""; fl = ""; next }
+        insect {
+            if ($1 == "sectname") sect = $2
+            else if ($1 == "segname") seg = $2
+            else if ($1 == "size") sz = $2
+            else if ($1 == "offset") soff = $2
+            else if ($1 == "flags") fl = $2
+            next
+        }
+        { val[$1] = $2 }
+        cmd ~ /^LC_DYLD_INFO(_ONLY)?$/ && $1 ~ /_size$/ {
+            base = substr($1, 1, length($1) - 5)
+            if (base == "rebase") region("skip", "other", val["rebase_off"], $2)
+            else if (base == "export") region("skip", "trie", val["export_off"], $2)
+            else if (base ~ /^(bind|weak_bind|lazy_bind)$/) region("read", "other", val[base "_off"], $2)
+            else region("unlisted", "other", val[base "_off"], $2)
+        }
+        cmd == "LC_SYMTAB" && $1 == "nsyms" { region("skip", "other", val["symoff"], count($2, 16)) }
+        cmd == "LC_SYMTAB" && $1 == "strsize" { region("read", "other", val["stroff"], $2) }
+        cmd == "LC_DYSYMTAB" && $1 == "nindirectsyms" { region("skip", "other", val["indirectsymoff"], count($2, 4)) }
+        cmd == "LC_DYSYMTAB" && $1 ~ /^(ntoc|nmodtab|nextrefsyms|nextrel|nlocrel)$/ { region("unlisted", "other", 0, $2) }
+        cmd == "LC_NOTE" && $1 == "size" { region("unlisted", "other", val["offset"], $2) }
+        $1 == "datasize" {
+            if (cmd == "LC_DYLD_EXPORTS_TRIE") region("skip", "trie", val["dataoff"], $2)
+            else if (cmd ~ /^LC_(FUNCTION_STARTS|DATA_IN_CODE|CODE_SIGNATURE)$/) region("skip", "other", val["dataoff"], $2)
+            else if (cmd == "LC_DYLD_CHAINED_FIXUPS") region("read", "other", val["dataoff"], $2)
+            else region("unlisted", "other", val["dataoff"], $2)
+        }
+        END {
+            flush()
+            lc = "header"
+            region("read", "other", 0, 32 + cmds)
+            if (bad["trie"] || !seen["trie"]) { print "fail trie"; exit }
+            if (bad["code"] || !seen["code"]) { print "fail code"; exit }
+            if (bad["other"]) { print "fail layout"; exit }
+            if (unlisted != "") { print "fail unlisted", unlisted; exit }
+            for (i = 1; i <= n; i++) {
+                if (lists[i] == "read") continue
+                for (j = 1; j <= n; j++) {
+                    if (lists[j] == "read" && offs[i] < offs[j] + lens[j] && offs[j] < offs[i] + lens[i]) {
+                        print "fail overlap", lcs[i]
+                        exit
+                    }
+                }
+            }
+            for (i = 1; i <= n; i++) print lists[i], offs[i], lens[i]
+            print "ok"
+        }
+    ' "$work/load-commands" > "$work/regions" 2> /dev/null || fail "$layout_failure"
+    verdict=$(tail -n 1 "$work/regions") || fail "$layout_failure"
+    where=${verdict##* }
+    case "$verdict" in
+        ok) ;;
+        'fail trie') fail "could not read the $target export trie" ;;
+        'fail code') fail "could not read the $target machine code" ;;
+        'fail unlisted '*)
+            [[ "$where" =~ ^[0-9]+$ ]] || fail "$layout_failure"
+            fail "the $target binary has a region the short scan does not list (load command $where)" ;;
+        'fail overlap '*)
+            [[ "$where" =~ ^[0-9]+$ ]] || fail "$layout_failure"
+            fail "the $target binary has a skipped region over a read one (load command $where)" ;;
+        *) fail "$layout_failure" ;;
+    esac
+    # The copy keeps every read byte and zeroes the rest; the code file holds __TEXT,__text alone.
+    perl -e '
+        my ($bin, $regions, $copy, $code) = @ARGV;
+        open(my $in, "<:raw", $bin) or die;
+        my $data = do { local $/; <$in> };
+        close($in) or die;
+        my ($text, $machine) = ($data, "");
+        open(my $list, "<", $regions) or die;
+        while (my $line = <$list>) {
+            my ($kind, $off, $len) = split " ", $line;
+            last if $kind eq "ok";
+            die unless $kind =~ /^(read|code|skip)$/ && $off =~ /^\d+$/ && $len =~ /^\d+$/;
+            next if $kind eq "read";
+            $machine .= substr($data, $off, $len) if $kind eq "code";
+            substr($text, $off, $len, "\0" x $len);
+        }
+        for ([$copy, $text], [$code, $machine]) {
+            open(my $out, ">:raw", $_->[0]) or die;
+            print {$out} $_->[1] or die;
+            close($out) or die;
+        }
+    ' "$1" "$work/regions" "$2" "$3" 2> /dev/null || fail "$layout_failure"
+    [ "$(wc -c < "$2" | tr -d '[:space:]')" = "$size" ] || fail "$layout_failure"
 }
 
 normalize() {
@@ -239,9 +336,9 @@ for i in 0 1; do
         status=$?
         [ "$status" -eq 1 ] || fail "could not scan the $target binary"
     fi
-    # Whole-file printable runs but the export trie and machine code, tab, CR and LF counted as text: strings -a skips Mach-O
-    # load commands and __LINKEDIT; no runs fails closed.
-    without_trie_and_code "$bin" "$work/text-source" "$work/code"
+    # The read regions' printable runs, tab, CR and LF counted as text: strings -a skips Mach-O load commands and __LINKEDIT;
+    # no runs fails closed.
+    partition "$bin" "$work/text-source" "$work/code"
     tr '\t\r\n' '   ' < "$work/text-source" | grep -a -o -E '[[:print:]]{4,}' > "$work/strings" 2> /dev/null || fail "could not scan the $target binary"
     # Then the machine code's own runs, where tab, CR and LF break them; real code always has some, so none fails closed.
     grep -a -o -E '[[:print:]]{4,}' "$work/code" >> "$work/strings" 2> /dev/null || fail "could not read the $target machine code"
