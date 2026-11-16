@@ -242,7 +242,9 @@ A first session looks like this:
    A kind is a word your app chooses (lowercase, starting with a letter). It replaces your app's
    whole list, and it's kept across restarts. The person at the computer is always a member, as kind
    `human`.
-3. **`create_room`** with a `room` id and a `title`.
+3. **`create_room`** with a `room` id and a `title`. One room is already there: the computer's own,
+   which Radio opens when it starts. Its id is the computer's name and its title `Room on <name>`;
+   use it for whatever is meant for everyone on this computer.
 4. **`post`** with `room`, `author` and `body` (at most 4 KiB). It answers the message's `seq`.
 5. **`read`** with `room`, and `since` a `seq` to get only what's newer; **`list_rooms`** to see
    every room, including the ones other apps opened.
