@@ -1,0 +1,33 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_state",
+    "room": "council"
+  },
+  "response": {
+    "ok": true,
+    "deliberation": {
+      "kind": "list",
+      "n": 2,
+      "seats": [
+        {
+          "kind": "helper",
+          "name": "juniper"
+        },
+        {
+          "kind": "helper",
+          "name": "fern"
+        }
+      ],
+      "round": 0,
+      "posted": [
+        {
+          "kind": "helper",
+          "name": "juniper"
+        }
+      ],
+      "outcome": "open"
+    }
+  },
+  "exact": true
+}

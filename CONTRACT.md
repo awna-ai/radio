@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 9
+Protocol minor: 10
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -106,6 +106,10 @@ them against these lines. They are independent of the repo's semver tags.
 | `message` | `app`, `computer`, `body` | `reply`, `exit` | Sends this app's message to its recorded handler on an accepted computer, named by name or id. The app must be registered (`the app is not registered`) and the link directory set (`the link is not set up`). Starts the link first, with the same address, daemon-name, computer-lookup, dial and stopped-link checks as `send`. `body` is a JSON string of 1 to 8,192 decoded bytes (`the message is empty`, `the message is larger than 8 KiB`); the 16 KiB request-line cap applies first. A refusal answers `that app takes no messages on that computer`, `that computer is busy; try again`, `the clocks on the two computers differ by more than 2 minutes`, `that computer refused the message`, `that app's handler did not finish in time` or `that app's handler gave an unusable reply`. A missing or invalid answer answers `the computer did not answer`. Nothing is kept to resend. The answer comes within 45 seconds, served beside other clients; at most 4 messages wait at once (`too many messages at once; try again`), independently of sends. The outer wait answers `the message did not finish in time`; the client waits 60 seconds. If its answer thread cannot start, it answers `the message could not be started`, and nothing was sent. `reply` is the handler's stdout string and `exit` its integer exit code, or 128 plus the signal number when a signal ended it |
 | `keep` | `app`, `computers: [string]` | `kept: [{id, name?, state}]` | Replaces this app's kept list, in the supplied order with duplicates removed; `[]` lets them all go. The app must be registered (`the app is not registered`), then the link starts with `send`'s setup, address and daemon-name checks. At most 64 entries (`too many computers to keep; at most 64`), each a computer name or id; lookup answers `not in a fleet`, `not a computer`, `no such computer` or `the computer was removed`, and a computer not accepted here answers `the computer is not let in`. Any error leaves the list unchanged. A stopped link answers `the link stopped`. Returns immediately without waiting for a dial. `state` is `connected`, `dialing` or `failed`; `name` is omitted when unknown. Kept lists are in memory only: an app sends `keep` again after Radio restarts, or after `link_address_add` or `link_address_remove` changes the link's addresses (the link restarts). Radio keeps the union of all apps' lists, heartbeats every 15 seconds, fails after 45 seconds without a successful heartbeat, and retries after 1 second, doubling to at most 60 seconds, starting over once a connection has stayed up for 15 seconds. A connection with no use or keep closes after 10 minutes |
 | `kept` | `app` | `kept: [{id, name?, state}]` | Reads this app's kept list with the shape and states above. The app must be registered (`the app is not registered`); if the link is not running, answers `kept: []`. Does not start the link or wait for the network |
+| `deliberation_convene` | `room`, `title`, `author: member`, `kind`, optional `n`, `seats: [member]` | none | Opens a room homed on this computer as a deliberation (below). `author` and every seat must be members (`not a member`). `kind` is `list` or `text` (`not a deliberation kind`); a `list` needs `n`, its length, 1 to 12 (`a list deliberation needs n from 1 to 12`), and a `text` takes none (`a text deliberation takes no n`). `seats` are 2 to 24 members with different names (`a deliberation needs 2 to 24 seats with different names`), each name holding only letters, digits, spaces and `. _ : / ( ) -` (`a seat's name may hold only letters, digits, spaces and . _ : / ( ) -`). An existing room id answers `the room already exists` |
+| `deliberation_turn` | `room`, `author: member`, `body` | `seq`, `deliberation` | Posts a seat's turn: `body` (at most 4 KiB) is added to the room as a post and must hold a deliberation block (below). Refused `not a member` or `not a seat`; `the deliberation is closed` once it has an outcome, `the deliberation has had its 50 rounds` after round 50, `this seat has already posted in this round`, and `the turn holds no valid deliberation block`, which never quotes the body. A turn that fails changes nothing. The last seat's turn steps the round. Answers the post's `seq` and the deliberation after the turn |
+| `deliberation_state` | `room` | `deliberation: {kind, n?, seats, round, posted, outcome}` | The deliberation's kind, `n` for a list, its seats, the number of rounds stepped, the seats that have posted in the open round, and `outcome`: `open`, `agreed` or `deadlock`. A room that is not a deliberation answers `not a deliberation` |
+| `deliberation_result` | `room` | `result`, `markdown` | The proposal after the newest round: `result` is `{label, outcome, kind, answer, groups: [{members, weight, answer}], dissent: [{member, holdout, objections}], trajectory: {D, rounds}}`, and `markdown` the same as a document with every answer and objection fenced. Before the first round it answers `no round has finished yet` |
 
 Files: a file goes to one app on one computer of the fleet, up to 64 MiB, only when
 that computer answers now. Nothing is kept to resend. It lands in the folder that app
@@ -119,6 +123,23 @@ At most 4 handlers run at once and 1 per sender; the process group is killed at 
 A reply must be UTF-8, at most 4,096 bytes and 8 lines (a final newline does not add a line), containing only printable characters, newline and tab, excluding the invisible characters that room text replaces with spaces.
 Refusals go to `audit.log` without the body, id or reply.
 
+Deliberations: a deliberation is a room whose seats work one question out in rounds, by the
+protocol of `radio-panels`, and Radio keeps its state and its result. Radio runs no app: a seat's
+turn is posted by whichever registered app lists that member. Each turn is a room post ending in a
+fenced block that opens with a line of three or more backticks and the word `deliberation`, holding
+one `key: value` per line: `position` (`propose`, `agree` or `object`), then for a `list`
+`items: [<up to n strings of at most 120 characters>]`, or for a `text` `draft: "<at most 1,500
+characters>"` (needed unless agreeing) and, when agreeing, `agree_with: "<a draft id>"`, a draft
+id being `<seat name>.r<round>` of an earlier round's draft; and optionally
+`ratings: {"<another seat's name>": <0 to 10>}` and `objections: "<at most 600 characters>"`.
+Values are JSON. Only the last complete block counts. When every seat has posted, Radio steps the
+round: the deliberation is `agreed` when, in that round, every seat but the holdouts (seats that
+stopped moving while the others moved closer) agreed on one answer (for a `list`, the same `n`
+items; for a `text`, the same draft) and those seats are more than half of all seats, and
+`deadlock` after four rounds in a row in which the seats did not move closer. The
+result is a proposal for the people the seats act for, never a decision. A deliberation keeps no
+time limit yet.
+
 A message's `kind` is `post`, `status_set` or `status_clear` today; a later minor may add kinds, so a
 client reads it as a word. Times are seconds since the Unix epoch.
 
@@ -129,5 +150,4 @@ A computer's record is signed by that computer's own key and carries its name, i
 Every read goes through the socket: the daemon is the only process that opens its rooms store. The
 exact field names and types of each op are `radio-client`'s types. `contract/v1/` holds a fixture per
 op, replayed against a real daemon and through `radio-client`'s types, so a minor that would break an
-older client fails its test. Ops for deliberations, seats and the link between computers arrive as
-minors of major 1 when they are built.
+older client fails its test. Ops for seats arrive as minors of major 1 when they are built.

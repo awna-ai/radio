@@ -1,0 +1,28 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_convene",
+    "room": "council",
+    "title": "Council",
+    "author": {
+      "kind": "human",
+      "name": "sam"
+    },
+    "kind": "list",
+    "n": 2,
+    "seats": [
+      {
+        "kind": "helper",
+        "name": "juniper"
+      },
+      {
+        "kind": "helper",
+        "name": "fern"
+      }
+    ]
+  },
+  "response": {
+    "ok": true
+  },
+  "exact": true
+}

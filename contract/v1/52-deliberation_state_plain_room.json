@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_state",
+    "room": "garden"
+  },
+  "response": {
+    "ok": false,
+    "error": "not a deliberation"
+  },
+  "exact": true
+}

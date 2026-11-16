@@ -2156,6 +2156,7 @@ dependencies = [
  "libc",
  "radio-client",
  "radio-link",
+ "radio-panels",
  "radio-rooms",
  "rusqlite",
  "serde",

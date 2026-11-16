@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 9
+      "minor": 10
     },
     "majors": [
       1
@@ -46,7 +46,11 @@
       "deliveries",
       "message",
       "keep",
-      "kept"
+      "kept",
+      "deliberation_convene",
+      "deliberation_turn",
+      "deliberation_state",
+      "deliberation_result"
     ]
   },
   "exact": false

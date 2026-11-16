@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_result",
+    "room": "council"
+  },
+  "response": {
+    "ok": false,
+    "error": "no round has finished yet"
+  },
+  "exact": true
+}

@@ -10,6 +10,7 @@ description = "Radio's daemon"
 [dependencies]
 radio-client = { path = "../radio-client" }
 radio-link = { path = "../radio-link" }
+radio-panels = { path = "../radio-panels" }
 radio-rooms = { path = "../radio-rooms" }
 libc = "=0.2.189"
 serde = { version = "=1.0.229", features = ["derive"] }

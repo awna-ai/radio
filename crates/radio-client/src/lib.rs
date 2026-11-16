@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 9;
+pub const PROTOCOL_MINOR: u32 = 10;
 
-/// The ops major 1, minor 9 serves, in this order.
+/// The ops major 1, minor 10 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -47,6 +47,10 @@ pub const OPS: &[&str] = &[
     "message",
     "keep",
     "kept",
+    "deliberation_convene",
+    "deliberation_turn",
+    "deliberation_state",
+    "deliberation_result",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -192,6 +196,28 @@ pub enum Request {
     Keep { app: String, computers: Vec<String> },
     /// Reads this app's kept connections without starting the link.
     Kept { app: String },
+    /// Opens a room of the deliberation kind: its seats deliberate in rounds and Radio keeps the result.
+    DeliberationConvene {
+        room: String,
+        title: String,
+        author: Member,
+        /// `list` or `text`.
+        kind: String,
+        /// The list's length, 1 to 12, for a `list` deliberation only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        n: Option<i64>,
+        seats: Vec<Member>,
+    },
+    /// Posts a seat's turn: a message holding a deliberation block.
+    DeliberationTurn {
+        room: String,
+        author: Member,
+        body: String,
+    },
+    /// Reads a deliberation's round, who has posted in the open round, and its outcome.
+    DeliberationState { room: String },
+    /// Reads a deliberation's result after its first round.
+    DeliberationResult { room: String },
 }
 
 /// A member identified by a kind and a name.
@@ -313,6 +339,78 @@ pub struct Response {
     /// This app's kept computers, in the order requested with duplicates removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept: Option<Vec<KeptPeer>>,
+    /// A deliberation's state, answered by `deliberation_state` and `deliberation_turn`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deliberation: Option<Deliberation>,
+    /// A deliberation's result, answered by `deliberation_result`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<DeliberationResult>,
+    /// The result as markdown, every answer and objection fenced, answered by `deliberation_result`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markdown: Option<String>,
+}
+
+/// A deliberation as `deliberation_state` reads it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Deliberation {
+    /// `list` or `text`.
+    pub kind: String,
+    /// The list's length, for a `list` deliberation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n: Option<i64>,
+    pub seats: Vec<Member>,
+    /// The number of rounds stepped so far.
+    pub round: u32,
+    /// The seats that have posted in the open round.
+    pub posted: Vec<Member>,
+    /// `open`, `agreed` or `deadlock`.
+    pub outcome: String,
+}
+
+/// An answer: a list of items, or a text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DeliberationAnswer {
+    List(Vec<String>),
+    Text(String),
+}
+
+/// A deliberation's proposal, its agreement groups, dissent and trajectory.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeliberationResult {
+    pub label: String,
+    /// `open`, `agreed` or `deadlock`.
+    pub outcome: String,
+    /// `list:<n>` or `text`.
+    pub kind: String,
+    pub answer: Option<DeliberationAnswer>,
+    pub groups: Vec<DeliberationGroup>,
+    pub dissent: Vec<DeliberationDissent>,
+    pub trajectory: DeliberationTrajectory,
+}
+
+/// Seats, by name, that ended near one another, with their weight and answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeliberationGroup {
+    pub members: Vec<String>,
+    pub weight: f64,
+    pub answer: Option<DeliberationAnswer>,
+}
+
+/// A seat's objections, kept in the result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeliberationDissent {
+    pub member: String,
+    pub holdout: bool,
+    pub objections: String,
+}
+
+/// The group distance after each round, and the round count.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeliberationTrajectory {
+    #[serde(rename = "D")]
+    pub d: Vec<f64>,
+    pub rounds: u32,
 }
 
 /// A file that arrived for the requesting app on this computer.
@@ -468,8 +566,8 @@ mod tests {
 
     #[test]
     fn kept_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 9);
-        assert_eq!(&OPS[31..], &["keep", "kept"]);
+        assert_eq!(PROTOCOL_MINOR, 10);
+        assert_eq!(&OPS[31..33], &["keep", "kept"]);
         for value in [
             serde_json::json!({"op":"keep","app":"notes","computers":["birch","cedar"]}),
             serde_json::json!({"op":"keep","app":"notes","computers":[]}),
@@ -505,7 +603,7 @@ mod tests {
 
     #[test]
     fn message_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 9);
+        assert_eq!(PROTOCOL_MINOR, 10);
         assert_eq!(OPS[30], "message");
         let value =
             serde_json::json!({"op":"message","app":"notes","computer":"birch","body":"hello"});
@@ -533,7 +631,7 @@ mod tests {
 
     #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 9);
+        assert_eq!(PROTOCOL_MINOR, 10);
         assert_eq!(
             &OPS[20..23],
             &[

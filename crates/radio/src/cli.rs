@@ -40,6 +40,20 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     let (op, positional_count, rest, allowed): (&str, usize, &[&str], &[&str]) = match words
         .as_slice()
     {
+        ["deliberation", "convene", rest @ ..] => (
+            "deliberation_convene",
+            1,
+            rest,
+            &["--title", "--as", "--kind", "--n", "--seat"],
+        ),
+        ["deliberation", "turn", rest @ ..] => (
+            "deliberation_turn",
+            1,
+            rest,
+            &["--as", "--body", "--body-file"],
+        ),
+        ["deliberation", "state", rest @ ..] => ("deliberation_state", 1, rest, &[]),
+        ["deliberation", "result", rest @ ..] => ("deliberation_result", 1, rest, &[]),
         ["message", rest @ ..] => ("message", 1, rest, &["--app"]),
         ["keep", rest @ ..] => {
             let computers = rest.iter().take_while(|word| !word.starts_with("--"));
@@ -102,7 +116,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         if !allowed.contains(flag) {
             return Err(());
         }
-        if *flag == "--member" {
+        if *flag == "--member" || *flag == "--seat" {
             members.push(member(value)?);
         } else if seen.insert(*flag, *value).is_some() {
             return Err(());
@@ -113,6 +127,32 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
     let limit = || seen.get("--limit").map(|value| digits(value)).transpose();
     let mut body = None;
     let request = match op {
+        "deliberation_convene" => Request::DeliberationConvene {
+            room: positionals[0].into(),
+            title: required("--title")?.into(),
+            author: author()?,
+            kind: required("--kind")?.into(),
+            n: seen.get("--n").map(|value| digits(value)).transpose()?,
+            seats: members,
+        },
+        "deliberation_turn" => {
+            body = Some(match (seen.get("--body"), seen.get("--body-file")) {
+                (Some(text), None) => BodySource::Text((*text).into()),
+                (None, Some(path)) => BodySource::File((*path).into()),
+                _ => return Err(()),
+            });
+            Request::DeliberationTurn {
+                room: positionals[0].into(),
+                author: author()?,
+                body: String::new(),
+            }
+        }
+        "deliberation_state" => Request::DeliberationState {
+            room: positionals[0].into(),
+        },
+        "deliberation_result" => Request::DeliberationResult {
+            room: positionals[0].into(),
+        },
         "message" => {
             body = Some(BodySource::File("-".into()));
             Request::Message {
@@ -339,6 +379,9 @@ impl Command {
                     body: destination, ..
                 }
                 | Request::Message {
+                    body: destination, ..
+                }
+                | Request::DeliberationTurn {
                     body: destination, ..
                 } => *destination = body,
                 Request::Resign { section, .. } => *section = Some(body),

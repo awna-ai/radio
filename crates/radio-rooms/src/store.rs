@@ -109,6 +109,11 @@ const MIGRATIONS: &[&str] = &[
         rooms INTEGER NOT NULL, messages INTEGER NOT NULL, statuses INTEGER NOT NULL, skipped INTEGER NOT NULL
     ) STRICT;
 ",
+    "
+    CREATE TABLE deliberations (
+        room TEXT PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE, record TEXT NOT NULL
+    ) STRICT, WITHOUT ROWID;
+",
 ];
 
 /// The reserved kind for the person at the computer.
@@ -357,6 +362,80 @@ impl RoomStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| UNWRITABLE)?;
         require_room(&tx, room)?;
+        let seq = append(
+            &tx,
+            room,
+            &author_host,
+            &author,
+            MessageKind::Post,
+            &body,
+            now,
+            None,
+        )?;
+        tx.commit().map_err(|_| UNWRITABLE)?;
+        Ok(seq)
+    }
+
+    /// Opens a room homed here together with its deliberation record, in one transaction.
+    pub fn create_deliberation(
+        &mut self,
+        id: &str,
+        home: &str,
+        title: &str,
+        record: &str,
+        now: f64,
+    ) -> Result<(), String> {
+        let (home, title, now) = clean_room(id, home, title, now)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| UNWRITABLE)?;
+        tx.prepare_cached("INSERT INTO rooms (id, home, title, created) VALUES (?1, ?2, ?3, ?4)")
+            .and_then(|mut stmt| stmt.execute(params![id, home, title, now]))
+            .map_err(|error| match error {
+                rusqlite::Error::SqliteFailure(code, _)
+                    if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY =>
+                {
+                    "the room already exists".to_owned()
+                }
+                _ => UNWRITABLE.to_owned(),
+            })?;
+        tx.prepare_cached("INSERT INTO deliberations (room, record) VALUES (?1, ?2)")
+            .and_then(|mut stmt| stmt.execute(params![id, record]))
+            .map_err(|_| UNWRITABLE)?;
+        tx.commit().map_err(|_| UNWRITABLE.to_owned())
+    }
+
+    /// Returns a room's deliberation record, or `None` for a room that is not a deliberation.
+    pub fn deliberation(&self, room: &str) -> Result<Option<String>, String> {
+        self.conn
+            .prepare_cached("SELECT record FROM deliberations WHERE room = ?1")
+            .and_then(|mut stmt| stmt.query_map([room], |row| row.get(0))?.next().transpose())
+            .map_err(|_| UNREADABLE.to_owned())
+    }
+
+    /// Appends a turn as a post and replaces the room's deliberation record, in one transaction.
+    pub fn post_turn(
+        &mut self,
+        room: &str,
+        author_host: &str,
+        author: &Author,
+        body: &str,
+        record: &str,
+        now: f64,
+    ) -> Result<u64, String> {
+        let (author_host, author, body, now) = clean_message(author_host, author, body, now)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| UNWRITABLE)?;
+        let updated = tx
+            .prepare_cached("UPDATE deliberations SET record = ?2 WHERE room = ?1")
+            .and_then(|mut stmt| stmt.execute(params![room, record]))
+            .map_err(|_| UNWRITABLE)?;
+        if updated != 1 {
+            return Err("not a deliberation".into());
+        }
         let seq = append(
             &tx,
             room,
@@ -678,7 +757,8 @@ fn name(text: &str) -> Result<String, String> {
     }
 }
 
-fn clean_author(author: &Author) -> Result<Author, String> {
+/// Checks a member's kind and cleans its name as the store keeps it.
+pub fn clean_author(author: &Author) -> Result<Author, String> {
     if !is_kind(&author.kind) {
         return Err("not a member kind".into());
     }

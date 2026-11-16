@@ -543,7 +543,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":9},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":10},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -561,13 +561,17 @@ fn op_samples() -> Vec<serde_json::Value> {
         serde_json::json!({"op":"list_rooms"}),
         serde_json::json!({"op":"read","room":"garden"}),
         serde_json::json!({"op":"status","room":"garden"}),
+        serde_json::json!({"op":"deliberation_convene","room":"council","title":"Council","author":author,"kind":"text","seats":[author]}),
+        serde_json::json!({"op":"deliberation_turn","room":"council","author":author,"body":"hi"}),
+        serde_json::json!({"op":"deliberation_state","room":"council"}),
+        serde_json::json!({"op":"deliberation_result","room":"council"}),
     ]
 }
 
 #[test]
 fn unknown_fields_are_refused_on_every_op_and_member() {
     let fixture = Fixture::new();
-    let worker = start(fixture.bind(), 10);
+    let worker = start(fixture.bind(), 15);
     for mut value in op_samples() {
         assert!(serde_json::from_value::<Request>(value.clone()).is_ok());
         value["x"] = serde_json::json!(1);
@@ -585,6 +589,66 @@ fn unknown_fields_are_refused_on_every_op_and_member() {
     assert_eq!(
         call(&fixture.socket(), value.take()),
         serde_json::json!({"ok":false,"error":"not a request"})
+    );
+    let mut value = serde_json::json!({"v":1,"op":"deliberation_convene","room":"council","title":"Council","author":{"kind":"human","name":"sam"},"kind":"text","seats":[{"kind":"human","name":"sam","x":1}]});
+    assert_eq!(
+        call(&fixture.socket(), value.take()),
+        serde_json::json!({"ok":false,"error":"not a request"})
+    );
+    worker.join().unwrap();
+}
+
+#[test]
+fn a_refused_turn_leaves_no_post_and_the_last_seat_steps_the_round() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 8);
+    let socket = fixture.socket();
+    let sam = serde_json::json!({"kind":"human","name":"sam"});
+    let ada = serde_json::json!({"kind":"human","name":"ada"});
+    let agree = "```deliberation\nposition: agree\nitems: [\"oak\"]\n```";
+    let turn = |author: &serde_json::Value, body: &str| {
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_turn","room":"council","author":author,"body":body}),
+        )
+    };
+    let posts = || {
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"read","room":"council"}),
+        )["messages"]
+            .as_array()
+            .unwrap()
+            .len()
+    };
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_convene","room":"council","title":"Council","author":sam,"kind":"list","n":1,"seats":[sam, ada]}),
+        ),
+        serde_json::json!({"ok":true})
+    );
+    assert_eq!(turn(&sam, agree)["seq"], 1);
+    assert_eq!(
+        turn(&ada, "```deliberation\nposition: agree\nsecret words\n```"),
+        serde_json::json!({"ok":false,"error":"the turn holds no valid deliberation block"})
+    );
+    assert_eq!(
+        turn(&serde_json::json!({"kind":"human","name":"kit"}), agree),
+        serde_json::json!({"ok":false,"error":"not a seat","refused":true})
+    );
+    assert_eq!(posts(), 1);
+    let stepped = turn(&ada, agree);
+    assert_eq!(stepped["seq"], 2);
+    assert_eq!(stepped["deliberation"]["round"], 1);
+    assert_eq!(stepped["deliberation"]["outcome"], "agreed");
+    assert_eq!(posts(), 2);
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_result","room":"council"}),
+        )["result"]["answer"],
+        serde_json::json!(["oak"])
     );
     worker.join().unwrap();
 }
@@ -3385,5 +3449,35 @@ fn keep_and_kept_through_the_socket() {
         ),
         serde_json::json!({"ok":true,"kept":[]})
     );
+    worker.join().unwrap();
+}
+
+#[test]
+fn a_seat_is_its_member_however_the_name_is_spelled() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 3);
+    let socket = fixture.socket();
+    let sam = serde_json::json!({"kind":"human","name":"sam"});
+    let hidden = serde_json::json!({"kind":"human","name":"sam\u{200b}"});
+    let ada = serde_json::json!({"kind":"human","name":"ada"});
+    let convene = |seats: serde_json::Value| {
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_convene","room":"council","title":"Council","author":sam,"kind":"text","seats":seats}),
+        )
+    };
+    assert_eq!(
+        convene(serde_json::json!([sam, hidden])),
+        serde_json::json!({"ok":false,"error":"a deliberation needs 2 to 24 seats with different names"})
+    );
+    assert_eq!(
+        convene(serde_json::json!([hidden, ada])),
+        serde_json::json!({"ok":true})
+    );
+    let turn = call(
+        &socket,
+        serde_json::json!({"v":1,"op":"deliberation_turn","room":"council","author":sam,"body":"```deliberation\nposition: propose\ndraft: \"plant oaks\"\n```"}),
+    );
+    assert_eq!(turn["deliberation"]["posted"], serde_json::json!([sam]));
     worker.join().unwrap();
 }

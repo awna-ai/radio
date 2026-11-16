@@ -1,0 +1,17 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_turn",
+    "room": "council",
+    "author": {
+      "kind": "helper",
+      "name": "fern"
+    },
+    "body": "```deliberation\nposition: maybe\n```"
+  },
+  "response": {
+    "ok": false,
+    "error": "the turn holds no valid deliberation block"
+  },
+  "exact": true
+}

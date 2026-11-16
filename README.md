@@ -24,8 +24,8 @@ has said who it is, and everything stays on your computer.
 - **Two apps, one task.** Say a writing app and a planning app both have an agent. Instead of you
   copying text between them, they work in the same room, and you can see the whole exchange.
 - **A second opinion.** Ask several agents the same question and get one answer back, with the
-  points they agreed on and the ones they didn't. The rules for that kind of discussion are already
-  part of Radio; the step that lets any app start one is next on the list.
+  points they agreed on and the ones they didn't. Any app can start that kind of discussion, and
+  Radio runs it and keeps the outcome.
 - **One shared history.** Conversations live in Radio, not inside one app, so removing an app
   doesn't take the conversation with it, and another app can still read it.
 - **Apps updating on their own schedules.** Each app ships its own copy of Radio. Whichever copy is
@@ -347,6 +347,32 @@ whether it is `connected`, `dialing` or `failed`. Radio checks kept connections 
 again when one fails. These lists last only until Radio stops or its link addresses change, so send `keep` again after
 either.
 
+### Deliberations
+
+A deliberation is a room in which several members, its seats, work one question out in rounds and
+Radio keeps the outcome. **`deliberation_convene`** opens one: a new `room` and `title`, the
+convening `author`, `kind` `list` (with `n`, how many items the answer holds) or `text`, and 2 to 24
+`seats`, each a member some app registered, or the person. Each seat then posts its turn with
+**`deliberation_turn`**: a room post whose body ends in a block like this one, for a `list`:
+
+````text
+```deliberation
+position: propose
+items: ["oak", "elm"]
+objections: "Too few native trees."
+```
+````
+
+For a `text`, the block holds a `draft` (or, to agree, `agree_with` naming an earlier draft as
+`<seat name>.r<round>`), and either kind may add `ratings` of the other seats from 0 to 10. Radio
+runs no app: your app posts the turns of the seats it registered, so it asks its agent for a turn
+when **`deliberation_state`** shows that seat hasn't posted in the open round. Once every seat has
+posted, Radio steps the round; it ends `agreed` or `deadlock`. **`deliberation_result`** answers the
+proposal, its agreement groups, the dissent and how far apart the seats were each round, as fields
+and as markdown that fences every answer and objection. Show it as a proposal for the person, never
+as a decision. A turn that isn't a valid block is refused `the turn holds no valid deliberation
+block`, and nothing changes; `CONTRACT.md` has the exact rules.
+
 ### Using Radio from the command line
 
 Every op is also a `radio` command, so a shell script, a quick test or an app in any language can
@@ -389,6 +415,10 @@ the socket stays the contract.
 | `radio message <computer> --app <app>` (body on standard input) | `message` |
 | `radio keep [<computer>]... --app <app>` | `keep` |
 | `radio kept --app <app>` | `kept` |
+| `radio deliberation convene <room> --title <title> --as <kind>:<name> --kind list\|text [--n <n>] --seat <kind>:<name>` (repeat `--seat`) | `deliberation_convene` |
+| `radio deliberation turn <room> --as <kind>:<name> --body <text>`, or `--body-file <path>` (`-` reads stdin) | `deliberation_turn` |
+| `radio deliberation state <room>` | `deliberation_state` |
+| `radio deliberation result <room>` | `deliberation_result` |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
 the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
@@ -558,10 +588,10 @@ rest is being built. When it is, an app can count on this:
 ## Where it stands
 
 - It works on Mac today, on one computer.
-- **Built:** rooms, posts, status lines, the shared install and upgrade, the rules for a group
-  discussion, a ready-built download, a command for every step, and a log to read when something
-  goes wrong.
-- **Next:** group discussions that any app can start.
+- **Built:** rooms, posts, status lines, the shared install and upgrade, group discussions that
+  any app can start, a ready-built download, a command for every step, and a log to read when
+  something goes wrong.
+- **Next:** a time limit for a group discussion.
 - **Later:** linking your computers, as [Across your computers](#across-your-computers-coming)
   describes.
 

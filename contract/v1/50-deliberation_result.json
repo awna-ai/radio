@@ -1,0 +1,41 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_result",
+    "room": "council"
+  },
+  "response": {
+    "ok": true,
+    "result": {
+      "label": "Proposal for the principals, not a decision",
+      "outcome": "agreed",
+      "kind": "list:2",
+      "answer": [
+        "oak",
+        "elm"
+      ],
+      "groups": [
+        {
+          "members": [
+            "juniper",
+            "fern"
+          ],
+          "weight": 1.0,
+          "answer": [
+            "oak",
+            "elm"
+          ]
+        }
+      ],
+      "dissent": [],
+      "trajectory": {
+        "D": [
+          0.0
+        ],
+        "rounds": 1
+      }
+    },
+    "markdown": "# Deliberation result — proposal, not a decision\n\nOutcome: agreed\n\n## Answer\n\n```text answer\n[\"oak\", \"elm\"]\n```\n\n## Groups\n\nMembers: juniper, fern; weight: 1.00\n\n```text group answer\n[\"oak\", \"elm\"]\n```\n\n## Trajectory\n\nRounds: 1\nD: [0.0]\n"
+  },
+  "exact": true
+}

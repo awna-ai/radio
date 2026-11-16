@@ -40,7 +40,7 @@ fn file_ops_and_protocol_minor_are_available() {
     ] {
         assert!(radio_client::OPS.contains(&op), "{op}");
     }
-    assert_eq!(radio_client::PROTOCOL_MINOR, 9);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 10);
 }
 
 #[test]
@@ -89,4 +89,43 @@ fn delivery_type_round_trips_and_accepts_future_fields() {
         serde_json::from_value::<radio_client::Delivery>(future).unwrap(),
         delivery
     );
+}
+
+#[test]
+fn deliberation_contract_round_trips() {
+    use radio_client::{Request, Response};
+    use serde_json::json;
+    assert_eq!(radio_client::PROTOCOL_MINOR, 10);
+    assert_eq!(
+        &radio_client::OPS[33..],
+        &[
+            "deliberation_convene",
+            "deliberation_turn",
+            "deliberation_state",
+            "deliberation_result"
+        ]
+    );
+    let seat = json!({"kind":"helper","name":"juniper"});
+    for value in [
+        json!({"op":"deliberation_convene","room":"council","title":"Council","author":seat,"kind":"list","n":2,"seats":[seat, {"kind":"helper","name":"fern"}]}),
+        json!({"op":"deliberation_convene","room":"council","title":"Council","author":seat,"kind":"text","seats":[]}),
+        json!({"op":"deliberation_turn","room":"council","author":seat,"body":"turn"}),
+        json!({"op":"deliberation_state","room":"council"}),
+        json!({"op":"deliberation_result","room":"council"}),
+    ] {
+        let request: Request = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(request).unwrap(), value);
+        let mut unknown = value;
+        unknown["extra"] = true.into();
+        assert!(serde_json::from_value::<Request>(unknown).is_err());
+    }
+    for value in [
+        json!({"ok":true,"seq":3,"deliberation":{"kind":"list","n":2,"seats":[seat],"round":1,"posted":[],"outcome":"agreed"}}),
+        json!({"ok":true,"deliberation":{"kind":"text","seats":[seat],"round":0,"posted":[seat],"outcome":"open"}}),
+        json!({"ok":true,"markdown":"# m\n","result":{"label":"Proposal for the principals, not a decision","outcome":"agreed","kind":"list:2","answer":["a","b"],"groups":[{"members":["fern","juniper"],"weight":1.0,"answer":["a","b"]}],"dissent":[{"member":"fern","holdout":false,"objections":"none"}],"trajectory":{"D":[0.0],"rounds":1}}}),
+        json!({"ok":true,"result":{"label":"l","outcome":"open","kind":"text","answer":null,"groups":[{"members":["fern"],"weight":0.5,"answer":"draft"}],"dissent":[],"trajectory":{"D":[1.0,0.5],"rounds":2}}}),
+    ] {
+        let response: Response = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(response).unwrap(), value);
+    }
 }

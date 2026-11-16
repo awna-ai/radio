@@ -1,0 +1,34 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_turn",
+    "room": "council",
+    "author": {
+      "kind": "helper",
+      "name": "fern"
+    },
+    "body": "```deliberation\nposition: agree\nitems: [\"oak\", \"elm\"]\n```"
+  },
+  "response": {
+    "ok": true,
+    "seq": 2,
+    "deliberation": {
+      "kind": "list",
+      "n": 2,
+      "seats": [
+        {
+          "kind": "helper",
+          "name": "juniper"
+        },
+        {
+          "kind": "helper",
+          "name": "fern"
+        }
+      ],
+      "round": 1,
+      "posted": [],
+      "outcome": "agreed"
+    }
+  },
+  "exact": true
+}

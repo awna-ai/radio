@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 9);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 10);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1324,4 +1324,128 @@ fn message_reads_standard_input_and_enforces_its_byte_limit() {
         ]))
         .is_err()
     );
+}
+
+#[test]
+fn deliberation_commands_build_their_requests() {
+    let convene = parse(&args(&[
+        "deliberation",
+        "convene",
+        "council",
+        "--title",
+        "Council",
+        "--as",
+        "human:sam",
+        "--kind",
+        "list",
+        "--n",
+        "2",
+        "--seat",
+        "helper:juniper",
+        "--seat",
+        "helper:fern",
+    ]))
+    .unwrap();
+    assert_eq!(
+        convene,
+        Command {
+            request: Request::DeliberationConvene {
+                room: "council".into(),
+                title: "Council".into(),
+                author: member("human", "sam"),
+                kind: "list".into(),
+                n: Some(2),
+                seats: vec![member("helper", "juniper"), member("helper", "fern")],
+            },
+            body: None,
+        }
+    );
+    let turn = parse(&args(&[
+        "deliberation",
+        "turn",
+        "council",
+        "--as",
+        "helper:juniper",
+        "--body-file",
+        "-",
+    ]))
+    .unwrap();
+    assert_eq!(
+        turn.resolve(Cursor::new("a turn")).unwrap(),
+        Request::DeliberationTurn {
+            room: "council".into(),
+            author: member("helper", "juniper"),
+            body: "a turn".into(),
+        }
+    );
+    assert_eq!(
+        parse(&args(&["deliberation", "state", "council"]))
+            .unwrap()
+            .request,
+        Request::DeliberationState {
+            room: "council".into()
+        }
+    );
+    assert_eq!(
+        parse(&args(&["deliberation", "result", "council"]))
+            .unwrap()
+            .request,
+        Request::DeliberationResult {
+            room: "council".into()
+        }
+    );
+    for words in [
+        &[
+            "deliberation",
+            "convene",
+            "council",
+            "--title",
+            "C",
+            "--as",
+            "human:sam",
+            "--kind",
+            "text",
+            "--n",
+            "-1",
+        ][..],
+        &[
+            "deliberation",
+            "convene",
+            "council",
+            "--title",
+            "C",
+            "--as",
+            "human:sam",
+        ],
+        &[
+            "deliberation",
+            "convene",
+            "council",
+            "--title",
+            "C",
+            "--as",
+            "human:sam",
+            "--kind",
+            "text",
+            "--seat",
+            "nokind",
+        ],
+        &["deliberation", "turn", "council", "--as", "human:sam"],
+        &[
+            "deliberation",
+            "turn",
+            "council",
+            "--as",
+            "human:sam",
+            "--body",
+            "a",
+            "--body-file",
+            "-",
+        ],
+        &["deliberation", "state"],
+        &["deliberation", "result", "council", "--as", "human:sam"],
+        &["deliberation", "vote", "council"],
+    ] {
+        assert_eq!(parse(&args(words)), Err(()), "{words:?}");
+    }
 }

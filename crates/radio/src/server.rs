@@ -1,3 +1,4 @@
+use crate::deliberation::{NOT_DELIBERATION, NOT_SEAT, Record};
 use crate::log::{Field, Log};
 use radio_client::{
     Computer, Delivery, Fleet, JoinCodeInfo, Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR,
@@ -55,7 +56,7 @@ fn success() -> Response {
 }
 fn failure(error: String) -> Response {
     Response {
-        refused: [REFUSED, NOT_MEMBER, OWNED]
+        refused: [REFUSED, NOT_MEMBER, OWNED, NOT_SEAT]
             .contains(&error.as_str())
             .then_some(true),
         error: Some(error),
@@ -884,6 +885,50 @@ impl Server {
                     .set_status(&room, &key, &line, &self.host, &author, expires_at, now)?;
                 response.seq = Some(seq);
             }
+            Request::DeliberationConvene {
+                room,
+                title,
+                author,
+                kind,
+                n,
+                seats,
+            } => {
+                self.member(author)?;
+                let seats = seats
+                    .into_iter()
+                    .map(|seat| self.seat(seat))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let record = Record::convene(&kind, n, seats)?;
+                self.store.create_deliberation(
+                    &room,
+                    &self.host,
+                    &title,
+                    &record.to_json()?,
+                    now,
+                )?;
+            }
+            Request::DeliberationTurn { room, author, body } => {
+                let author = self.seat(author)?;
+                let mut record = self.deliberation(&room)?;
+                record.turn(&author, &body)?;
+                response.seq = Some(self.store.post_turn(
+                    &room,
+                    &self.host,
+                    &author,
+                    &body,
+                    &record.to_json()?,
+                    now,
+                )?);
+                response.deliberation = Some(record.view());
+            }
+            Request::DeliberationState { room } => {
+                response.deliberation = Some(self.deliberation(&room)?.view());
+            }
+            Request::DeliberationResult { room } => {
+                let (result, markdown) = self.deliberation(&room)?.result()?;
+                response.result = Some(result);
+                response.markdown = Some(markdown);
+            }
             Request::StatusClear { room, key, author } => {
                 let author = self.member(author)?;
                 let seq = self
@@ -910,6 +955,16 @@ impl Server {
         } else {
             Err(NOT_MEMBER.into())
         }
+    }
+
+    /// A member, with its name cleaned as the store keeps it, so one member is one seat.
+    fn seat(&self, member: Member) -> Result<Author, String> {
+        radio_rooms::clean_author(&self.member(member)?)
+    }
+
+    fn deliberation(&self, room: &str) -> Result<Record, String> {
+        self.require_room(room)?;
+        Record::from_json(&self.store.deliberation(room)?.ok_or(NOT_DELIBERATION)?)
     }
 
     /// Accepts and answers connections one at a time until the process stops.

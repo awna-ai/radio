@@ -2126,16 +2126,16 @@ fn a_failed_write_records_nothing() {
 }
 
 #[test]
-fn a_version_three_store_migrates_to_four_keeping_its_rows() {
+fn a_version_three_store_migrates_to_the_newest_keeping_its_rows() {
     let target = Store::new("import-upgrade");
     let mut store = target.room();
     store
         .post("room", "node-a", &Author::human("Wren"), "kept", 2.0)
         .unwrap();
-    store.conn().execute_batch("DELETE FROM schema_version; INSERT INTO schema_version VALUES (3); DROP TABLE IF EXISTS imports;").unwrap();
+    store.conn().execute_batch("DELETE FROM schema_version; INSERT INTO schema_version VALUES (3); DROP TABLE IF EXISTS imports; DROP TABLE IF EXISTS deliberations;").unwrap();
     drop(store);
     let store = target.open();
-    assert_eq!(schema_version(store.conn()), Ok(4));
+    assert_eq!(schema_version(store.conn()), Ok(5));
     assert_eq!(store.tail("room", 10).unwrap()[0].body, "kept");
     assert_eq!(import_count(&store), 0);
 }
@@ -2424,7 +2424,7 @@ fn a_snapshot_restores_rooms_messages_and_schema_without_migrating() {
         .unwrap();
     let rooms = store.rooms(None, READ_MAX).unwrap();
     let messages = store.tail("room", 10).unwrap();
-    assert_eq!(schema_version(store.conn()), Ok(4));
+    assert_eq!(schema_version(store.conn()), Ok(5));
     let snapshot = fixture.0.join("snapshot.db");
     assert_eq!(snapshot_store(&fixture.path(), &snapshot), Ok(()));
     assert_eq!(
@@ -2433,7 +2433,7 @@ fn a_snapshot_restores_rooms_messages_and_schema_without_migrating() {
     );
     store
         .conn()
-        .execute_batch("UPDATE schema_version SET version = 5; DELETE FROM rooms")
+        .execute_batch("UPDATE schema_version SET version = 6; DELETE FROM rooms")
         .unwrap();
     drop(store);
     assert_eq!(
@@ -2458,7 +2458,7 @@ fn a_snapshot_restores_rooms_messages_and_schema_without_migrating() {
         );
     }
     let restored = fixture.open();
-    assert_eq!(schema_version(restored.conn()), Ok(4));
+    assert_eq!(schema_version(restored.conn()), Ok(5));
     assert_eq!(restored.rooms(None, READ_MAX).unwrap(), rooms);
     assert_eq!(restored.tail("room", 10).unwrap(), messages);
 }
@@ -2638,4 +2638,58 @@ fn registered_tracks_apps_even_without_members() {
     store.register("lantern", "1.0", &[], 1.0).unwrap();
     assert_eq!(store.registered("lantern"), Ok(true));
     assert_eq!(store.registered("meadow"), Ok(false));
+}
+
+#[test]
+fn deliberation_records_open_their_room_and_change_only_with_a_turn() {
+    let dir = Store::new("deliberation");
+    let mut store = dir.open();
+    store.create_room("plain", "node-a", "Plain", 1.0).unwrap();
+    store
+        .create_deliberation("council", "node-a", "Council", "{\"r\":0}", 2.0)
+        .unwrap();
+    assert_eq!(
+        store
+            .create_deliberation("council", "node-a", "Again", "{}", 3.0)
+            .unwrap_err(),
+        "the room already exists"
+    );
+    assert_eq!(
+        store
+            .create_deliberation("plain", "node-a", "Plain", "{}", 3.0)
+            .unwrap_err(),
+        "the room already exists"
+    );
+    assert_eq!(store.deliberation("plain").unwrap(), None);
+    assert_eq!(store.room("council").unwrap().unwrap().title, "Council");
+    assert_eq!(
+        store.deliberation("council").unwrap().as_deref(),
+        Some("{\"r\":0}")
+    );
+    let seq = store
+        .post_turn("council", "node-a", &author(), "turn", "{\"r\":1}", 4.0)
+        .unwrap();
+    assert_eq!(seq, 1);
+    assert_eq!(store.tail("council", 10).unwrap()[0].body, "turn");
+    assert_eq!(
+        store.deliberation("council").unwrap().as_deref(),
+        Some("{\"r\":1}")
+    );
+    assert_eq!(
+        store
+            .post_turn("plain", "node-a", &author(), "turn", "{}", 5.0)
+            .unwrap_err(),
+        "not a deliberation"
+    );
+    assert!(store.tail("plain", 10).unwrap().is_empty());
+    assert_eq!(
+        store
+            .post_turn("council", "node-a", &author(), "", "{\"r\":2}", 6.0)
+            .unwrap_err(),
+        MESSAGE_INVALID
+    );
+    assert_eq!(
+        store.deliberation("council").unwrap().as_deref(),
+        Some("{\"r\":1}")
+    );
 }

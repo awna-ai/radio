@@ -1,0 +1,22 @@
+{
+  "request": {
+    "v": 1,
+    "op": "register",
+    "app": "orchard",
+    "app_version": "1.0.0",
+    "members": [
+      {
+        "kind": "helper",
+        "name": "fern"
+      },
+      {
+        "kind": "helper",
+        "name": "moss"
+      }
+    ]
+  },
+  "response": {
+    "ok": true
+  },
+  "exact": false
+}

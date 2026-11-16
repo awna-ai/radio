@@ -2,6 +2,20 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-16: D25. A deliberation is a room with a record, and the daemon steps it
+
+Any app convenes a deliberation with `deliberation_convene` (protocol minor 10): a new room, plus a
+record in the rooms store beside it holding the seats, the `radio-panels` state, the open round's
+blocks and the last round's report. A seat's turn is a room post, so the room reads as the
+discussion; the post and the new record are written in one transaction, and a turn that fails writes
+nothing. Radio runs no app: a seat's turn comes from whichever registered app lists that member, and
+the round steps when the last seat posts, never on a clock, so a seat that never posts holds the
+round open. A time limit (`timebox_decision`) is a later slice. A seat is a member, the person
+included, named by its member name in the protocol's crew, so seat names must differ across kinds;
+they hold only the result's fence-label characters, since the markdown result names each dissenting
+seat in a fence label. At most 50 rounds, so a record stays bounded. `deliberation_result` answers
+the proposal after the newest round, as `radio-panels` builds and renders it, open or closed.
+
 ## 2026-11-14: D24. Files between computers: Radio makes the folder, and a send has its own thread
 
 An app sends a file to itself on another computer with `send` (protocol minor 7, link minor 3), and
