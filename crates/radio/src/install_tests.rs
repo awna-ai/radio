@@ -1419,6 +1419,32 @@ fn a_failed_upgrade_keeps_fleet_db_when_its_schema_did_not_move() {
 }
 
 #[test]
+fn a_failed_upgrade_restores_a_fleet_db_it_cannot_read() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let path = f.paths().state.join("fleet.db");
+    drop(radio_link::fleet_db::FleetDb::open(&path).unwrap());
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || {
+            for suffix in ["-wal", "-shm"] {
+                let _ = fs::remove_file(format!("{}{suffix}", path.display()));
+            }
+            fs::write(&path, b"not a store").unwrap();
+        }),
+    );
+    f.quiet(&["2.0.0"]);
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed; the version before it is running again",
+    );
+    assert!(radio_link::fleet_db::FleetDb::open(&f.paths().state.join("fleet.db")).is_ok());
+    assert!(!f.paths().state.join("fleet.db.before-upgrade").exists());
+    assert_installed(&f, "1.0.0");
+}
+
+#[test]
 fn a_successful_upgrade_leaves_no_snapshots() {
     let f = Fixture::new();
     f.install("1.0.0", "kiteapp");

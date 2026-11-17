@@ -976,7 +976,11 @@ impl Installer<'_> {
                                     .is_ok_and(|now| now <= before)
                             });
                             restored &= match had {
-                                Some(true) if unmoved => remove_file(snapshot).is_ok(),
+                                Some(true) if unmoved => {
+                                    // A leftover snapshot is removed by the next upgrade.
+                                    let _ = remove_file(snapshot);
+                                    true
+                                }
                                 Some(true) => radio_rooms::restore_store(snapshot, store).is_ok(),
                                 Some(false) => remove_store(store).is_ok(),
                                 None => true,

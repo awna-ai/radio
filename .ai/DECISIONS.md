@@ -299,7 +299,7 @@ exactly (D4).
 - **A failed upgrade puts the stores back too.** A newer daemon may migrate `rooms.db` and `fleet.db`
   before it answers, and an older build refuses either store once it is newer, so the installer
   snapshots both once the older daemon has stopped. If the newer one fails, `rooms.db` is restored;
-  `fleet.db` is restored only when its schema moved, because its signed counters and removals must
+  `fleet.db` is restored only when its schema moved (or its version can't be read), because its signed counters and removals must
   not go back while other computers hold them. A store that was not there before is removed. A
   release that adds a store migration bumps the version.
 - **App names are lowercase,** so two spellings never share one client record on a case-insensitive
