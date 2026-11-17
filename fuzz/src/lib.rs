@@ -4,7 +4,7 @@ use radio_link::{
     fleet::{self, FleetRecord},
     frame as framing,
     membership::{JoinAnswer, SignedRecord},
-    topic::TopicMessage,
+    topic::{TOPIC_MESSAGE_MAX, TopicMessage},
     wire::{Answer, JoinRequest, Request},
 };
 use std::sync::OnceLock;
@@ -92,7 +92,12 @@ pub fn records(data: &[u8]) -> u32 {
     }
     let topic = match TopicMessage::decode(data) {
         Ok(message) => {
-            assert!(TopicMessage::decode(&message.encode()) == Ok(message));
+            let encoded = message.encode();
+            if encoded.len() > TOPIC_MESSAGE_MAX {
+                assert!(TopicMessage::decode(&encoded) == Err("the topic message is too large"));
+            } else {
+                assert!(TopicMessage::decode(&encoded) == Ok(message));
+            }
             1
         }
         Err(_) => 0,
@@ -236,9 +241,24 @@ mod tests {
             serde_json::to_vec(&removal).unwrap(),
             serde_json::to_vec(&found).unwrap(),
             serde_json::to_vec(&recovered).unwrap(),
+            TopicMessage::Record(introduction.clone()).encode(),
+            TopicMessage::Announcement(radio_link::topic::announce(&computer(), &node)).encode(),
         ] {
             assert!(records(&json) >= 1);
         }
+    }
+    #[test]
+    fn a_topic_message_that_grows_on_rewrite_is_not_a_crash() {
+        let key = "ab".repeat(32);
+        let json = format!(
+            r#"{{"record":{{"body":{{"kind":"introduction","fleet":"{key}","inviter":"{key}","counter":1,"newcomer":"{key}","name":"birch","addrs":["[::ffff:a:a]:1","[1:2:3:4:5:6::8]:1"],"consent":""}},"signature":""}}}}"#
+        );
+        let padding = "a".repeat(TOPIC_MESSAGE_MAX - json.len());
+        let json = json.replace(r#""consent":"""#, &format!(r#""consent":"{padding}""#));
+        assert_eq!(json.len(), TOPIC_MESSAGE_MAX);
+        let message = TopicMessage::decode(json.as_bytes()).unwrap();
+        assert!(message.encode().len() > TOPIC_MESSAGE_MAX);
+        assert_eq!(records(json.as_bytes()), 1);
     }
     #[test]
     fn join_code_checks_valid_input() {
