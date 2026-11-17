@@ -36,6 +36,16 @@ exit 1
 STUB
 done
 chmod 755 "$tmp/bin/"*
+# A git whose diff fails, for one case only.
+mkdir "$tmp/gitbin"
+STUB_GIT=$(command -v git)
+export STUB_GIT
+cat > "$tmp/gitbin/git" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = diff ] && exit 128
+exec "$STUB_GIT" "$@"
+STUB
+chmod 755 "$tmp/gitbin/git"
 
 repo="$tmp/repo"
 mkdir "$repo"
@@ -175,6 +185,13 @@ for mode in fail empty; do
     STUB_TREE=$mode list --tier touched --list || fail "tree $mode: exit $?"
     has "tree $mode" 'cargo test --locked'
 done
+
+# A change list that cannot be read runs the full tier rather than no check.
+reset
+printf '// touched\n' >> "$repo/crates/radio-rooms/src/lib.rs"
+(cd "$repo" && PATH="$tmp/gitbin:$PATH" RADIO_CI_BASE=HEAD bash scripts/ci-local.sh --tier touched --list \
+    > "$tmp/out" 2> "$tmp/err") || fail "diff fails: exit $?"
+has 'diff fails' 'cargo test --locked'
 
 # A base that reads as an option is refused, and runs the full tier.
 reset

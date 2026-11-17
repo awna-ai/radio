@@ -57,8 +57,13 @@ if [ "$tier" = touched ]; then
     touched_shell=()
     fork=''
     case "$base" in -*) ;; *) fork=$(git merge-base "$base" HEAD 2> /dev/null) || fork='' ;; esac
-    if [ -n "$fork" ]; then
+    # A base at or past HEAD hides the committed changes from the list; the default is origin/main.
+    if [ -n "$fork" ] && changed=$({
+        git diff --name-only --no-renames "$fork" &&
+            git ls-files --others --exclude-standard
+    } | sort -u); then
         while IFS= read -r path; do
+            [ -n "$path" ] || continue
             case "$path" in
                 crates/*/*)
                     folder=${path#crates/}
@@ -74,12 +79,10 @@ if [ "$tier" = touched ]; then
                 *.md | LICENSE | .gitignore) ;;
                 *) everything=1 ;;
             esac
-        done < <({
-            git diff --name-only --no-renames "$fork"
-            git ls-files --others --exclude-standard
-        } | sort -u)
+        done <<< "$changed"
     else
-        printf 'ci-local: the base %s does not resolve; checking everything\n' "$base" >&2
+        printf 'ci-local: the base %s does not resolve, or the changes since it cannot be read; checking everything\n' \
+            "$base" >&2
         everything=1
     fi
     for crate in "${touched_crates[@]+"${touched_crates[@]}"}"; do
