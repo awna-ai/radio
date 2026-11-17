@@ -55,7 +55,9 @@ if [ "$tier" = touched ]; then
     everything=0
     touched_crates=()
     touched_shell=()
-    if fork=$(git merge-base "$base" HEAD 2> /dev/null); then
+    fork=''
+    case "$base" in -*) ;; *) fork=$(git merge-base "$base" HEAD 2> /dev/null) || fork='' ;; esac
+    if [ -n "$fork" ]; then
         while IFS= read -r path; do
             case "$path" in
                 crates/*/*)
@@ -83,8 +85,28 @@ if [ "$tier" = touched ]; then
     for crate in "${touched_crates[@]+"${touched_crates[@]}"}"; do
         [ -n "$crate" ] || everything=1
     done
+    if [ "$everything" -eq 0 ] && [ "${#touched_crates[@]}" -gt 0 ]; then
+        if command -v cargo > /dev/null 2>&1; then
+            # The changed crates and every workspace crate that depends on them, dev-dependencies included.
+            here=$(pwd -P)
+            tree=''
+            for crate in $(printf '%s\n' "${touched_crates[@]}" | sort -u); do
+                found=$(cargo tree --locked --workspace -i "$crate" -e normal,build,dev --prefix none --format '{p}') \
+                    || everything=1
+                tree+="$found"$'\n'
+            done
+            while IFS= read -r crate; do
+                crates+=("$crate")
+            done < <(printf '%s' "$tree" | awk -v folder="($here/crates/" 'index($0, folder) { print $1 }' | sort -u)
+            # A query that finds not even the changed crate itself is not to be trusted.
+            [ "${#crates[@]}" -gt 0 ] || everything=1
+        else
+            everything=1
+        fi
+    fi
     if [ "$everything" -eq 1 ]; then
         tier=full
+        crates=()
     else
         shell_tests=()
         for test in "${all_shell_tests[@]}"; do
@@ -92,23 +114,11 @@ if [ "$tier" = touched ]; then
                 shell_tests+=("$test")
             fi
         done
+        # The fuzz targets depend on radio-link.
         fuzz=0
-        if [ "${#touched_crates[@]}" -gt 0 ]; then
-            # The changed crates and every workspace crate that depends on them, dev-dependencies included.
-            here=$(pwd -P)
-            dependents=$(for crate in $(printf '%s\n' "${touched_crates[@]}" | sort -u); do
-                cargo tree --locked --workspace -i "$crate" -e normal,build,dev --prefix none --format '{p}'
-            done | awk -v folder="($here/crates/" 'index($0, folder) { print $1 }' | sort -u)
-            while IFS= read -r crate; do
-                if [ -n "$crate" ]; then
-                    crates+=("$crate")
-                fi
-                # The fuzz targets depend on radio-link.
-                if [ "$crate" = radio-link ]; then
-                    fuzz=1
-                fi
-            done <<< "$dependents"
-        fi
+        for crate in "${crates[@]+"${crates[@]}"}"; do
+            [ "$crate" != radio-link ] || fuzz=1
+        done
     fi
 fi
 
@@ -180,6 +190,10 @@ if command -v cargo > /dev/null 2>&1; then
         done
         run cargo clippy --all-targets --locked "${packages[@]}" -- -D warnings
         run cargo test --locked "${packages[@]}"
+        # radio-link's one_builder test reads every crate's sources, so it runs for any crate's change.
+        if [ "$fuzz" -eq 0 ]; then
+            run cargo test --locked -p radio-link --test one_builder
+        fi
         if [ "${#alone[@]}" -gt 0 ] && [ "${#alone[@]}" -lt "${#packages[@]}" ]; then
             run cargo test --locked "${alone[@]}"
         fi

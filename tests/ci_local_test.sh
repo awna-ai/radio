@@ -16,6 +16,12 @@ failed=0
 # --list runs nothing: every tool but cargo's dependency queries records its call and fails.
 cat > "$tmp/bin/cargo" <<'STUB'
 #!/usr/bin/env bash
+if [ "$1" = tree ]; then
+    case "${STUB_TREE:-}" in
+        fail) exit 101 ;;
+        empty) exit 0 ;;
+    esac
+fi
 case "$1" in
     tree | metadata) exec "$STUB_CARGO" "$@" ;;
 esac
@@ -78,7 +84,9 @@ has rooms 'cargo clippy --all-targets --locked -p radio -p radio-rooms -- -D war
 has rooms 'cargo test --locked -p radio -p radio-rooms'
 has rooms 'cargo test --locked -p radio-rooms'
 lacks rooms radio-client
-lacks rooms radio-link
+lacks rooms 'cargo clippy --all-targets --locked -p radio -p radio-link'
+# radio-link's one_builder test reads every crate's sources, so any crate change runs it.
+has rooms 'cargo test --locked -p radio-link --test one_builder'
 lacks rooms "$fuzz_test"
 lacks rooms 'bash tests/release_test.sh'
 lacks rooms 'bash tests/term_check_test.sh'
@@ -89,6 +97,7 @@ printf '// touched\n' >> "$repo/crates/radio-link/src/lib.rs"
 list --tier touched --list || fail "link: exit $?"
 has link 'cargo clippy --all-targets --locked -p radio -p radio-link -- -D warnings'
 has link "$fuzz_test"
+lacks link 'cargo test --locked -p radio-link --test one_builder'
 has link 'cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --locked -- -D warnings'
 
 # A new, untracked file counts.
@@ -158,6 +167,20 @@ reset
     || fail "no base: exit $?"
 has 'no base' 'cargo test --locked'
 grep -F -q 'no-such-ref' "$tmp/err" || fail 'no base: the base is not named'
+
+# A dependents query that fails or finds nothing runs the full tier rather than no Rust check.
+for mode in fail empty; do
+    reset
+    printf '// touched\n' >> "$repo/crates/radio-rooms/src/lib.rs"
+    STUB_TREE=$mode list --tier touched --list || fail "tree $mode: exit $?"
+    has "tree $mode" 'cargo test --locked'
+done
+
+# A base that reads as an option is refused, and runs the full tier.
+reset
+(cd "$repo" && RADIO_CI_BASE=--all bash scripts/ci-local.sh --tier touched --list > "$tmp/out" 2> "$tmp/err") \
+    || fail "option base: exit $?"
+has 'option base' 'cargo test --locked'
 
 # The full tier lists every step, the whole workspace at once.
 reset
