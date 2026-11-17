@@ -23,6 +23,7 @@ pub const SHA: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 pub struct Book {
     pub standing: Mutex<HashMap<EndpointId, Standing>>,
+    pub records: Mutex<HashMap<EndpointId, radio_link::computer_record::ComputerRecord>>,
     pub join: AtomicBool,
     pub fleet: Option<String>,
 }
@@ -31,6 +32,7 @@ impl Book {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             standing: Mutex::new(HashMap::new()),
+            records: Mutex::new(HashMap::new()),
             join: AtomicBool::new(false),
             fleet: Some(FLEET.into()),
         })
@@ -40,12 +42,24 @@ impl Book {
         self.standing.lock().unwrap().insert(key, standing);
     }
 
+    pub fn set_record(&self, key: EndpointId, record: radio_link::computer_record::ComputerRecord) {
+        self.records.lock().unwrap().insert(key, record);
+    }
+
     pub fn set_join(&self, open: bool) {
         self.join.store(open, Ordering::SeqCst);
     }
 }
 
 impl Admission for Book {
+    fn computer_record(
+        &self,
+        _own: &EndpointId,
+        key: &EndpointId,
+    ) -> Option<radio_link::computer_record::ComputerRecord> {
+        self.records.lock().unwrap().get(key).cloned()
+    }
+
     fn standing(&self, key: &EndpointId) -> Standing {
         self.standing
             .lock()

@@ -2284,6 +2284,59 @@ fn computer_record(
 }
 
 #[test]
+fn served_record_returns_own_record() {
+    let temp = Temp::new();
+    let (db, node) = temp.found();
+    let record = computer_record(&db, &node, "alpha", 1);
+    store_computer_record(&db.conn, &record).unwrap();
+    assert_eq!(
+        db.served_record(&node.public(), &node.public()),
+        Ok(Some(record))
+    );
+}
+
+#[test]
+fn served_record_requires_acceptance_and_matching_name() {
+    for (state, name, served) in [
+        (State::Accepted, "beta", true),
+        (State::Pending, "beta", false),
+        (State::Blocked, "beta", false),
+        (State::Accepted, "gamma", false),
+    ] {
+        let temp = Temp::new();
+        let (db, node) = temp.found();
+        let peer = iroh::SecretKey::generate();
+        computer(&db, &peer.public(), "beta", state, None, &[]);
+        let record = computer_record(&db, &peer, name, 1);
+        store_computer_record(&db.conn, &record).unwrap();
+        assert_eq!(
+            db.served_record(&node.public(), &peer.public()),
+            Ok(served.then_some(record)),
+            "{state:?}, {name}"
+        );
+    }
+}
+
+#[test]
+fn served_record_withholds_unknown_and_tombstoned_keys() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = iroh::SecretKey::generate();
+    assert_eq!(db.served_record(&node.public(), &peer.public()), Ok(None));
+    admit_new(&mut db, &node, &peer, "beta", 10.0);
+    db.remove(&node, "beta", 11.0).unwrap();
+    assert!(
+        find_computer(&db.conn, &peer.public().to_string())
+            .unwrap()
+            .is_none()
+    );
+    assert!(tombstoned(&db.conn, &peer.public().to_string()).unwrap());
+    let record = computer_record(&db, &peer, "beta", 1);
+    store_computer_record(&db.conn, &record).unwrap();
+    assert_eq!(db.served_record(&node.public(), &peer.public()), Ok(None));
+}
+
+#[test]
 fn computer_records_require_the_computers_signature_and_a_newer_version() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();

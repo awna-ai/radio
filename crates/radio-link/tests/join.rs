@@ -1038,7 +1038,7 @@ async fn fetch_of_a_missing_record_is_refused() {
 }
 
 #[tokio::test]
-async fn fetch_from_a_computer_not_accepted_gets_no_answer() {
+async fn a_stranger_s_fetch_is_closed_at_the_hook() {
     let (a, b, c) = trio().await;
     let raw = raw_bind(raw_book(&b), Limits::default()).await;
     let connection = raw.connect(&b.link, ALPN).await;
@@ -1063,5 +1063,64 @@ async fn fetch_from_a_computer_not_accepted_gets_no_answer() {
     }
     closed(&connection, REFUSED).await;
     bounded(raw.close()).await;
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn fetch_gets_the_announced_record_from_its_owner() {
+    let (a, b, c) = accepted_trio().await;
+    let record = resign(&a, "newer");
+    for computer in [&b, &c] {
+        assert_ne!(
+            computer
+                .db
+                .lock()
+                .unwrap()
+                .computer_record(&a.link.id())
+                .unwrap(),
+            Some(record.clone())
+        );
+    }
+    announce_to(&c, &record, &a.key);
+    assert!(bounded(join::fetch(&c.link, &c.db, &a.link.id())).await);
+    assert_eq!(
+        c.db.lock().unwrap().computer_record(&a.link.id()).unwrap(),
+        Some(record)
+    );
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn fetch_without_an_announcement_returns_false() {
+    let (a, b, c) = accepted_trio().await;
+    assert!(!bounded(join::fetch(&c.link, &c.db, &a.link.id())).await);
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn fetch_of_a_held_record_needs_no_running_source() {
+    let (a, b, c) = accepted_trio().await;
+    let record = resign(&a, "newer");
+    announce_to(&c, &record, &a.key);
+    join::apply_computer(&c.link, &c.db, &record).unwrap();
+    bounded(a.link.close()).await;
+    bounded(b.link.close()).await;
+    assert!(bounded(join::fetch(&c.link, &c.db, &a.link.id())).await);
+    stop(&[&c]).await;
+}
+
+#[tokio::test]
+async fn a_pending_computers_record_is_not_served_to_a_member() {
+    let (a, b, c) = trio().await;
+    let record = resign(&c, "newer");
+    assert_eq!(row(&b, c.link.id()).unwrap().state, State::Pending);
+    join::apply_computer(&b.link, &b.db, &record).unwrap();
+    let peer = bounded(a.link.peer(b.link.id(), &b.link.addrs()))
+        .await
+        .unwrap();
+    assert_eq!(
+        bounded(peer.fetch(&c.link.id())).await,
+        Err("no such record")
+    );
     stop(&[&a, &b, &c]).await;
 }

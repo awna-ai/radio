@@ -684,6 +684,29 @@ impl FleetDb {
         load_computer_record(&self.conn, &key.to_string())
     }
 
+    pub fn served_record(
+        &self,
+        own: &iroh::EndpointId,
+        key: &iroh::EndpointId,
+    ) -> Result<Option<ComputerRecord>, &'static str> {
+        let text = key.to_string();
+        if tombstoned(&self.conn, &text)? {
+            return Ok(None);
+        }
+        if key == own {
+            return self.computer_record(key);
+        }
+        let Some(computer) = find_computer(&self.conn, &text)? else {
+            return Ok(None);
+        };
+        if computer.state != State::Accepted {
+            return Ok(None);
+        }
+        Ok(self
+            .computer_record(key)?
+            .filter(|record| computer.name.as_deref() == Some(record.body.name.as_str())))
+    }
+
     pub fn computer_records(&self) -> Result<Vec<ComputerRecord>, &'static str> {
         let mut stmt = self
             .conn

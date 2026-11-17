@@ -234,13 +234,19 @@ pub async fn publish(link: &Link, db: &Mutex<FleetDb>, record: &ComputerRecord) 
     delivered
 }
 
-/// Tries the announcing computer, then other accepted computers, at most three in all.
+/// Whether the announced record is held afterwards. If needed, tries the announcing
+/// computer, then other accepted computers, at most three in all.
 /// A later step puts gossip neighbours first.
 pub async fn fetch(link: &Link, db: &Mutex<FleetDb>, key: &crate::EndpointId) -> bool {
     let recipients = {
         let Ok(db) = db.lock() else { return false };
-        if !matches!(db.announcement(key), Ok(Some(_))) {
+        let Ok(Some(announcement)) = db.announcement(key) else {
             return false;
+        };
+        if let Ok(Some(record)) = db.computer_record(key)
+            && record.body.version >= announcement.version
+        {
+            return announcement.matches(&record);
         }
         let Ok(recipients) = db.recipients(&link.id()) else {
             return false;

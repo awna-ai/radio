@@ -942,3 +942,74 @@ async fn a_heartbeat_from_a_non_member_is_refused() {
     bounded(a.close()).await;
     bounded(b.close()).await;
 }
+
+#[tokio::test]
+async fn a_fetch_from_a_member_refused_after_dial_is_closed() {
+    let (a, b, book, mut events) = pair(Limits::default()).await;
+    let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+    book.set(b.id(), Standing::Refused);
+    assert!(
+        request(
+            peer.connection(),
+            &Request::Fetch {
+                key: a.id().to_string()
+            }
+        )
+        .await
+        .is_err()
+    );
+    closed(peer.connection(), REFUSED).await;
+    empty(&mut events).await;
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}
+
+#[tokio::test]
+async fn a_fetch_with_an_invalid_key_resets_only_its_stream() {
+    let (a, b, _, _) = pair(Limits::default()).await;
+    let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+    let fetch = Request::Fetch {
+        key: "invalid".into(),
+    };
+    assert!(request(peer.connection(), &fetch).await.is_err());
+    reset(peer.connection(), &bytes(&fetch)).await;
+    assert!(matches!(
+        request(peer.connection(), &Request::Heartbeat {}).await,
+        Ok(Answer::Ok)
+    ));
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}
+
+#[tokio::test]
+async fn peer_fetch_requires_the_requested_key_and_a_valid_signature() {
+    let (a, b, book, _) = pair(Limits::default()).await;
+    let peer = bounded(b.dial(a.id(), &a.addrs())).await.unwrap();
+    let key = SecretKey::generate();
+    let other = SecretKey::generate();
+    let signed = |key: &SecretKey| {
+        radio_link::computer_record::sign(
+            radio_link::computer_record::ComputerBody {
+                fleet: FLEET.into(),
+                key: key.public().to_string(),
+                version: 1,
+                name: "alpha".into(),
+                roles: vec![],
+                addrs: vec![],
+                apps: Default::default(),
+            },
+            key,
+        )
+    };
+    book.set_record(key.public(), signed(&other));
+    assert!(bounded(peer.fetch(&key.public())).await.is_err());
+    let valid = signed(&key);
+    let mut broken = valid.clone();
+    broken.body.name = "beta".into();
+    book.set_record(key.public(), broken);
+    assert!(bounded(peer.fetch(&key.public())).await.is_err());
+    book.set_record(key.public(), valid.clone());
+    assert_eq!(bounded(peer.fetch(&key.public())).await, Ok(valid));
+    bounded(a.close()).await;
+    bounded(b.close()).await;
+}

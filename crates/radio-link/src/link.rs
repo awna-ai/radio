@@ -559,7 +559,7 @@ async fn serve_stream(
                     }
                     return Ok(());
                 }
-                let answer = match gate.admission.computer_record(&key) {
+                let answer = match gate.admission.computer_record(&id, &key) {
                     Some(record) => Answer::Computer { record },
                     None => Answer::Refused {
                         reason: "no such record".into(),
