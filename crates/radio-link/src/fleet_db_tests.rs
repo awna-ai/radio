@@ -3,6 +3,7 @@ use crate::admit::Admission;
 use crate::computer_record::{
     self, APPS_MAX, ComputerBody, ComputerRecord, ROLES_MAX, SECTION_MAX,
 };
+use crate::topic::{self, Received, TOPIC_MESSAGE_MAX, TopicMessage};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -440,6 +441,7 @@ fn schema_four_has_every_table_and_found_local() {
         "records",
         "computer_records",
         "link_addresses",
+        "announcements",
     ] {
         assert_eq!(
             db.conn
@@ -1651,6 +1653,10 @@ fn applying_own_removal_clears_every_table_and_cannot_be_repeated() {
         None,
         &addr(),
     );
+    let announced = computer_record(&db, &stranger, "meadow", 1);
+    db.apply_announcement(&node.public(), &topic::announce(&announced, &stranger))
+        .unwrap();
+    assert_eq!(count(&db, "announcements"), 1);
     assert_eq!(
         db.apply(
             &node.public(),
@@ -1673,6 +1679,7 @@ fn applying_own_removal_clears_every_table_and_cannot_be_repeated() {
         "records",
         "held",
         "local",
+        "announcements",
     ] {
         assert_eq!(count(&db, table), 0);
     }
@@ -3434,4 +3441,288 @@ fn the_status_file_sits_beside_the_fleet_store() {
         db.status_path(),
         temp.0.canonicalize().unwrap().join(STATUS_FILE)
     );
+}
+
+#[test]
+fn announcements_are_kept_only_when_signed_for_this_fleet_by_a_member_and_newer() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = iroh::SecretKey::generate();
+    computer(&db, &peer.public(), "birch", State::Accepted, None, &addr());
+    let at = |db: &FleetDb, version| {
+        topic::announce(&computer_record(db, &peer, "birch", version), &peer)
+    };
+    let mut forged = topic::announce(
+        &computer_record(&db, &peer, "birch", 5),
+        &iroh::SecretKey::generate(),
+    );
+    forged.key = peer.public().to_string();
+    let mut other_fleet = computer_record(&db, &peer, "birch", 5).body;
+    other_fleet.fleet = "ab".repeat(32);
+    let stranger = iroh::SecretKey::generate();
+    for (announcement, phrase) in [
+        (forged, "the announcement's signature does not verify"),
+        (
+            topic::announce(&computer_record::sign(other_fleet, &peer), &peer),
+            "the announcement's signature does not verify",
+        ),
+        (
+            topic::announce(&computer_record(&db, &stranger, "cedar", 5), &stranger),
+            "no such computer",
+        ),
+        (
+            topic::announce(&computer_record(&db, &node, "garden", 5), &node),
+            "the announcement is this computer's own",
+        ),
+    ] {
+        assert_eq!(
+            db.apply_announcement(&node.public(), &announcement),
+            Err(phrase)
+        );
+        assert_eq!(count(&db, "announcements"), 0);
+    }
+    let fifth = at(&db, 5);
+    db.apply_announcement(&node.public(), &fifth).unwrap();
+    assert_eq!(db.announcement(&peer.public()), Ok(Some(fifth.clone())));
+    for version in [4, 5] {
+        assert_eq!(
+            db.apply_announcement(&node.public(), &at(&db, version)),
+            Err("the announcement is not newer")
+        );
+        assert_eq!(db.announcement(&peer.public()), Ok(Some(fifth.clone())));
+    }
+    db.apply_computer(&node.public(), &computer_record(&db, &peer, "birch", 7))
+        .unwrap();
+    for version in [6, 7] {
+        assert_eq!(
+            db.apply_announcement(&node.public(), &at(&db, version)),
+            Err("the announcement is not newer")
+        );
+    }
+    let eighth = at(&db, 8);
+    db.apply_announcement(&node.public(), &eighth).unwrap();
+    assert_eq!(db.announcement(&peer.public()), Ok(Some(eighth)));
+    assert_eq!(count(&db, "announcements"), 1);
+}
+
+#[test]
+fn announcements_of_removed_computers_are_dropped_and_forgotten() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = iroh::SecretKey::generate();
+    computer(
+        &db,
+        &peer.public(),
+        "birch",
+        State::Accepted,
+        Some(&node.public()),
+        &addr(),
+    );
+    let first = topic::announce(&computer_record(&db, &peer, "birch", 1), &peer);
+    db.apply_announcement(&node.public(), &first).unwrap();
+    assert_eq!(
+        db.apply(
+            &node.public(),
+            "garden",
+            &removal(&db, &peer, &peer.public(), 1),
+            10.0
+        ),
+        Ok(Applied::Removed(peer.public()))
+    );
+    assert_eq!(count(&db, "announcements"), 0);
+    assert_eq!(
+        db.apply_announcement(
+            &node.public(),
+            &topic::announce(&computer_record(&db, &peer, "birch", 2), &peer)
+        ),
+        Err("the computer was removed")
+    );
+    let empty_temp = Temp::new();
+    let mut empty = empty_temp.open();
+    assert_eq!(
+        empty.apply_announcement(&node.public(), &first),
+        Err("not in a fleet")
+    );
+}
+
+#[test]
+fn fetched_records_are_applied_only_when_they_match_the_newest_announcement() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = iroh::SecretKey::generate();
+    let other = iroh::SecretKey::generate();
+    computer(&db, &peer.public(), "birch", State::Accepted, None, &addr());
+    computer(
+        &db,
+        &other.public(),
+        "cedar",
+        State::Accepted,
+        None,
+        &addr(),
+    );
+    let fifth = computer_record(&db, &peer, "birch", 5);
+    assert_eq!(
+        db.apply_fetched(&node.public(), &fifth),
+        Err("no announcement for that record")
+    );
+    db.apply_announcement(&node.public(), &topic::announce(&fifth, &peer))
+        .unwrap();
+    let mut changed = fifth.body.clone();
+    changed.addrs = addr();
+    db.apply_announcement(
+        &node.public(),
+        &topic::announce(&computer_record(&db, &other, "cedar", 5), &other),
+    )
+    .unwrap();
+    for (record, phrase) in [
+        (
+            computer_record::sign(changed, &peer),
+            "the record is not the one announced",
+        ),
+        (
+            computer_record(&db, &peer, "birch", 4),
+            "the record is not the one announced",
+        ),
+        (
+            computer_record(&db, &peer, "birch", 6),
+            "the record is not the one announced",
+        ),
+        (
+            computer_record(&db, &other, "cedar", 6),
+            "the record is not the one announced",
+        ),
+    ] {
+        assert_eq!(db.apply_fetched(&node.public(), &record), Err(phrase));
+        assert!(db.computer_records().unwrap().is_empty());
+    }
+    db.apply_fetched(&node.public(), &fifth).unwrap();
+    assert_eq!(db.computer_record(&peer.public()), Ok(Some(fifth.clone())));
+    assert_eq!(
+        db.apply_fetched(&node.public(), &fifth),
+        Err("the computer record is not newer")
+    );
+    let sixth = computer_record(&db, &peer, "birch", 6);
+    db.apply_announcement(&node.public(), &topic::announce(&sixth, &peer))
+        .unwrap();
+    assert_eq!(
+        db.apply_fetched(&node.public(), &fifth),
+        Err("the record is not the one announced")
+    );
+    db.apply_fetched(&node.public(), &sixth).unwrap();
+    assert_eq!(db.computer_records().unwrap(), vec![sixth]);
+}
+
+#[test]
+fn topic_messages_are_checked_before_they_are_applied() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let inviter = iroh::SecretKey::generate();
+    computer(
+        &db,
+        &inviter.public(),
+        "orchard",
+        State::Accepted,
+        None,
+        &addr(),
+    );
+    let mut oversized = TopicMessage::Announcement(topic::announce(
+        &computer_record(&db, &inviter, "orchard", 1),
+        &inviter,
+    ))
+    .encode();
+    oversized.resize(TOPIC_MESSAGE_MAX + 1, b' ');
+    let mut forged = topic::announce(&computer_record(&db, &inviter, "orchard", 1), &node);
+    forged.key = inviter.public().to_string();
+    for (bytes, phrase) in [
+        (oversized, "the topic message is too large"),
+        (b"{}".to_vec(), "not a topic message"),
+        (
+            TopicMessage::Announcement(forged).encode(),
+            "the announcement's signature does not verify",
+        ),
+    ] {
+        assert_eq!(
+            topic::receive(&mut db, &node.public(), "garden", &bytes, 10.0),
+            Err(phrase)
+        );
+        assert_eq!(count(&db, "announcements"), 0);
+        assert_eq!(count(&db, "records"), 0);
+    }
+    let newcomer = iroh::SecretKey::generate();
+    let introduction = TopicMessage::Record(intro(&db, &inviter, &newcomer, "willow", 1)).encode();
+    assert_eq!(
+        topic::receive(&mut db, &node.public(), "garden", &introduction, 10.0),
+        Ok(Received::Record(Applied::Added { pending: true }))
+    );
+    assert_eq!(
+        topic::receive(&mut db, &node.public(), "garden", &introduction, 11.0),
+        Err("the record was already seen")
+    );
+    let announcement = TopicMessage::Announcement(topic::announce(
+        &computer_record(&db, &newcomer, "willow", 1),
+        &newcomer,
+    ))
+    .encode();
+    assert_eq!(
+        topic::receive(&mut db, &node.public(), "garden", &announcement, 12.0),
+        Ok(Received::Announcement)
+    );
+    assert_eq!(
+        topic::receive(&mut db, &node.public(), "garden", &announcement, 13.0),
+        Err("the announcement is not newer")
+    );
+}
+
+#[test]
+fn a_removal_beats_its_introduction_in_either_order() {
+    for removal_first in [false, true] {
+        let temp = Temp::new();
+        let (mut db, node) = temp.found();
+        let inviter = iroh::SecretKey::generate();
+        computer(
+            &db,
+            &inviter.public(),
+            "orchard",
+            State::Accepted,
+            None,
+            &addr(),
+        );
+        let newcomer = iroh::SecretKey::generate();
+        let introduction =
+            TopicMessage::Record(intro(&db, &inviter, &newcomer, "willow", 1)).encode();
+        let removed = TopicMessage::Record(removal(&db, &inviter, &newcomer.public(), 2)).encode();
+        let order = if removal_first {
+            [&removed, &introduction]
+        } else {
+            [&introduction, &removed]
+        };
+        for (i, bytes) in order.into_iter().enumerate() {
+            topic::receive(&mut db, &node.public(), "garden", bytes, 10.0 + i as f64).unwrap();
+        }
+        assert_eq!(db.standing(&newcomer.public()), Ok(Standing::Refused));
+        assert!(tombstoned(&db.conn, &newcomer.public().to_string()).unwrap());
+        assert_eq!(
+            find_computer(&db.conn, &newcomer.public().to_string()),
+            Ok(None)
+        );
+    }
+}
+
+#[test]
+fn migrates_version_six_with_an_announcements_table() {
+    let temp = Temp::new();
+    let (db, _) = temp.found();
+    db.conn
+        .execute_batch("DROP TABLE announcements; PRAGMA user_version = 6;")
+        .unwrap();
+    drop(db);
+    let db = temp.open();
+    assert_eq!(
+        db.conn
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        SCHEMA_VERSION
+    );
+    assert_eq!(count(&db, "announcements"), 0);
+    assert!(db.fleet().unwrap().is_some());
 }

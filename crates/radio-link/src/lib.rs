@@ -16,5 +16,6 @@ mod peers;
 pub use peers::{KeptPeer, KeptState};
 pub mod sim;
 pub mod status;
+pub mod topic;
 pub mod wire;
 pub use iroh::{EndpointId, SecretKey};

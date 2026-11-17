@@ -3,8 +3,10 @@ mod gossip;
 
 use gossip::{Gossip, Load};
 use radio_link::{
+    computer_record::{self, ComputerBody},
     membership::{RecordBody, sign},
     sim::*,
+    topic::{TopicMessage, announce},
 };
 use std::time::Instant;
 
@@ -45,6 +47,25 @@ fn removal_bytes() -> u32 {
         &signer,
     );
     serde_json::to_vec(&record).unwrap().len() as u32
+}
+/// The largest signed computer-record announcement, as the topic carries it.
+fn announcement_bytes() -> u32 {
+    let node = iroh::SecretKey::from_bytes(&[1; 32]);
+    let record = computer_record::sign(
+        ComputerBody {
+            fleet: "f".repeat(64),
+            key: node.public().to_string(),
+            version: i64::MAX as u64,
+            name: "n".repeat(32),
+            roles: vec![],
+            addrs: vec![],
+            apps: Default::default(),
+        },
+        &node,
+    );
+    TopicMessage::Announcement(announce(&record, &node))
+        .encode()
+        .len() as u32
 }
 fn changes(count: usize, from: Millis, to: Millis) -> Vec<(Millis, Kind)> {
     let kinds = [Kind::Join, Kind::Remove, Kind::Leave];
@@ -111,6 +132,50 @@ fn gossip_meets_bars_at_2000() {
     assert_eq!(report.spreads.len(), 6);
     meets_bars(&report);
     assert!(nodes.iter().all(|node| node.most_neighbors() <= 50));
+}
+
+#[test]
+fn an_announcement_is_smaller_than_an_introduction() {
+    let announcement = announcement_bytes();
+    eprintln!("announcement={announcement}");
+    assert!(announcement < removal_bytes(), "{announcement}");
+}
+
+/// Computer-record announcements at 20,000 members, one a day per member, recorded under SC2b.
+/// `cargo test --release -p radio-link --test gossip_sim -- --ignored --nocapture announcements`.
+#[test]
+#[ignore]
+fn announcements_at_20000() {
+    let mut scenario = Scenario::new(35, 20_000);
+    scenario.changes = changes(10, 60_000, 260_000);
+    let load = Load {
+        record_bytes: announcement_bytes(),
+        updates_per_day: 1.0,
+    };
+    let start = Instant::now();
+    let (report, nodes) = gossip_run(&scenario, load);
+    eprintln!(
+        "{load:?} wall={:?} events={} skipped={} most_neighbors={}",
+        start.elapsed(),
+        report.events,
+        report.skipped,
+        nodes.iter().map(Gossip::most_neighbors).max().unwrap_or(0)
+    );
+    for q in [0.5, 0.99, 1.0] {
+        eprintln!(
+            "q={q} sent={:.0} received={:.0}",
+            report.rate(q, Direction::Sent),
+            report.rate(q, Direction::Received)
+        );
+    }
+    for spread in &report.spreads {
+        eprintln!(
+            "{:?} targets={} reached={} after_99={:?}",
+            spread.change.kind, spread.targets, spread.reached, spread.after_99
+        );
+    }
+    assert_eq!(report.spreads.len(), 10);
+    meets_bars(&report);
 }
 
 /// The SC-A7 run at 171,000 members, recorded under SC2a. `cargo test --release -p radio-link

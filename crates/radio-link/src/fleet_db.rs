@@ -6,6 +6,7 @@ use crate::{
     fleet::{self, FleetRecord},
     key,
     membership::{self, COMPUTERS_MAX, JoinAnswer, Known, REMOVED_MAX, RecordBody, SignedRecord},
+    topic::Announcement,
     wire,
 };
 use rusqlite::{
@@ -25,7 +26,7 @@ use std::{
 };
 
 pub const DB_FILE: &str = "fleet.db";
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 pub const JOIN_RECORDS_MAX: usize = 256 * 1024;
 pub const CODES_MAX: usize = 64;
 pub const TTL_DEFAULT: u64 = 30 * 60;
@@ -118,6 +119,15 @@ CREATE TABLE arrivals (
 
 // The direct address each computer's last dialed connection used; dials try it first.
 const SCHEMA_6: &str = "ALTER TABLE computers ADD COLUMN last_addr TEXT;";
+
+// The newest announcement held for each computer's record; a fetched record must match it.
+const SCHEMA_7: &str = "
+CREATE TABLE announcements (
+    key TEXT PRIMARY KEY CHECK (length(key) = 64),
+    version INTEGER NOT NULL CHECK (version >= 1),
+    announcement TEXT NOT NULL
+) STRICT;
+";
 
 pub const INTRODUCTIONS_PER_DAY: i64 = 3;
 pub const DAY: f64 = 86400.0;
@@ -697,39 +707,77 @@ impl FleetDb {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| WRITE)?;
-        record.verify()?;
+        apply_computer_record(&tx, node, record)?;
+        tx.commit().map_err(|_| WRITE)
+    }
+
+    /// Applies a computer record fetched from a member: only when it is the one the newest
+    /// announcement held for its computer names (key, version and hash), and then by the rules of
+    /// `apply_computer`.
+    pub fn apply_fetched(
+        &mut self,
+        node: &iroh::EndpointId,
+        record: &ComputerRecord,
+    ) -> Result<(), &'static str> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        let announcement =
+            load_announcement(&tx, &record.body.key)?.ok_or("no announcement for that record")?;
+        if !announcement.matches(record) {
+            return Err("the record is not the one announced");
+        }
+        apply_computer_record(&tx, node, record)?;
+        tx.commit().map_err(|_| WRITE)
+    }
+
+    /// Keeps a computer's announcement from the fleet's topic: only when it is signed by that
+    /// computer for this fleet, the computer is a member here, and it names a version newer than
+    /// both the stored record's and the newest announcement held.
+    pub fn apply_announcement(
+        &mut self,
+        node: &iroh::EndpointId,
+        announcement: &Announcement,
+    ) -> Result<(), &'static str> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
         let fleet = load_fleet(&tx)?.ok_or("not in a fleet")?;
-        let body = &record.body;
-        if body.fleet != fleet.body.id {
-            return Err("the record is for another fleet");
+        announcement.verify(&fleet.body.id)?;
+        if announcement.key == node.to_string() {
+            return Err("the announcement is this computer's own");
         }
-        if body.key == node.to_string() {
-            return Err("the record is this computer's own");
-        }
-        if tombstoned(&tx, &body.key)? {
+        if tombstoned(&tx, &announcement.key)? {
             return Err("the computer was removed");
         }
-        let computer = find_computer(&tx, &body.key)?.ok_or("no such computer")?;
-        if computer.name.as_deref() != Some(&body.name) {
-            return Err("the record's name is not the computer's");
-        }
-        if load_computer_record(&tx, &body.key)?
-            .is_some_and(|stored| stored.body.version >= body.version)
+        find_computer(&tx, &announcement.key)?.ok_or("no such computer")?;
+        let stored = load_computer_record(&tx, &announcement.key)?.map(|r| r.body.version);
+        let held = load_announcement(&tx, &announcement.key)?.map(|a| a.version);
+        if stored
+            .max(held)
+            .is_some_and(|newest| newest >= announcement.version)
         {
-            return Err("the computer record is not newer");
+            return Err("the announcement is not newer");
         }
-        store_computer_record(&tx, record)?;
-        if !body.addrs.is_empty() {
-            tx.execute(
-                "UPDATE computers SET addrs = ?2 WHERE key = ?1",
-                params![
-                    body.key,
-                    serde_json::to_string(&body.addrs).map_err(|_| WRITE)?
-                ],
-            )
-            .map_err(|_| WRITE)?;
-        }
+        tx.execute(
+            "INSERT INTO announcements (key, version, announcement) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET version = excluded.version, announcement = excluded.announcement",
+            params![
+                announcement.key,
+                i64::try_from(announcement.version).map_err(|_| WRITE)?,
+                serde_json::to_string(announcement).map_err(|_| WRITE)?
+            ],
+        )
+        .map_err(|_| WRITE)?;
         tx.commit().map_err(|_| WRITE)
+    }
+
+    pub fn announcement(
+        &self,
+        key: &iroh::EndpointId,
+    ) -> Result<Option<Announcement>, &'static str> {
+        load_announcement(&self.conn, &key.to_string())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1252,6 +1300,57 @@ impl FleetDb {
     }
 }
 
+fn apply_computer_record(
+    tx: &Transaction<'_>,
+    node: &iroh::EndpointId,
+    record: &ComputerRecord,
+) -> Result<(), &'static str> {
+    record.verify()?;
+    let fleet = load_fleet(tx)?.ok_or("not in a fleet")?;
+    let body = &record.body;
+    if body.fleet != fleet.body.id {
+        return Err("the record is for another fleet");
+    }
+    if body.key == node.to_string() {
+        return Err("the record is this computer's own");
+    }
+    if tombstoned(tx, &body.key)? {
+        return Err("the computer was removed");
+    }
+    let computer = find_computer(tx, &body.key)?.ok_or("no such computer")?;
+    if computer.name.as_deref() != Some(&body.name) {
+        return Err("the record's name is not the computer's");
+    }
+    if load_computer_record(tx, &body.key)?
+        .is_some_and(|stored| stored.body.version >= body.version)
+    {
+        return Err("the computer record is not newer");
+    }
+    store_computer_record(tx, record)?;
+    if !body.addrs.is_empty() {
+        tx.execute(
+            "UPDATE computers SET addrs = ?2 WHERE key = ?1",
+            params![
+                body.key,
+                serde_json::to_string(&body.addrs).map_err(|_| WRITE)?
+            ],
+        )
+        .map_err(|_| WRITE)?;
+    }
+    Ok(())
+}
+fn load_announcement(conn: &Connection, key: &str) -> Result<Option<Announcement>, &'static str> {
+    let text: Option<String> = conn
+        .query_row(
+            "SELECT announcement FROM announcements WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| READ)?;
+    text.map(|text| serde_json::from_str(&text).map_err(|_| READ))
+        .transpose()
+}
 fn parse_computer_record(text: &str) -> Result<ComputerRecord, &'static str> {
     let record: ComputerRecord = serde_json::from_str(text).map_err(|_| READ)?;
     record.verify().map_err(|_| READ)?;
@@ -1555,10 +1654,12 @@ fn delete_computer(tx: &Transaction<'_>, key: &str) -> Result<(), &'static str> 
         .map_err(|_| WRITE)?;
     tx.execute("DELETE FROM computer_records WHERE key = ?1", [key])
         .map_err(|_| WRITE)?;
+    tx.execute("DELETE FROM announcements WHERE key = ?1", [key])
+        .map_err(|_| WRITE)?;
     Ok(())
 }
 fn clear_fleet(tx: &Transaction<'_>) -> Result<(), &'static str> {
-    tx.execute_batch("DELETE FROM computer_records; DELETE FROM local; DELETE FROM computers; DELETE FROM tombstones; DELETE FROM held; DELETE FROM records; DELETE FROM codes; DELETE FROM fleet;").map_err(|_| WRITE)
+    tx.execute_batch("DELETE FROM announcements; DELETE FROM computer_records; DELETE FROM local; DELETE FROM computers; DELETE FROM tombstones; DELETE FROM held; DELETE FROM records; DELETE FROM codes; DELETE FROM fleet;").map_err(|_| WRITE)
 }
 
 fn resolve(conn: &Connection, target: &str) -> Result<Computer, &'static str> {
@@ -1738,7 +1839,7 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
             tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?;
         }
         2 => tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?,
-        3..=5 => {}
+        3..=6 => {}
         SCHEMA_VERSION => return Ok(()),
         value if value > SCHEMA_VERSION => return Err("fleet.db is newer than this build"),
         _ => return Err(READ),
@@ -1749,7 +1850,10 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
     if version < 5 {
         tx.execute_batch(SCHEMA_5).map_err(|_| WRITE)?;
     }
-    tx.execute_batch(SCHEMA_6).map_err(|_| WRITE)?;
+    if version < 6 {
+        tx.execute_batch(SCHEMA_6).map_err(|_| WRITE)?;
+    }
+    tx.execute_batch(SCHEMA_7).map_err(|_| WRITE)?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|_| WRITE)?;
     tx.commit().map_err(|_| WRITE)
