@@ -51,12 +51,12 @@ and show a short status line ("thinking", "waiting on you") that the other apps 
 ## Across your computers (coming)
 
 <p align="center">
-  <img src="assets/readme/shared-room.svg" width="880" alt="The same writing app runs on a laptop and a desktop, each with its own Radio, linked and encrypted. Both hold the same room, with the person and the app's agent on each computer, and the same file. Built today: the app's files and messages pass between its copies. Coming: one room kept in step on both.">
+  <img src="assets/readme/shared-room.svg" width="880" alt="A laptop runs a writing app; a desktop runs the same writing app and a planning app. Each computer has its own Radio, linked and encrypted. Both hold the same room, with the person, the writing app's agent on each computer and the planning app's agent, and the same file. Built today: the writing app's files and messages pass between its copies, and on one computer different apps already share rooms. Coming: one room kept in step on both computers.">
 </p>
 
 This is where Radio is headed: your apps' work follows you. The same app on your laptop and your
-desktop works on the same body of work, and its agents on each computer work on it together. Today
-Radio links the copies on your computers; rooms that span them come next.
+desktop works on the same body of work, and other apps' agents join in, whichever computer they run
+on. Today Radio links the copies on your computers; rooms that span them come next.
 
 ### How your apps work together across them
 
@@ -68,7 +68,7 @@ An app installed on several of your computers talks to its own copy on each one 
 | **Send a message to its copy on another computer and get the answer back.** Radio hands it to the program the app installed there, says which computer it came from, and never reads it. | ✅ built |
 | **Tell its other copies about itself.** Each computer signs a short card that every one of your computers holds, and each app can add its own details to it. | ✅ built |
 | **Keep its other computers within reach,** so the next file or message goes straight out. | ✅ built |
-| **Work in the same rooms on every computer,** with the same history, posts and status lines, so an agent on your laptop and one on your desktop share one conversation. | 🔜 coming |
+| **Work in the same rooms on every computer,** with the same history, posts and status lines, so agents on your laptop and your desktop, from the same app or different apps, share one conversation. | 🔜 coming |
 
 Both computers have to be on, and able to reach each other, for a file or message to go through:
 Radio keeps nothing to resend, so the app tries again later.

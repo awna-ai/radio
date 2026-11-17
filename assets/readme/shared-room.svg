@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 508" width="880" height="508" role="img" aria-labelledby="title desc">
-  <title id="title">One app on several computers, working in one room</title>
-  <desc id="desc">The same writing app runs on a laptop and a desktop. Each computer has its own Radio, and the two are linked and encrypted. Both hold the same room, Plan the launch, with the person and the app's agent on each computer, and the same file, so the work carries on from either computer. This is how linking computers is meant to work; rooms that span computers are still being built.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 540" width="880" height="540" role="img" aria-labelledby="title desc">
+  <title id="title">Apps on several computers, working in one room</title>
+  <desc id="desc">A laptop runs a writing app; a desktop runs the same writing app and a planning app. Each computer has its own Radio, and the two are linked and encrypted. Both hold the same room, Plan the launch, with the person, the writing app's agent on each computer and the planning app's agent on the desktop, and the same file. Built today: the writing app's files and messages pass between its copies, and on one computer different apps already share rooms. Coming: one room kept in step on both computers.</desc>
   <style>
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
     .frame { fill: #F8FAFC; stroke: #CBD5E1; stroke-width: 1.5; stroke-dasharray: 6 5; }
@@ -42,71 +42,78 @@
     <symbol id="mark" viewBox="1047 1045 2272 2272"><path fill="#38BDF8" d="M1678 1555C1682 1555 1685 1555 1688 1555C1730 1557 1767 1584 1782 1624C1801 1672 1782 1721 1741 1751C1732 1758 1722 1764 1712 1770C1685 1790 1657 1816 1633 1839C1598 1871 1564 1912 1538 1952C1500 2011 1467 2081 1450 2150C1429 2233 1424 2308 1433 2390C1445 2498 1500 2624 1568 2708C1610 2759 1656 2804 1711 2842C1749 2867 1777 2881 1790 2928C1810 2997 1757 3064 1686 3064C1663 3064 1645 3059 1626 3048C1606 3036 1583 3020 1564 3006C1517 2970 1471 2932 1432 2887C1383 2830 1341 2770 1307 2703C1281 2652 1255 2589 1240 2534C1216 2449 1206 2364 1210 2275C1213 2235 1219 2194 1226 2155C1235 2111 1248 2069 1262 2027C1293 1941 1339 1857 1395 1785C1451 1712 1516 1649 1590 1596C1618 1575 1642 1555 1678 1555z"/><path fill="#38BDF8" d="M2682 1298C2709 1298 2729 1305 2752 1320C2779 1338 2805 1357 2830 1377C2850 1394 2869 1411 2887 1429C2910 1450 2931 1473 2951 1497C2970 1521 2998 1557 3013 1582C3024 1601 3035 1619 3046 1638C3091 1719 3124 1812 3142 1902C3148 1931 3151 1959 3154 1988C3163 2074 3148 2189 3122 2272C3100 2342 3070 2413 3032 2476C2993 2541 2948 2605 2894 2659C2859 2694 2821 2728 2781 2758C2748 2781 2719 2803 2678 2803C2615 2803 2565 2741 2575 2680C2585 2627 2618 2615 2657 2586C2722 2538 2782 2474 2825 2407C2863 2349 2898 2276 2916 2208C2934 2136 2941 2061 2932 1988C2927 1948 2918 1902 2905 1865C2881 1798 2844 1721 2801 1665C2757 1608 2710 1558 2649 1517C2641 1512 2633 1507 2625 1502C2591 1480 2570 1444 2572 1402C2576 1346 2626 1298 2682 1298z"/><path fill="#38BDF8" d="M2434 1500C2435 1500 2437 1500 2437 1500C2490 1500 2520 1531 2557 1565C2586 1592 2611 1623 2634 1656C2666 1702 2682 1731 2706 1780C2743 1859 2765 1959 2767 2045C2768 2105 2761 2165 2746 2223C2731 2277 2709 2327 2682 2376C2649 2438 2597 2503 2544 2549C2512 2577 2480 2602 2436 2603C2412 2603 2391 2595 2372 2582C2330 2551 2316 2489 2340 2443C2356 2410 2384 2402 2408 2379C2460 2330 2498 2268 2521 2201C2550 2119 2556 2020 2530 1937C2521 1906 2509 1876 2494 1847C2474 1808 2428 1738 2392 1714C2386 1710 2380 1707 2375 1703C2360 1693 2345 1678 2336 1661C2297 1588 2353 1500 2434 1500z"/><path fill="#38BDF8" d="M1924 1756C1954 1756 1982 1766 2004 1787C2042 1825 2048 1877 2020 1922C2004 1948 1988 1951 1968 1969C1935 1997 1906 2035 1883 2070C1837 2138 1816 2218 1815 2300C1815 2377 1839 2460 1877 2527C1896 2562 1927 2604 1956 2633C1969 2646 1983 2656 1997 2667C2032 2695 2047 2743 2032 2785C2015 2832 1977 2859 1928 2859C1907 2859 1889 2853 1872 2843C1829 2819 1789 2777 1758 2740C1727 2703 1700 2663 1678 2620C1632 2532 1608 2449 1600 2350C1593 2258 1609 2152 1643 2065C1685 1962 1743 1877 1827 1804C1855 1780 1885 1756 1924 1756z"/><path fill="#F59E0B" d="M2184 2002C2281 2003 2360 2082 2360 2180C2361 2277 2282 2357 2184 2358C2086 2359 2005 2279 2005 2181C2004 2082 2085 2002 2184 2002z"/></symbol>
   </defs>
 
-  <rect class="frame" x="1" y="1" width="878" height="506" rx="16"/>
+  <rect class="frame" x="1" y="1" width="878" height="538" rx="16"/>
   <text class="muted cap" x="28" y="34">YOUR COMPUTERS</text>
-  <text class="muted b" x="852" y="34" text-anchor="end">One body of work on every computer (coming)</text>
+  <text class="muted b" x="852" y="34" text-anchor="end">One body of work, every app, every computer (coming)</text>
 
-  <rect class="col" x="24" y="52" width="400" height="404" rx="12"/>
+  <rect class="col" x="24" y="52" width="400" height="420" rx="12"/>
   <text class="muted cap" x="44" y="78">LAPTOP</text>
+  <rect class="card" x="44" y="92" width="172" height="60" rx="12"/>
+  <text class="ink h2" x="60" y="118">Writing app</text>
+  <text class="muted b" x="60" y="140">its agent: a helper</text>
+  <circle class="sky" cx="198" cy="110" r="6"/>
+  <path class="wire" d="M130 154 V174" marker-end="url(#arrow)"/>
+  <text class="muted s" x="232" y="117">the same writing app</text>
+  <text class="muted s" x="232" y="135">is on both computers</text>
 
-  <rect class="card" x="44" y="92" width="240" height="60" rx="12"/>
-  <text class="ink h2" x="64" y="118">Writing app</text>
-  <text class="muted b" x="64" y="140">its agent: a helper</text>
-  <circle class="sky" cx="264" cy="122" r="7"/>
-  <text class="muted s" x="298" y="117">the same app,</text>
-  <text class="muted s" x="298" y="135">on each computer</text>
-  <path class="wire" d="M164 154 V174" marker-end="url(#arrow)"/>
-
-  <rect class="radio" x="44" y="178" width="360" height="258" rx="14"/>
+  <rect class="radio" x="44" y="178" width="360" height="278" rx="14"/>
   <text class="light h1" x="64" y="210">Radio</text>
   <text class="soft b" x="64" y="230">this computer's copy</text>
   <use href="#mark" x="358" y="190" width="34" height="34"/>
 
-  <rect class="room" x="60" y="246" width="328" height="176" rx="10"/>
+  <rect class="room" x="60" y="246" width="328" height="196" rx="10"/>
   <text class="light h2" x="76" y="271">Plan the launch</text>
   <circle class="amber" cx="82" cy="292" r="5"/>
   <text class="light b" x="94" y="297">You</text>
   <circle class="sky" cx="82" cy="314" r="5"/>
-  <text class="light b" x="94" y="319">helper · on the laptop</text>
+  <text class="light b" x="94" y="319">helper · writing app, laptop</text>
   <circle class="sky" cx="82" cy="336" r="5"/>
-  <text class="light b" x="94" y="341">helper · on the desktop</text>
-  <rect class="chip" x="76" y="354" width="168" height="28" rx="7"/>
-  <path class="doc" d="M88 360 h9 l5 5 v12 h-14 z"/>
-  <text class="light b" x="110" y="373">launch-plan.md</text>
-  <text class="soft b" x="76" y="408" font-style="italic">same room, same history</text>
+  <text class="light b" x="94" y="341">helper · writing app, desktop</text>
+  <circle class="sky" cx="82" cy="358" r="5"/>
+  <text class="light b" x="94" y="363">reviewer · planning app, desktop</text>
+  <rect class="chip" x="76" y="376" width="168" height="28" rx="7"/>
+  <path class="doc" d="M88 382 h9 l5 5 v12 h-14 z"/>
+  <text class="light b" x="110" y="395">launch-plan.md</text>
+  <text class="soft b" x="76" y="428" font-style="italic">same room, same history</text>
 
-  <rect class="col" x="456" y="52" width="400" height="404" rx="12"/>
+  <rect class="col" x="456" y="52" width="400" height="420" rx="12"/>
   <text class="muted cap" x="476" y="78">DESKTOP</text>
+  <rect class="card" x="476" y="92" width="172" height="60" rx="12"/>
+  <text class="ink h2" x="492" y="118">Writing app</text>
+  <text class="muted b" x="492" y="140">its agent: a helper</text>
+  <circle class="sky" cx="630" cy="110" r="6"/>
+  <path class="wire" d="M562 154 V174" marker-end="url(#arrow)"/>
+  <rect class="card" x="664" y="92" width="172" height="60" rx="12"/>
+  <text class="ink h2" x="680" y="118">Planning app</text>
+  <text class="muted b" x="680" y="140">its agent: a reviewer</text>
+  <circle class="sky" cx="818" cy="110" r="6"/>
+  <path class="wire" d="M750 154 V174" marker-end="url(#arrow)"/>
 
-  <rect class="card" x="476" y="92" width="240" height="60" rx="12"/>
-  <text class="ink h2" x="496" y="118">Writing app</text>
-  <text class="muted b" x="496" y="140">its agent: a helper</text>
-  <circle class="sky" cx="696" cy="122" r="7"/>
-  <text class="muted s" x="730" y="117">the same app,</text>
-  <text class="muted s" x="730" y="135">on each computer</text>
-  <path class="wire" d="M596 154 V174" marker-end="url(#arrow)"/>
-
-  <rect class="radio" x="476" y="178" width="360" height="258" rx="14"/>
+  <rect class="radio" x="476" y="178" width="360" height="278" rx="14"/>
   <text class="light h1" x="496" y="210">Radio</text>
   <text class="soft b" x="496" y="230">this computer's copy</text>
   <use href="#mark" x="790" y="190" width="34" height="34"/>
 
-  <rect class="room" x="492" y="246" width="328" height="176" rx="10"/>
+  <rect class="room" x="492" y="246" width="328" height="196" rx="10"/>
   <text class="light h2" x="508" y="271">Plan the launch</text>
   <circle class="amber" cx="514" cy="292" r="5"/>
   <text class="light b" x="526" y="297">You</text>
   <circle class="sky" cx="514" cy="314" r="5"/>
-  <text class="light b" x="526" y="319">helper · on the laptop</text>
+  <text class="light b" x="526" y="319">helper · writing app, laptop</text>
   <circle class="sky" cx="514" cy="336" r="5"/>
-  <text class="light b" x="526" y="341">helper · on the desktop</text>
-  <rect class="chip" x="508" y="354" width="168" height="28" rx="7"/>
-  <path class="doc" d="M520 360 h9 l5 5 v12 h-14 z"/>
-  <text class="light b" x="542" y="373">launch-plan.md</text>
-  <text class="soft b" x="508" y="408" font-style="italic">same room, same history</text>
+  <text class="light b" x="526" y="341">helper · writing app, desktop</text>
+  <circle class="sky" cx="514" cy="358" r="5"/>
+  <text class="light b" x="526" y="363">reviewer · planning app, desktop</text>
+  <rect class="chip" x="508" y="376" width="168" height="28" rx="7"/>
+  <path class="doc" d="M520 382 h9 l5 5 v12 h-14 z"/>
+  <text class="light b" x="542" y="395">launch-plan.md</text>
+  <text class="soft b" x="508" y="428" font-style="italic">same room, same history</text>
 
-  <path class="link" d="M404 307 H476"/>
-  <rect class="pill" x="396" y="286" width="88" height="42" rx="10"/>
-  <text class="light s" x="440" y="304" text-anchor="middle" font-weight="600">linked,</text>
-  <text class="soft s" x="440" y="320" text-anchor="middle">encrypted</text>
-  <text class="muted s" x="28" y="484"><tspan font-weight="600">Built today:</tspan> the app's files and messages pass between its copies.  <tspan font-weight="600">Coming:</tspan> one room kept in step on both.</text>
+  <path class="link" d="M404 317 H476"/>
+  <rect class="pill" x="396" y="296" width="88" height="42" rx="10"/>
+  <text class="light s" x="440" y="314" text-anchor="middle" font-weight="600">linked,</text>
+  <text class="soft s" x="440" y="330" text-anchor="middle">encrypted</text>
+
+  <text class="muted s" x="28" y="498"><tspan font-weight="600">Built today:</tspan> the writing app's files and messages pass between its copies, and on one computer, different apps already share rooms.</text>
+  <text class="muted s" x="28" y="518"><tspan font-weight="600">Coming:</tspan> one room kept in step on both computers, so every app's agents work on it together.</text>
 </svg>
