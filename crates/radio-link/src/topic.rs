@@ -2,12 +2,18 @@
 //! applied. Introductions and removals travel as the signed membership records they are; a
 //! computer's own record never travels on the topic, only a signed announcement of its version and
 //! hash, and a member that needs the record fetches it and checks it against the announcement.
+//!
+//! Every message starts with one tag byte. Tag 1 carries a signed membership record's JSON bytes,
+//! without a wrapper. Tag 2 carries an announcement in exactly 137 bytes, including the tag:
+//! bytes 1..33 are the public key, 33..41 the version as a big-endian u64, 41..73 the SHA-256 hash,
+//! and 73..137 the signature. The announcement's signed bytes stay unchanged.
 
 use crate::{
     computer_record::ComputerRecord,
     fleet_db::{Applied, FleetDb},
     membership::SignedRecord,
 };
+use data_encoding::HEXLOWER;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -15,6 +21,9 @@ pub const ANNOUNCEMENT_DOMAIN: &[u8] = b"radio computer announcement 1\n";
 /// iroh-gossip's default `max_message_size`; a larger message is dropped unread. It bounds the
 /// whole gossip frame, so what a member can send is a few dozen bytes less.
 pub const TOPIC_MESSAGE_MAX: usize = 4096;
+pub const TAG_RECORD: u8 = 1;
+pub const TAG_ANNOUNCEMENT: u8 = 2;
+pub const ANNOUNCEMENT_LEN: usize = 137;
 const INVALID: &str = "not a topic message";
 
 /// A computer's signed statement that its record is now at `version`, with SHA-256 `hash` of the
@@ -28,8 +37,7 @@ pub struct Announcement {
     pub signature: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TopicMessage {
     Record(SignedRecord),
     Announcement(Announcement),
@@ -113,15 +121,58 @@ impl Announcement {
     }
 }
 
+/// `hex` as exactly `N` bytes, when it is lowercase hex of that length.
+fn hex_bytes<const N: usize>(hex: &str) -> Option<[u8; N]> {
+    HEXLOWER.decode(hex.as_bytes()).ok()?.try_into().ok()
+}
+
 impl TopicMessage {
-    pub fn encode(&self) -> Vec<u8> {
-        serde_json::to_vec(self).expect("a topic message serializes")
+    pub fn encode(&self) -> Result<Vec<u8>, &'static str> {
+        match self {
+            Self::Record(record) => {
+                let mut bytes = vec![TAG_RECORD];
+                bytes.extend(serde_json::to_vec(record).expect("a topic message serializes"));
+                Ok(bytes)
+            }
+            Self::Announcement(announcement) => {
+                const INVALID: &str = "not an announcement";
+                let key: [u8; 32] = hex_bytes(&announcement.key).ok_or(INVALID)?;
+                let hash: [u8; 32] = hex_bytes(&announcement.hash).ok_or(INVALID)?;
+                let signature: [u8; 64] = hex_bytes(&announcement.signature).ok_or(INVALID)?;
+                let mut bytes = Vec::with_capacity(ANNOUNCEMENT_LEN);
+                bytes.push(TAG_ANNOUNCEMENT);
+                bytes.extend(key);
+                bytes.extend(announcement.version.to_be_bytes());
+                bytes.extend(hash);
+                bytes.extend(signature);
+                Ok(bytes)
+            }
+        }
     }
     pub fn decode(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.len() > TOPIC_MESSAGE_MAX {
             return Err("the topic message is too large");
         }
-        serde_json::from_slice(bytes).map_err(|_| INVALID)
+        let (&tag, rest) = bytes.split_first().ok_or(INVALID)?;
+        match tag {
+            TAG_RECORD => serde_json::from_slice::<SignedRecord>(rest)
+                .map(Self::Record)
+                .map_err(|_| INVALID),
+            TAG_ANNOUNCEMENT => {
+                if bytes.len() != ANNOUNCEMENT_LEN {
+                    return Err(INVALID);
+                }
+                let mut version = [0; 8];
+                version.copy_from_slice(&bytes[33..41]);
+                Ok(Self::Announcement(Announcement {
+                    key: HEXLOWER.encode(&bytes[1..33]),
+                    version: u64::from_be_bytes(version),
+                    hash: HEXLOWER.encode(&bytes[41..73]),
+                    signature: HEXLOWER.encode(&bytes[73..137]),
+                }))
+            }
+            _ => Err(INVALID),
+        }
     }
 }
 

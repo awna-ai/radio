@@ -65,6 +65,7 @@ fn announcement_bytes() -> u32 {
     );
     TopicMessage::Announcement(announce(&record, &node))
         .encode()
+        .unwrap()
         .len() as u32
 }
 fn changes(count: usize, from: Millis, to: Millis) -> Vec<(Millis, Kind)> {

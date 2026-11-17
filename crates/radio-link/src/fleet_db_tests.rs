@@ -3635,7 +3635,8 @@ fn topic_messages_are_checked_before_they_are_applied() {
         &computer_record(&db, &inviter, "orchard", 1),
         &inviter,
     ))
-    .encode();
+    .encode()
+    .unwrap();
     oversized.resize(TOPIC_MESSAGE_MAX + 1, b' ');
     let mut forged = topic::announce(&computer_record(&db, &inviter, "orchard", 1), &node);
     forged.key = inviter.public().to_string();
@@ -3643,7 +3644,7 @@ fn topic_messages_are_checked_before_they_are_applied() {
         (oversized, "the topic message is too large"),
         (b"{}".to_vec(), "not a topic message"),
         (
-            TopicMessage::Announcement(forged).encode(),
+            TopicMessage::Announcement(forged).encode().unwrap(),
             "the announcement's signature does not verify",
         ),
     ] {
@@ -3655,7 +3656,9 @@ fn topic_messages_are_checked_before_they_are_applied() {
         assert_eq!(count(&db, "records"), 0);
     }
     let newcomer = iroh::SecretKey::generate();
-    let introduction = TopicMessage::Record(intro(&db, &inviter, &newcomer, "willow", 1)).encode();
+    let introduction = TopicMessage::Record(intro(&db, &inviter, &newcomer, "willow", 1))
+        .encode()
+        .unwrap();
     assert_eq!(
         topic::receive(&mut db, &node.public(), "garden", &introduction, 10.0),
         Ok(Received::Record(Applied::Added { pending: true }))
@@ -3668,7 +3671,8 @@ fn topic_messages_are_checked_before_they_are_applied() {
         &computer_record(&db, &newcomer, "willow", 1),
         &newcomer,
     ))
-    .encode();
+    .encode()
+    .unwrap();
     assert_eq!(
         topic::receive(&mut db, &node.public(), "garden", &announcement, 12.0),
         Ok(Received::Announcement(
@@ -3696,9 +3700,12 @@ fn a_removal_beats_its_introduction_in_either_order() {
             &addr(),
         );
         let newcomer = iroh::SecretKey::generate();
-        let introduction =
-            TopicMessage::Record(intro(&db, &inviter, &newcomer, "willow", 1)).encode();
-        let removed = TopicMessage::Record(removal(&db, &inviter, &newcomer.public(), 2)).encode();
+        let introduction = TopicMessage::Record(intro(&db, &inviter, &newcomer, "willow", 1))
+            .encode()
+            .unwrap();
+        let removed = TopicMessage::Record(removal(&db, &inviter, &newcomer.public(), 2))
+            .encode()
+            .unwrap();
         let order = if removal_first {
             [&removed, &introduction]
         } else {

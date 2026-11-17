@@ -1,5 +1,7 @@
 use super::*;
 use crate::computer_record::{self, ComputerBody};
+use crate::membership::{self, RecordBody};
+use data_encoding::HEXLOWER;
 use std::collections::BTreeMap;
 
 fn record(node: &iroh::SecretKey, fleet: &str, version: u64) -> ComputerRecord {
@@ -91,30 +93,144 @@ fn an_announcement_matches_only_its_record() {
     }
 }
 
-#[test]
-fn topic_messages_round_trip_and_refuse_extra_fields_and_large_messages() {
+fn signed_record() -> SignedRecord {
     let node = iroh::SecretKey::generate();
-    let message = TopicMessage::Announcement(announce(&record(&node, &"ab".repeat(32), 5), &node));
-    let bytes = message.encode();
+    membership::sign(
+        RecordBody::Removal {
+            fleet: "ab".repeat(32),
+            signer: node.public().to_string(),
+            counter: 1,
+            subject: iroh::SecretKey::generate().public().to_string(),
+        },
+        &node,
+    )
+}
+
+#[test]
+fn an_announcement_is_137_bytes_in_a_fixed_layout() {
+    let node = iroh::SecretKey::generate();
+    let announcement = announce(&record(&node, &"ab".repeat(32), 5), &node);
+    let message = TopicMessage::Announcement(announcement.clone());
+    let bytes = message.encode().unwrap();
+    assert_eq!(bytes.len(), 137);
+    assert_eq!(bytes[0], TAG_ANNOUNCEMENT);
+    assert_eq!(&bytes[1..33], node.public().as_bytes());
+    assert_eq!(bytes[33..41], 5u64.to_be_bytes());
+    assert_eq!(
+        bytes[41..73],
+        HEXLOWER.decode(announcement.hash.as_bytes()).unwrap()
+    );
+    assert_eq!(
+        bytes[73..],
+        HEXLOWER.decode(announcement.signature.as_bytes()).unwrap()
+    );
     assert_eq!(TopicMessage::decode(&bytes), Ok(message));
-    let mut extra: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    extra["announcement"]["fleet"] = "ab".repeat(32).into();
+}
+
+#[test]
+fn the_signed_bytes_are_fixed() {
     assert_eq!(
-        TopicMessage::decode(&serde_json::to_vec(&extra).unwrap()),
+        signed_bytes("f", "k", 7, "h"),
+        b"radio computer announcement 1\n{\"fleet\":\"f\",\"key\":\"k\",\"version\":7,\"hash\":\"h\"}"
+    );
+}
+
+#[test]
+fn a_record_is_its_tag_then_its_signed_json() {
+    let record = signed_record();
+    let mut expected = vec![1];
+    expected.extend(serde_json::to_vec(&record).unwrap());
+    let message = TopicMessage::Record(record);
+    let bytes = message.encode().unwrap();
+    assert_eq!(bytes[0], TAG_RECORD);
+    assert_eq!(bytes, expected);
+    assert_eq!(TopicMessage::decode(&bytes), Ok(message));
+}
+
+#[test]
+fn an_announcement_of_any_other_length_is_dropped_unread() {
+    let node = iroh::SecretKey::generate();
+    let mut bytes =
+        TopicMessage::Announcement(announce(&record(&node, &"ab".repeat(32), 5), &node))
+            .encode()
+            .unwrap();
+    assert_eq!(
+        TopicMessage::decode(&bytes[..136]),
         Err("not a topic message")
     );
+    bytes.push(0);
+    assert_eq!(TopicMessage::decode(&bytes), Err("not a topic message"));
+}
+
+#[test]
+fn an_unknown_tag_or_an_empty_message_is_refused() {
+    let node = iroh::SecretKey::generate();
+    let announcement = announce(&record(&node, &"ab".repeat(32), 5), &node);
+    let mut unknown = TopicMessage::Announcement(announcement.clone())
+        .encode()
+        .unwrap();
+    unknown[0] = 0xff;
+    let mut null = vec![TAG_RECORD];
+    null.extend(b"null");
+    let mut wrapped_record = vec![TAG_RECORD];
+    wrapped_record
+        .extend(serde_json::to_vec(&serde_json::json!({"record": signed_record()})).unwrap());
+    let old_announcement =
+        serde_json::to_vec(&serde_json::json!({"announcement": announcement})).unwrap();
+    for bytes in [
+        vec![],
+        vec![0],
+        vec![3],
+        unknown,
+        null,
+        wrapped_record,
+        old_announcement,
+    ] {
+        assert_eq!(TopicMessage::decode(&bytes), Err("not a topic message"));
+    }
+}
+
+#[test]
+fn any_137_announcement_bytes_decode_to_one_form() {
+    let mut bytes = vec![TAG_ANNOUNCEMENT];
+    bytes.extend((0..136).map(|i| (i as u8).wrapping_mul(7)));
+    let message = TopicMessage::decode(&bytes).unwrap();
+    assert_eq!(message.encode().unwrap(), bytes);
+    let TopicMessage::Announcement(announcement) = message else {
+        panic!("the announcement tag decodes to an announcement");
+    };
+    assert!(announcement.verify(&"ab".repeat(32)).is_err());
+}
+
+#[test]
+fn the_cap_is_checked_before_decoding_a_record() {
+    let message = TopicMessage::Record(signed_record());
+    let mut bytes = message.encode().unwrap();
+    bytes.resize(TOPIC_MESSAGE_MAX, b' ');
+    assert_eq!(TopicMessage::decode(&bytes), Ok(message));
+    bytes.push(b' ');
     assert_eq!(
-        TopicMessage::decode(br#"{"record":null}"#),
-        Err("not a topic message")
-    );
-    let mut padded = bytes.clone();
-    padded.resize(TOPIC_MESSAGE_MAX, b' ');
-    assert!(TopicMessage::decode(&padded).is_ok());
-    padded.push(b' ');
-    assert_eq!(
-        TopicMessage::decode(&padded),
+        TopicMessage::decode(&bytes),
         Err("the topic message is too large")
     );
+}
+
+#[test]
+fn an_announcement_with_malformed_fields_does_not_encode() {
+    let node = iroh::SecretKey::generate();
+    let announcement = announce(&record(&node, &"ab".repeat(32), 5), &node);
+    for change in [
+        |a: &mut Announcement| a.hash = "AB".repeat(32),
+        |a: &mut Announcement| a.key = "a".repeat(63),
+        |a: &mut Announcement| a.signature = "a".repeat(127),
+    ] {
+        let mut changed = announcement.clone();
+        change(&mut changed);
+        assert_eq!(
+            TopicMessage::Announcement(changed).encode(),
+            Err("not an announcement")
+        );
+    }
 }
 
 #[test]
@@ -124,26 +240,8 @@ fn the_largest_announcement_is_far_under_the_cap() {
         &record(&node, &"ab".repeat(32), i64::MAX as u64),
         &node,
     ))
-    .encode();
+    .encode()
+    .unwrap();
     eprintln!("announcement={}", bytes.len());
-    assert!(bytes.len() <= 512, "{}", bytes.len());
-}
-
-#[test]
-fn the_signed_bytes_and_the_wire_form_are_fixed() {
-    assert_eq!(
-        signed_bytes("f", "k", 7, "h"),
-        b"radio computer announcement 1\n{\"fleet\":\"f\",\"key\":\"k\",\"version\":7,\"hash\":\"h\"}"
-    );
-    let node = iroh::SecretKey::generate();
-    let announcement = announce(&record(&node, &"ab".repeat(32), 5), &node);
-    let encoded =
-        String::from_utf8(TopicMessage::Announcement(announcement.clone()).encode()).unwrap();
-    assert_eq!(
-        encoded,
-        format!(
-            r#"{{"announcement":{{"key":"{}","version":5,"hash":"{}","signature":"{}"}}}}"#,
-            announcement.key, announcement.hash, announcement.signature
-        )
-    );
+    assert_eq!(bytes.len(), ANNOUNCEMENT_LEN);
 }

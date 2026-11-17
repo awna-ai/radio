@@ -92,7 +92,7 @@ pub fn records(data: &[u8]) -> u32 {
     }
     let topic = match TopicMessage::decode(data) {
         Ok(message) => {
-            let encoded = message.encode();
+            let encoded = message.encode().expect("a decoded topic message encodes");
             if encoded.len() > TOPIC_MESSAGE_MAX {
                 assert!(TopicMessage::decode(&encoded) == Err("the topic message is too large"));
             } else {
@@ -241,8 +241,10 @@ mod tests {
             serde_json::to_vec(&removal).unwrap(),
             serde_json::to_vec(&found).unwrap(),
             serde_json::to_vec(&recovered).unwrap(),
-            TopicMessage::Record(introduction.clone()).encode(),
-            TopicMessage::Announcement(radio_link::topic::announce(&computer(), &node)).encode(),
+            TopicMessage::Record(introduction.clone()).encode().unwrap(),
+            TopicMessage::Announcement(radio_link::topic::announce(&computer(), &node))
+                .encode()
+                .unwrap(),
         ] {
             assert!(records(&json) >= 1);
         }
@@ -251,14 +253,16 @@ mod tests {
     fn a_topic_message_that_grows_on_rewrite_is_not_a_crash() {
         let key = "ab".repeat(32);
         let json = format!(
-            r#"{{"record":{{"body":{{"kind":"introduction","fleet":"{key}","inviter":"{key}","counter":1,"newcomer":"{key}","name":"birch","addrs":["[::ffff:a:a]:1","[1:2:3:4:5:6::8]:1"],"consent":""}},"signature":""}}}}"#
+            r#"{{"body":{{"kind":"introduction","fleet":"{key}","inviter":"{key}","counter":1,"newcomer":"{key}","name":"birch","addrs":["[::ffff:a:a]:1","[1:2:3:4:5:6::8]:1"],"consent":""}},"signature":""}}"#
         );
-        let padding = "a".repeat(TOPIC_MESSAGE_MAX - json.len());
+        let padding = "a".repeat(TOPIC_MESSAGE_MAX - 1 - json.len());
         let json = json.replace(r#""consent":"""#, &format!(r#""consent":"{padding}""#));
-        assert_eq!(json.len(), TOPIC_MESSAGE_MAX);
-        let message = TopicMessage::decode(json.as_bytes()).unwrap();
-        assert!(message.encode().len() > TOPIC_MESSAGE_MAX);
-        assert_eq!(records(json.as_bytes()), 1);
+        let mut bytes = vec![radio_link::topic::TAG_RECORD];
+        bytes.extend(json.as_bytes());
+        assert_eq!(bytes.len(), TOPIC_MESSAGE_MAX);
+        let message = TopicMessage::decode(&bytes).unwrap();
+        assert!(message.encode().unwrap().len() > TOPIC_MESSAGE_MAX);
+        assert_eq!(records(&bytes), 1);
     }
     #[test]
     fn join_code_checks_valid_input() {
