@@ -1350,6 +1350,70 @@ fn a_failed_upgrade_removes_a_store_that_did_not_exist_before() {
 }
 
 #[test]
+fn a_failed_upgrade_restores_fleet_db() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let path = f.paths().state.join("fleet.db");
+    drop(radio_link::fleet_db::FleetDb::open(&path).unwrap());
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.pragma_update(
+                None,
+                "user_version",
+                radio_link::fleet_db::SCHEMA_VERSION + 1,
+            )
+            .unwrap();
+        }),
+    );
+    f.quiet(&["2.0.0"]);
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed; the version before it is running again",
+    );
+    let path = f.paths().state.join("fleet.db");
+    let version: i64 = rusqlite::Connection::open(&path)
+        .unwrap()
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, radio_link::fleet_db::SCHEMA_VERSION);
+    assert!(radio_link::fleet_db::FleetDb::open(&path).is_ok());
+    assert!(!f.paths().state.join("fleet.db.before-upgrade").exists());
+    assert_installed(&f, "1.0.0");
+}
+
+#[test]
+fn a_failed_upgrade_removes_a_fleet_db_that_did_not_exist_before() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let path = f.paths().state.join("fleet.db");
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || drop(radio_link::fleet_db::FleetDb::open(&path).unwrap())),
+    );
+    f.quiet(&["2.0.0"]);
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed; the version before it is running again",
+    );
+    for name in [
+        "fleet.db",
+        "fleet.db-wal",
+        "fleet.db-shm",
+        "fleet.db.before-upgrade",
+    ] {
+        assert!(
+            !f.paths().state.join(name).exists(),
+            "{name} was left behind"
+        );
+    }
+    assert_installed(&f, "1.0.0");
+}
+
+#[test]
 fn an_upgrade_answered_only_by_the_old_version_rolls_back() {
     let f = Fixture::new();
     f.install("1.0.0", "kiteapp");

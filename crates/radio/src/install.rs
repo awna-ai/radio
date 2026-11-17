@@ -42,6 +42,8 @@ pub struct Paths {
     pub log: PathBuf,
     /// The destination rooms store, retained on uninstall.
     pub rooms: PathBuf,
+    /// The fleet records store, retained on uninstall.
+    pub fleet: PathBuf,
     /// The daemon socket probed during startup and status checks.
     pub socket: PathBuf,
     /// The parent of the versioned binary directories.
@@ -64,6 +66,7 @@ impl Paths {
             clients: state.join("clients"),
             log: state.join("radio.log"),
             rooms: state.join(radio_rooms::DB_FILE),
+            fleet: state.join("fleet.db"),
             socket: radio_client::socket_path(home),
             state,
             binaries: home.join(".local/libexec/radio"),
@@ -642,6 +645,19 @@ fn remove_file(path: &Path) -> Result<(), String> {
     }
 }
 
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut path = path.as_os_str().to_os_string();
+    path.push(suffix);
+    path.into()
+}
+
+fn remove_store(store: &Path) -> Result<(), String> {
+    for suffix in ["", "-wal", "-shm"] {
+        remove_file(&with_suffix(store, suffix))?;
+    }
+    Ok(())
+}
+
 fn canonical_missing(path: &Path) -> Option<PathBuf> {
     if let Ok(path) = path.canonicalize() {
         return Some(path);
@@ -906,21 +922,27 @@ impl Installer<'_> {
             }
             Some(record) => {
                 let sha256 = self.place_binary(&self.source, &self.version)?;
-                let snapshot = self.paths.state.join("rooms.db.before-upgrade");
-                let mut had_store = None;
+                // A newer daemon may migrate either store before it answers.
+                let stores = [&self.paths.rooms, &self.paths.fleet];
+                let snapshots = stores.map(|store| with_suffix(store, ".before-upgrade"));
+                let mut had_store = [None; 2];
                 let stopped = self.bootout();
                 let started = stopped
                     && (|| {
-                        remove_file(&snapshot)?;
-                        let exists = match fs::symlink_metadata(&self.paths.rooms) {
-                            Ok(_) => true,
-                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-                            Err(_) => return Err(FILES.to_owned()),
-                        };
-                        if exists {
-                            radio_rooms::snapshot_store(&self.paths.rooms, &snapshot)?;
+                        for ((store, snapshot), had) in
+                            stores.iter().zip(&snapshots).zip(&mut had_store)
+                        {
+                            remove_file(snapshot)?;
+                            let exists = match fs::symlink_metadata(store) {
+                                Ok(_) => true,
+                                Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                                Err(_) => return Err(FILES.to_owned()),
+                            };
+                            if exists {
+                                radio_rooms::snapshot_store(store, snapshot)?;
+                            }
+                            *had = Some(exists);
                         }
-                        had_store = Some(exists);
                         self.write_agent(&self.version)?;
                         self.create_log()?;
                         Ok(())
@@ -930,15 +952,19 @@ impl Installer<'_> {
                     && self.wait_hello(&self.version);
                 let new = self.new_record(args, now, sha256, Some(record.binary()));
                 if !started || write_json(&self.paths.record, &new).is_err() {
-                    let rollback_stopped = (stopped && had_store.is_none()) || self.bootout();
+                    let rollback_stopped =
+                        (stopped && had_store.iter().any(Option::is_none)) || self.bootout();
                     let restored = rollback_stopped
-                        && match had_store {
-                            Some(true) => {
-                                radio_rooms::restore_store(&snapshot, &self.paths.rooms).is_ok()
-                            }
-                            Some(false) => self.remove_store().is_ok(),
-                            None => true,
-                        }
+                        && stores
+                            .iter()
+                            .zip(&snapshots)
+                            .zip(had_store)
+                            .map(|((store, snapshot), had)| match had {
+                                Some(true) => radio_rooms::restore_store(snapshot, store).is_ok(),
+                                Some(false) => remove_store(store).is_ok(),
+                                None => true,
+                            })
+                            .fold(true, |all, restored| all && restored)
                         && self.write_agent(&record.version).is_ok()
                         && self.bootstrap()
                         && self.wait_hello(&record.version);
@@ -952,8 +978,10 @@ impl Installer<'_> {
                         );
                     }
                     // A failed snapshot can leave a partial copy, never used for rollback.
-                    if had_store.is_none() {
-                        let _ = remove_file(&snapshot);
+                    for (snapshot, had) in snapshots.iter().zip(had_store) {
+                        if had.is_none() {
+                            let _ = remove_file(snapshot);
+                        }
                     }
                     return Err(Failure::new(
                         1,
@@ -964,7 +992,9 @@ impl Installer<'_> {
                         },
                     ));
                 }
-                remove_file(&snapshot)?;
+                for snapshot in &snapshots {
+                    remove_file(snapshot)?;
+                }
                 self.clean_versions(&[&self.version, &record.version], None)?;
                 Installed::Upgraded {
                     from: record.version,
@@ -1165,13 +1195,6 @@ impl Installer<'_> {
             {
                 remove_temps(&entry.path(), |name| numbered_temp(name, "radio."))?;
             }
-        }
-        Ok(())
-    }
-
-    fn remove_store(&self) -> Result<(), String> {
-        for name in ["rooms.db", "rooms.db-wal", "rooms.db-shm"] {
-            remove_file(&self.paths.state.join(name))?;
         }
         Ok(())
     }

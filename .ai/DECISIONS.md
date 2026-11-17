@@ -296,9 +296,10 @@ exactly (D4).
 - **The import is the one write outside the daemon,** and it is safe: it runs under the install
   lock, in one transaction, and SQLite's lock orders it with the daemon's own writes; the daemon keeps
   no rows in memory.
-- **A failed upgrade puts the store back too.** A newer daemon migrates `rooms.db` before it answers,
-  so the installer snapshots the store once the older daemon has stopped and restores it if the newer
-  one fails; a release that adds a store migration bumps the version.
+- **A failed upgrade puts the stores back too.** A newer daemon may migrate `rooms.db` and `fleet.db`
+  before it answers, and an older build refuses either store once it is newer, so the installer
+  snapshots both once the older daemon has stopped and restores them if the newer one fails (a store
+  that was not there before is removed); a release that adds a store migration bumps the version.
 - **App names are lowercase,** so two spellings never share one client record on a case-insensitive
   disk. A failed install records no client; the app runs the install again.
 - **The source of an import** must belong to this user and be writable by no one else, and so must
