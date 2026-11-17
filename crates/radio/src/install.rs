@@ -66,7 +66,7 @@ impl Paths {
             clients: state.join("clients"),
             log: state.join("radio.log"),
             rooms: state.join(radio_rooms::DB_FILE),
-            fleet: state.join("fleet.db"),
+            fleet: state.join(radio_link::fleet_db::DB_FILE),
             socket: radio_client::socket_path(home),
             state,
             binaries: home.join(".local/libexec/radio"),
@@ -922,15 +922,20 @@ impl Installer<'_> {
             }
             Some(record) => {
                 let sha256 = self.place_binary(&self.source, &self.version)?;
-                // A newer daemon may migrate either store before it answers.
-                let stores = [&self.paths.rooms, &self.paths.fleet];
-                let snapshots = stores.map(|store| with_suffix(store, ".before-upgrade"));
+                // A newer daemon may migrate either store before it answers. Fleet records hold
+                // signed counters and removals, so `fleet.db` goes back only if its schema moved.
+                let stores = [(&self.paths.rooms, false), (&self.paths.fleet, true)];
+                let snapshots = stores.map(|(store, _)| with_suffix(store, ".before-upgrade"));
                 let mut had_store = [None; 2];
+                let mut schema_before = [None; 2];
                 let stopped = self.bootout();
                 let started = stopped
                     && (|| {
-                        for ((store, snapshot), had) in
-                            stores.iter().zip(&snapshots).zip(&mut had_store)
+                        for ((((store, schema_only), snapshot), had), before) in stores
+                            .iter()
+                            .zip(&snapshots)
+                            .zip(&mut had_store)
+                            .zip(&mut schema_before)
                         {
                             remove_file(snapshot)?;
                             let exists = match fs::symlink_metadata(store) {
@@ -940,6 +945,9 @@ impl Installer<'_> {
                             };
                             if exists {
                                 radio_rooms::snapshot_store(store, snapshot)?;
+                                if *schema_only {
+                                    *before = radio_link::fleet_db::stored_version(store).ok();
+                                }
                             }
                             *had = Some(exists);
                         }
@@ -954,17 +962,28 @@ impl Installer<'_> {
                 if !started || write_json(&self.paths.record, &new).is_err() {
                     let rollback_stopped =
                         (stopped && had_store.iter().any(Option::is_none)) || self.bootout();
-                    let restored = rollback_stopped
-                        && stores
+                    // Every store is put back, even after one fails, before the older build starts.
+                    let mut restored = rollback_stopped;
+                    if rollback_stopped {
+                        for ((((store, _), snapshot), had), before) in stores
                             .iter()
                             .zip(&snapshots)
                             .zip(had_store)
-                            .map(|((store, snapshot), had)| match had {
+                            .zip(schema_before)
+                        {
+                            let unmoved = before.is_some_and(|before| {
+                                radio_link::fleet_db::stored_version(store)
+                                    .is_ok_and(|now| now <= before)
+                            });
+                            restored &= match had {
+                                Some(true) if unmoved => remove_file(snapshot).is_ok(),
                                 Some(true) => radio_rooms::restore_store(snapshot, store).is_ok(),
                                 Some(false) => remove_store(store).is_ok(),
                                 None => true,
-                            })
-                            .fold(true, |all, restored| all && restored)
+                            };
+                        }
+                    }
+                    let restored = restored
                         && self.write_agent(&record.version).is_ok()
                         && self.bootstrap()
                         && self.wait_hello(&record.version);

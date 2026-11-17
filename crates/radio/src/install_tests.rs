@@ -1385,6 +1385,57 @@ fn a_failed_upgrade_restores_fleet_db() {
 }
 
 #[test]
+fn a_failed_upgrade_keeps_fleet_db_when_its_schema_did_not_move() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    let path = f.paths().state.join("fleet.db");
+    drop(radio_link::fleet_db::FleetDb::open(&path).unwrap());
+    f.fake.state.lock().unwrap().on_bootstrap.insert(
+        "2.0.0".into(),
+        Arc::new(move || {
+            rusqlite::Connection::open(&path)
+                .unwrap()
+                .execute_batch("CREATE TABLE window_write (x);")
+                .unwrap();
+        }),
+    );
+    f.quiet(&["2.0.0"]);
+    error(
+        f.installer("2.0.0").install(&f.args("gardenapp"), 2),
+        1,
+        "the upgrade failed; the version before it is running again",
+    );
+    let kept: i64 = rusqlite::Connection::open(f.paths().state.join("fleet.db"))
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name = 'window_write'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(kept, 1, "a rollback undid the newer daemon's fleet writes");
+    assert!(!f.paths().state.join("fleet.db.before-upgrade").exists());
+    assert_installed(&f, "1.0.0");
+}
+
+#[test]
+fn a_successful_upgrade_leaves_no_snapshots() {
+    let f = Fixture::new();
+    f.install("1.0.0", "kiteapp");
+    drop(radio_rooms::RoomStore::open(&f.paths().rooms).unwrap());
+    drop(radio_link::fleet_db::FleetDb::open(&f.paths().state.join("fleet.db")).unwrap());
+    f.install("2.0.0", "gardenapp");
+    for name in ["rooms.db.before-upgrade", "fleet.db.before-upgrade"] {
+        assert!(
+            !f.paths().state.join(name).exists(),
+            "{name} was left behind"
+        );
+    }
+    assert!(f.paths().state.join("fleet.db").exists());
+    assert_installed(&f, "2.0.0");
+}
+
+#[test]
 fn a_failed_upgrade_removes_a_fleet_db_that_did_not_exist_before() {
     let f = Fixture::new();
     f.install("1.0.0", "kiteapp");

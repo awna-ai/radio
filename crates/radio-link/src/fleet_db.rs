@@ -1695,6 +1695,26 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     difference == 0
 }
 
+/// Reads the schema version of an existing store at `path`, without creating or migrating it.
+pub fn stored_version(path: &Path) -> Result<i64, &'static str> {
+    let folder = path
+        .parent()
+        .ok_or(OPEN)?
+        .canonicalize()
+        .map_err(|_| OPEN)?;
+    let conn = Connection::open_with_flags(
+        folder.join(path.file_name().ok_or(OPEN)?),
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .map_err(|_| OPEN)?;
+    conn.busy_timeout(Duration::from_secs(5))
+        .map_err(|_| READ)?;
+    conn.pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| READ)
+}
+
 fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
