@@ -177,6 +177,8 @@ fn an_unknown_tag_or_an_empty_message_is_refused() {
         .extend(serde_json::to_vec(&serde_json::json!({"record": signed_record()})).unwrap());
     let old_announcement =
         serde_json::to_vec(&serde_json::json!({"announcement": announcement})).unwrap();
+    let record = serde_json::to_vec(&signed_record()).unwrap();
+    let unknown_record = |tag: u8| [vec![tag], record.clone()].concat();
     for bytes in [
         vec![],
         vec![0],
@@ -185,6 +187,8 @@ fn an_unknown_tag_or_an_empty_message_is_refused() {
         null,
         wrapped_record,
         old_announcement,
+        unknown_record(0),
+        unknown_record(3),
     ] {
         assert_eq!(TopicMessage::decode(&bytes), Err("not a topic message"));
     }
