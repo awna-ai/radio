@@ -549,6 +549,25 @@ async fn serve_stream(
                 frame::write(&mut send, &answer, CONTROL_CAP).await?;
                 send.finish().map_err(|_| UNANSWERED)?;
             }
+            Request::Fetch { key } => {
+                let key = key.parse::<EndpointId>().map_err(|_| UNANSWERED)?;
+                if gate.admission.standing(&from) != Standing::Accepted
+                    || connection.close_reason().is_some()
+                {
+                    if connection.close_reason().is_none() {
+                        connection.close(REFUSED.into(), &[]);
+                    }
+                    return Ok(());
+                }
+                let answer = match gate.admission.computer_record(&key) {
+                    Some(record) => Answer::Computer { record },
+                    None => Answer::Refused {
+                        reason: "no such record".into(),
+                    },
+                };
+                frame::write(&mut send, &answer, CONTROL_CAP).await?;
+                send.finish().map_err(|_| UNANSWERED)?;
+            }
             Request::Record { record } => {
                 if record.verify().is_err() {
                     return Err(UNANSWERED);
@@ -1051,6 +1070,23 @@ impl Peer {
             .await?
         {
             Answer::Ok => Ok(()),
+            _ => Err(UNANSWERED),
+        }
+    }
+
+    pub async fn fetch(&self, key: &EndpointId) -> Result<ComputerRecord, &'static str> {
+        match self
+            .request(&Request::Fetch {
+                key: key.to_string(),
+            })
+            .await?
+        {
+            Answer::Computer { record }
+                if record.body.key == key.to_string() && record.verify().is_ok() =>
+            {
+                Ok(record)
+            }
+            Answer::Refused { .. } => Err("no such record"),
             _ => Err(UNANSWERED),
         }
     }

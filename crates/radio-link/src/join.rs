@@ -234,6 +234,35 @@ pub async fn publish(link: &Link, db: &Mutex<FleetDb>, record: &ComputerRecord) 
     delivered
 }
 
+/// Tries the announcing computer, then other accepted computers, at most three in all.
+/// A later step puts gossip neighbours first.
+pub async fn fetch(link: &Link, db: &Mutex<FleetDb>, key: &crate::EndpointId) -> bool {
+    let recipients = {
+        let Ok(db) = db.lock() else { return false };
+        if !matches!(db.announcement(key), Ok(Some(_))) {
+            return false;
+        }
+        let Ok(recipients) = db.recipients(&link.id()) else {
+            return false;
+        };
+        recipients
+    };
+    let sources = recipients
+        .iter()
+        .filter(|(id, _)| id == key)
+        .chain(recipients.iter().filter(|(id, _)| id != key));
+    for (id, addrs) in sources.take(3) {
+        if let Ok(peer) = link.peer(*id, addrs).await
+            && let Ok(record) = peer.fetch(key).await
+            && let Ok(mut db) = db.lock()
+            && db.apply_fetched(&link.id(), &record).is_ok()
+        {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn apply_computer(
     link: &Link,
     db: &Mutex<FleetDb>,

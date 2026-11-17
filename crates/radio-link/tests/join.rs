@@ -953,3 +953,115 @@ async fn a_computer_record_from_a_stranger_is_refused() {
     bounded(raw.close()).await;
     stop(&[&a, &b]).await;
 }
+
+fn announce_to(computer: &Computer, record: &ComputerRecord, key: &SecretKey) {
+    computer
+        .db
+        .lock()
+        .unwrap()
+        .apply_announcement(
+            &computer.link.id(),
+            &radio_link::topic::announce(record, key),
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn fetch_uses_another_computer_when_the_owner_is_unreachable() {
+    let (a, b, c) = accepted_trio().await;
+    let record = resign(&a, "newer");
+    join::apply_computer(&b.link, &b.db, &record).unwrap();
+    announce_to(&c, &record, &a.key);
+    bounded(a.link.close()).await;
+    assert!(
+        timeout(
+            Duration::from_secs(15),
+            join::fetch(&c.link, &c.db, &a.link.id())
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        c.db.lock().unwrap().computer_record(&a.link.id()).unwrap(),
+        Some(record)
+    );
+    stop(&[&b, &c]).await;
+}
+
+#[tokio::test]
+async fn fetch_skips_an_older_record_and_uses_the_next_source() {
+    let (a, b, c) = accepted_trio().await;
+    let first = resign(&a, "older");
+    let mut body = first.body.clone();
+    body.version += 1;
+    let newer = computer_record::sign(body, &a.key);
+    join::apply_computer(&b.link, &b.db, &newer).unwrap();
+    announce_to(&c, &newer, &a.key);
+    assert!(bounded(join::fetch(&c.link, &c.db, &a.link.id())).await);
+    assert_eq!(
+        c.db.lock().unwrap().computer_record(&a.link.id()).unwrap(),
+        Some(newer)
+    );
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn fetch_with_no_matching_source_keeps_the_stored_record() {
+    let (a, b, c) = accepted_trio().await;
+    let first = resign(&a, "original");
+    join::apply_computer(&c.link, &c.db, &first).unwrap();
+    let older = resign(&a, "older");
+    join::apply_computer(&b.link, &b.db, &older).unwrap();
+    let mut body = older.body.clone();
+    body.version += 1;
+    let newer = computer_record::sign(body, &a.key);
+    announce_to(&c, &newer, &a.key);
+    assert!(!bounded(join::fetch(&c.link, &c.db, &a.link.id())).await);
+    assert_eq!(
+        c.db.lock().unwrap().computer_record(&a.link.id()).unwrap(),
+        Some(first)
+    );
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn fetch_of_a_missing_record_is_refused() {
+    let (a, b, c) = accepted_trio().await;
+    let peer = bounded(c.link.peer(b.link.id(), &b.link.addrs()))
+        .await
+        .unwrap();
+    assert_eq!(
+        bounded(peer.fetch(&SecretKey::generate().public())).await,
+        Err("no such record")
+    );
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn fetch_from_a_computer_not_accepted_gets_no_answer() {
+    let (a, b, c) = trio().await;
+    let raw = raw_bind(raw_book(&b), Limits::default()).await;
+    let connection = raw.connect(&b.link, ALPN).await;
+    if let Ok((mut send, mut recv)) = bounded(connection.open_bi()).await {
+        let _ = bounded(frame::write(
+            &mut send,
+            &Request::Fetch {
+                key: a.link.id().to_string(),
+            },
+            CONTROL_CAP,
+        ))
+        .await;
+        let _ = send.finish();
+        assert!(
+            bounded(frame::read::<radio_link::wire::Answer, _>(
+                &mut recv,
+                CONTROL_CAP
+            ))
+            .await
+            .is_err()
+        );
+    }
+    closed(&connection, REFUSED).await;
+    bounded(raw.close()).await;
+    stop(&[&a, &b, &c]).await;
+}

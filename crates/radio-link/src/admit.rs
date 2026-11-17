@@ -40,6 +40,9 @@ pub trait Admission: Send + Sync + 'static {
     fn addrs(&self, _key: &EndpointId) -> Vec<std::net::SocketAddr> {
         Vec::new()
     }
+    fn computer_record(&self, _key: &EndpointId) -> Option<crate::computer_record::ComputerRecord> {
+        None
+    }
     fn delivery_folder(&self, _app: &str) -> Option<crate::fleet_db::DeliveryFolder> {
         None
     }
@@ -51,6 +54,12 @@ pub trait Admission: Send + Sync + 'static {
 }
 
 impl Admission for Mutex<FleetDb> {
+    fn computer_record(&self, key: &EndpointId) -> Option<crate::computer_record::ComputerRecord> {
+        self.lock()
+            .ok()
+            .and_then(|db| db.computer_record(key).ok().flatten())
+    }
+
     fn used(&self, key: &EndpointId, addr: std::net::SocketAddr) {
         if let Ok(mut db) = self.lock() {
             let _ = db.used(&key.to_string(), addr);

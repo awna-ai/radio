@@ -94,7 +94,7 @@ async fn hello_preserves_authenticated_sender_and_messages_need_a_handler() {
     assert_eq!(answer.sha, SHA);
     assert_eq!(answer.fleet, FLEET);
     assert_eq!(answer.arch, std::env::consts::ARCH);
-    assert_eq!((answer.protocol.major, answer.protocol.minor), (1, 5));
+    assert_eq!((answer.protocol.major, answer.protocol.minor), (1, 6));
     match bounded(events.recv()).await.unwrap() {
         Event::Hello {
             from,

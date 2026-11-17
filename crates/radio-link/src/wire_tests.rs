@@ -165,7 +165,7 @@ fn record_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 5);
+    assert_eq!(LINK_MINOR, 6);
 }
 
 #[test]
@@ -237,7 +237,7 @@ fn computer_request_round_trips_and_refuses_unknown_fields() {
     );
     value["extra"] = json!(true);
     assert!(serde_json::from_value::<Request>(value).is_err());
-    assert_eq!(LINK_MINOR, 5);
+    assert_eq!(LINK_MINOR, 6);
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn file_wire_shapes_and_minor() {
     assert_eq!(serde_json::to_value(request).unwrap(), file);
     let answer: Answer = serde_json::from_value(refused.clone()).unwrap();
     assert_eq!(serde_json::to_value(answer).unwrap(), refused);
-    assert_eq!(LINK_MINOR, 5);
+    assert_eq!(LINK_MINOR, 6);
 }
 
 #[test]
@@ -340,11 +340,46 @@ fn app_envelope_and_reply_shapes_are_typed_and_strict() {
 }
 
 #[test]
-fn heartbeats_have_no_fields_and_require_link_minor_five() {
+fn heartbeats_have_no_fields() {
     let value = json!({"type":"heartbeat"});
     let request = serde_json::from_value::<Request>(value.clone());
     assert!(request.is_ok(), "the heartbeat request must decode");
     assert_eq!(serde_json::to_value(request.unwrap()).unwrap(), value);
     assert!(serde_json::from_value::<Request>(json!({"type":"heartbeat","extra":true})).is_err());
-    assert_eq!(LINK_MINOR, 5);
+    assert_eq!(LINK_MINOR, 6);
+}
+
+#[test]
+fn fetch_request_round_trips_and_refuses_unknown_fields() {
+    let value = json!({"type":"fetch", "key": crate::SecretKey::generate().public().to_string()});
+    let request = serde_json::from_value::<Request>(value.clone());
+    assert!(request.is_ok(), "fetch must decode");
+    assert_eq!(serde_json::to_value(request.unwrap()).unwrap(), value);
+    let mut extra = value;
+    extra["extra"] = json!(true);
+    assert!(serde_json::from_value::<Request>(extra).is_err());
+}
+
+#[test]
+fn computer_answer_round_trips_and_refuses_unknown_fields() {
+    let key = crate::SecretKey::generate();
+    let record = crate::computer_record::sign(
+        crate::computer_record::ComputerBody {
+            fleet: "a".repeat(64),
+            key: key.public().to_string(),
+            version: 1,
+            name: "alpha".into(),
+            roles: vec![],
+            addrs: vec![],
+            apps: Default::default(),
+        },
+        &key,
+    );
+    let value = json!({"type":"computer", "record":record});
+    let answer = serde_json::from_value::<Answer>(value.clone());
+    assert!(answer.is_ok(), "computer answer must decode");
+    assert_eq!(serde_json::to_value(answer.unwrap()).unwrap(), value);
+    let mut extra = value;
+    extra["extra"] = json!(true);
+    assert!(serde_json::from_value::<Answer>(extra).is_err());
 }

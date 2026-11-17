@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const LINK_MAJOR: u32 = 1;
-pub const LINK_MINOR: u32 = 5;
+pub const LINK_MINOR: u32 = 6;
 pub const NO_HANDLER: &str = "no_handler";
 pub const CLOCK: &str = "clock";
 pub const REPLAY: &str = "replay";
@@ -44,6 +44,9 @@ impl std::fmt::Debug for JoinRequest {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Heartbeat {},
+    Fetch {
+        key: String,
+    },
     File {
         to: String,
         app: String,
@@ -76,24 +79,45 @@ pub enum Request {
     from = "AnswerFields"
 )]
 pub enum Answer {
-    Reply { reply: String, exit: i32 },
-    Refused { reason: String },
-    Hello { hello: Hello },
+    Computer {
+        record: crate::computer_record::ComputerRecord,
+    },
+    Reply {
+        reply: String,
+        exit: i32,
+    },
+    Refused {
+        reason: String,
+    },
+    Hello {
+        hello: Hello,
+    },
     Ok,
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum AnswerFields {
-    Reply { reply: String, exit: i32 },
-    Refused { reason: String },
-    Hello { hello: Hello },
+    Computer {
+        record: crate::computer_record::ComputerRecord,
+    },
+    Reply {
+        reply: String,
+        exit: i32,
+    },
+    Refused {
+        reason: String,
+    },
+    Hello {
+        hello: Hello,
+    },
     Ok {},
 }
 
 impl From<AnswerFields> for Answer {
     fn from(fields: AnswerFields) -> Self {
         match fields {
+            AnswerFields::Computer { record } => Self::Computer { record },
             AnswerFields::Reply { reply, exit } => Self::Reply { reply, exit },
             AnswerFields::Refused { reason } => Self::Refused { reason },
             AnswerFields::Hello { hello } => Self::Hello { hello },
