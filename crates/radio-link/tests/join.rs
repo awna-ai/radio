@@ -1110,6 +1110,21 @@ async fn fetch_of_a_held_record_needs_no_running_source() {
 }
 
 #[tokio::test]
+async fn fetch_with_a_newer_held_record_returns_false_without_a_dial() {
+    let (a, b, c) = accepted_trio().await;
+    let record = resign(&a, "newer");
+    announce_to(&c, &record, &a.key);
+    let mut body = record.body.clone();
+    body.version += 1;
+    let newer = computer_record::sign(body, &a.key);
+    join::apply_computer(&c.link, &c.db, &newer).unwrap();
+    bounded(a.link.close()).await;
+    bounded(b.link.close()).await;
+    assert!(!bounded(join::fetch(&c.link, &c.db, &a.link.id())).await);
+    stop(&[&c]).await;
+}
+
+#[tokio::test]
 async fn a_pending_computers_record_is_not_served_to_a_member() {
     let (a, b, c) = trio().await;
     let record = resign(&c, "newer");

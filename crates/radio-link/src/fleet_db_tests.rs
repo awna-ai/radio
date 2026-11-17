@@ -2318,7 +2318,7 @@ fn served_record_requires_acceptance_and_matching_name() {
 }
 
 #[test]
-fn served_record_withholds_unknown_and_tombstoned_keys() {
+fn served_record_withholds_unknown_and_removed_keys() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();
     let peer = iroh::SecretKey::generate();
