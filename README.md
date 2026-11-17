@@ -202,7 +202,7 @@ radio install --app <name> --app-version <your version> --handler <path>
 
 | Flag | What it is |
 | --- | --- |
-| `--app` | Your app's name: lowercase letters, digits, `_` or `-`, starting with a letter. |
+| `--app` | Your app's name: 1 to 64 lowercase letters, digits, `.`, `_` or `-`, starting with a letter or a digit. |
 | `--handler` | An executable file in your app. Radio records it as the only program it will ever run for your app, for your app's own messages from another accepted computer, and returns its answer. |
 | `--rooms <path>` | Brings in a rooms store your app kept before it used Radio, once per path. |
 
@@ -226,10 +226,12 @@ what's already there:
 To remove your app, run `radio uninstall --app <name>`. Radio stays while any other app still
 uses it. When the last app leaves, Radio stops and its launch agent, binaries, socket and lock
 files are removed (the socket and its lock only when no copy of Radio is still running there);
-the person's rooms and Radio's log are kept.
+the person's data is kept: rooms, Radio's logs and connection list, the fleet's records and this
+computer's key, so the computer stays in its fleet. To retire a computer, run `radio leave` first.
 
 `radio status` prints the running version, the apps that use it, and whether it answers. It exits
-`1` when nothing is installed.
+`1` when nothing is installed, or when Radio is installed but doesn't answer with the
+version it recorded (stopped, or not started yet).
 
 ### 3. Talk to it
 
@@ -411,7 +413,7 @@ Radio keeps the outcome.
 
 | Op | What it does |
 | --- | --- |
-| **`deliberation_convene`** | Opens one: a new `room` and `title`, the convening `author`, `kind` `list` (with `n`, how many items the answer holds) or `text`, and 2 to 24 `seats`, each a member some app registered, or the person. To limit its time, add a `time_box` of `15m` or `1h`. |
+| **`deliberation_convene`** | Opens one: a new `room` and `title`, the convening `author`, `kind` `list` (with `n`, how many items the answer holds) or `text`, and 2 to 24 `seats`, each a member some app registered, or the person. To limit its time, add a `time_box` of `15m` or `1h` (`deadlock`, the default, runs until it has an outcome). |
 | **`deliberation_turn`** | A seat's turn: a room post whose body ends in a `deliberation` block (below). |
 | **`deliberation_state`** | Shows which seats have posted in the open round, and `expired: true` once a time box has run out. |
 | **`deliberation_result`** | The proposal, its agreement groups, the dissent and how far apart the seats were each round, as fields and as markdown that fences every answer and objection. |
@@ -527,7 +529,7 @@ Both run the `radio` on your `PATH`; use the path of the copy your app bundles i
 | `0` | the answer is `"ok": true` |
 | `3` | the answer is `"refused": true` |
 | `1` | any other failure, including Radio not running (the phrase is then on stderr, and stdout is empty) |
-| `2` | a bad argument, with the usage (or what is wrong with the body file) on stderr and nothing sent |
+| `2` | a bad argument, with the usage (or what is wrong with the body file) on stderr and nothing sent; a body file over 16 KiB is `1` instead, with the daemon's phrase (a `message` body over 8 KiB stays `2`) |
 
 Status lines are under `line`, since `radio status` is the install status. `--as human:<name>` is
 the person at the computer. `--expires-at` is seconds since the Unix epoch. A body file is read as
@@ -606,7 +608,9 @@ Radio writes `~/.local/state/radio/radio.log`, one line per event:
 
 - when it starts (with its version, its protocol and the computer's name), binds its socket, fails
   to start, and stops;
-- when an app installs, upgrades or keeps it, or is removed as a client, or an install fails;
+- when it starts its link to other computers, or can't;
+- when an app installs, upgrades or keeps it, or is removed as a client, or an install or uninstall
+  fails;
 - for every answer that isn't `"ok": true`, the op and the phrase;
 - when an answer couldn't be delivered.
 
@@ -653,14 +657,15 @@ while any app still uses it.
 | Sending files (`send`, `delivery_folder_*`, `deliveries`) and app messages (`message`) | built |
 | The rest of the link | being built |
 
-When it is built, an app can count on this:
+An app can count on this, today for files and its own messages, and for the rest as it is built:
 
 - **It arrives as minors of protocol major 1.** The link ops only add to the contract, and `hello`
   lists them once a Radio serves them, so an app built today keeps working unchanged.
-- **Radio checks every message from another computer before any app sees it.** It must come from a
-  computer that was let in, be fresh, not replay one already seen, and fit within the size caps.
-  Anything else is refused there.
-- **Files first.** The first link carries files: your app asks its Radio to send a file to your app
+- **Radio checks everything from another computer before any app sees it.** It must come from a
+  computer that was let in and fit within the size caps. An app's message must also be fresh (the
+  sender's clock within 2 minutes of this one's) and not repeat one already seen; a file has no such
+  check. Anything else is refused there.
+- **Files.** The link carries files: your app asks its Radio to send a file to your app
   on another of the person's computers. The receiving Radio writes it only into a folder it made for
   your app when your app asked for one, and says which computer sent it. If the other computer can't
   be reached, the send fails within a few seconds and Radio keeps nothing, so your app tries again

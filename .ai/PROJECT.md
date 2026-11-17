@@ -2,9 +2,9 @@
 
 Radio is a small daemon, one per computer, that several apps share. It keeps rooms (shared
 conversations between the person at the computer and the agents their apps run), carries the
-deliberation protocol, and will hold the computer's one link to other computers. Apps talk to it
-over a local socket and never read its files. The repo is public, so it names no app and holds no
-one's data (`.ai/DECISIONS.md` D3).
+deliberation protocol, and holds the computer's one link to other computers (partly built: README
+*Where it stands*). Apps talk to it over a local socket and never read its files. The repo is
+public, so it names no app and holds no one's data (`.ai/DECISIONS.md` D3).
 
 ## Who reads what
 
@@ -19,11 +19,11 @@ one's data (`.ai/DECISIONS.md` D3).
 | Path | What | Test |
 | --- | --- | --- |
 | `CONTRACT.md` | The socket contract: framing, versions, members, the ops of each major | `crates/radio-client/tests/`, `contract/v1/` |
-| `contract/v1/` | One fixture per op of major 1, replayed against a real daemon and through the client's types | `crates/radio/src/contract_tests.rs`, `crates/radio-client/tests/fixtures.rs` |
+| `contract/v1/` | One fixture per op of major 1 but the four file ops (`CONTRACT.md`), replayed against a real daemon and through the client's types | `crates/radio/src/contract_tests.rs`, `crates/radio-client/tests/fixtures.rs` |
 | `crates/radio-client/` | The client side of the contract: its numbers, its types, one request function | `crates/radio-client/tests/` |
 | `crates/radio-rooms/` | The rooms store (SQLite, the daemon its one writer): rooms, messages, status lines, registered members, the one-time import of an older store | `crates/radio-rooms/src/store_tests.rs` |
-| `crates/radio-panels/` | The deliberation protocol: posts and their blocks, rounds, distances, the result and its rendering; no I/O, not used by the daemon yet | `crates/radio-panels/tests/` (the 66 fixtures, the reference probes, `rename.rs`) |
-| `crates/radio-link/` | The link to other computers: this computer's key (`node.key`), the one endpoint builder, admission at the handshake and on each stream, framing, and the messages two computers exchange (`Hello`, an app's message); the fleet record (signed, with its recovery key and the rule for a newer one), join codes and `fleet.db`, which holds them; the daemon doesn't start the endpoint yet. `src/sim.rs` is the membership simulator: in-process and deterministic, n members that sleep, wake, join, are removed and leave, with each member's messages and bytes and how fast a change spreads; the membership layer sits behind its `Node` trait | `crates/radio-link/src/*_tests.rs`, `crates/radio-link/tests/` (the endpoint, the transport's pins, one builder, the wire on a loopback pair, a hostile peer, the simulator with a stand-in layer). The 171,000-member run is outside the gate: `cargo test -p radio-link --release --locked --test sim -- --ignored --nocapture` |
+| `crates/radio-panels/` | The deliberation protocol: posts and their blocks, rounds, distances, the result and its rendering; no I/O. The daemon serves it as the deliberation ops (`crates/radio/src/deliberation.rs`) | `crates/radio-panels/tests/` (the 66 fixtures, the reference probes, `rename.rs`) |
+| `crates/radio-link/` | The link to other computers: this computer's key (`node.key`), the one endpoint builder, admission at the handshake and on each stream, framing, and the messages two computers exchange (`Hello`, an app's message); the fleet record (signed, with its recovery key and the rule for a newer one), join codes and `fleet.db`, which holds them; `radio serve` starts the endpoint once `fleet.db` exists, and logs `link off` when it can't. `src/sim.rs` is the membership simulator: in-process and deterministic, n members that sleep, wake, join, are removed and leave, with each member's messages and bytes and how fast a change spreads; the membership layer sits behind its `Node` trait | `crates/radio-link/src/*_tests.rs`, `crates/radio-link/tests/` (the endpoint, the transport's pins, one builder, the wire on a loopback pair, a hostile peer, the simulator with a stand-in layer). The 171,000-member run is outside the gate: `cargo test -p radio-link --release --locked --test sim -- --ignored --nocapture` |
 | `crates/radio/` | The daemon: `radio serve` binds the socket and serves the ops; `radio install`, `uninstall` and `status` (`src/install.rs`); one command per op (`src/cli.rs`, D16) | `crates/radio/src/` tests, `crates/radio/tests/install.rs` (a stand-in `launchctl` that runs the real daemon), `crates/radio/tests/cli.rs` (each command against its fixture, and the README's Python example, on a real daemon) |
 | `scripts/ci-local.sh` | Every check, run before anything lands on `main` | itself |
 | `scripts/term-check.sh` | Refuses a file, path or commit message that names a private term | `tests/term_check_test.sh` |

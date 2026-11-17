@@ -215,8 +215,9 @@ never anywhere else. A send that can't reach its peer fails within the dial's 5 
 again, so the sending app keeps what it needs. Handing an app's message to its handler comes after.
 
 The fleet record, members, codes and deliveries live in `fleet.db`, the daemon its one writer, so
-every change is one transaction; `fleet.toml` holds only this computer's own settings. The threat
-model's § *The link* holds the rules and the numbers each step tests.
+every change is one transaction; `fleet.toml` holds only this computer's own settings (superseded by
+D22: no `fleet.toml` is written). The threat model's § *The link* holds the rules and the numbers
+each step tests.
 
 ## 2026-11-12: D14. Releases are built on a maintainer's Mac, signed ad hoc, and ship inside apps
 

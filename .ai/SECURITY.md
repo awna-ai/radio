@@ -5,10 +5,10 @@ the design every step is held to, and each step that builds a boundary updates i
 
 ## What this system is
 
-A daemon, one per computer, that local apps share for rooms, the deliberation protocol and, later, the
-link to other computers. It stores what its clients post and what other computers send; it reads none
-of the user's own files, except a file an app hands it to send to another computer, and runs no model.
-The worst outcome is a stranger getting a say in it: an
+A daemon, one per computer, that local apps share for rooms, the deliberation protocol and the link to
+other computers (partly built). It stores what its clients post and what other computers send; it
+reads none of the user's own files, except a file an app hands it to send to another computer, and
+runs no model. The worst outcome is a stranger getting a say in it: an
 app may hand remote operations to its own handler through Radio, so a hole in Radio's
 admission is a hole in that app's remote control, even though Radio never reads those messages.
 The second worst is a file meant for one of the user's computers reaching anyone else, or landing
@@ -119,7 +119,7 @@ the client waits 60 seconds.
 | Audit | refused sender key, Radio's sender name, app and fixed reason, UTC time; never body, id or reply | `audit.log`, 0600, beside `radio.log`, using the same escaped writer and 1 MiB truncation | reveals who attempted to message which app and when | kept on uninstall, truncated at the cap |
 | Client records | each app's name, version, handler path | `~/.local/state/radio/clients/<app>.json`, 0600, in a 0700 folder | a forged record could make the daemon run the wrong handler | removed on that app's uninstall |
 | Install record | the installed version, its SHA-256, who installed it | `~/.local/state/radio/install.json`, 0600 | a forged record can only name a version whose binary already checks out | removed when the last app uninstalls |
-| Operational | the daemon's and the installer's log lines: start (with the computer's host name), bind, a failed start, stop, install, upgrade, a kept install, a client removed, a failed install or uninstall, every answer that is not ok as its op and fixed phrase (with the peer's uid on a wrong-user refusal), and an answer that couldn't be delivered; never a body, title, status line, member name or other text a client sent (an op not in `OPS` is logged as `unknown`), every value escaped onto one line (`crates/radio/src/log_tests.rs`, `server_tests.rs`'s `log_*`, `install_tests.rs`, `tests/log.rs`) | `~/.local/state/radio/radio.log` (the daemon's stderr), 0600, created by the install before the daemon starts; the installer's own lines append and never create it | low: versions, app names, ops, phrases, times, and the host name, which often carries the owner's name | kept on uninstall; truncated when it passes 1 MiB, only when the daemon's stderr is that file |
+| Operational | the daemon's and the installer's log lines: start (with the computer's host name), bind, a failed start, the link's start (its address count and port) or `link off` with its error, stop, install, upgrade, a kept install, a client removed, a failed install or uninstall, every answer that is not ok as its op and fixed phrase (with the peer's uid on a wrong-user refusal), and an answer that couldn't be delivered; never a body, title, status line, member name or other text a client sent (an op not in `OPS` is logged as `unknown`), every value escaped onto one line (`crates/radio/src/log_tests.rs`, `server_tests.rs`'s `log_*`, `install_tests.rs`, `tests/log.rs`) | `~/.local/state/radio/radio.log` (the daemon's stderr), 0600, created by the install before the daemon starts; the installer's own lines append and never create it | low: versions, app names, ops, phrases, times, and the host name, which often carries the owner's name | kept on uninstall; truncated when it passes 1 MiB, only when the daemon's stderr is that file |
 
 ## Where secrets live
 
@@ -142,9 +142,9 @@ token, key or password belongs in the repo; gitleaks runs in `scripts/ci-local.s
   back (`install.json`, `clients/`), each checked again on every read.
 - The op commands (`crates/radio/src/cli.rs`, D16): their arguments and a body file or stdin, from the
   user's own processes, so no new trust. They build one request the socket would take from any client;
-  a body is read with a bound (one byte past the 16 KiB request cap), never in full, and the answer is
-  printed as it arrived once `radio-client`'s own types accept it (a line they refuse is `Radio did not
-  answer`); only `ok` and `refused` choose the exit code.
+  a body is read with a bound (one byte past the 16 KiB request cap; past 8 KiB for `message`), never
+  in full, and the answer is printed as it arrived once `radio-client`'s own types accept it (a line
+  they refuse is `Radio did not answer`); only `ok` and `refused` choose the exit code.
 
 ## External integrations
 
@@ -220,7 +220,7 @@ address lookup). A relay, when it comes, gets its own rows here.
 | Two slow clients ahead of an install's check can get a busy daemon restarted | each client holds the daemon for at most 10 s, and every write is a transaction, so a restart loses no committed write | install delta review, 2026-11-12 | when connections are served concurrently |
 | An earlier import's path on a stalled network volume can hold the install while it checks that path | the open does not block on the file, but a stalled volume can stall the path lookup | install delta review, 2026-11-12 | if a store is ever imported from a network volume |
 | A newer version's folder left with no record (a newer install killed midway) makes every older install refuse | an older copy can't tell a half-installed newer Radio from a working one whose record was lost, and replacing it could leave Radio down | install delta review, 2026-11-12 | if an older app is ever stuck: the newer app's install repairs it |
-| An op command prints the answer line as it arrived, so it is safe for a terminal only where the daemon cleans a free-text field (control and invisible characters become spaces) and JSON escapes the rest; an app's section in a computer's record is not cleaned (Radio never reads it), and JSON escapes only C0 controls, quotes and backslashes, so a section can carry bidi, zero-width, C1 or DEL characters to a terminal | the daemon is the only writer of what it answers; today a section comes only from a same-user app on this computer, the boundary above; the worst is a confusing display | command-line review, 2026-11-12; computer records step, 2026-11-13 | sections now arrive from the fleet's other computers, which are the person's own; revisit if computers that aren't one person's ever share a fleet |
+| An op command prints the answer line as it arrived, so it is safe for a terminal only where the daemon cleans a free-text field (control and invisible characters become spaces) and JSON escapes the rest; an app's section in a computer's record is not cleaned (Radio never reads it), and JSON escapes only C0 controls, quotes and backslashes, so a section can carry bidi, zero-width, C1 or DEL characters to a terminal | the daemon is the only writer of what it answers; a section comes from a same-user app on this computer, the boundary above, or in a record from one of the fleet's other computers, which are the person's own; the worst is a confusing display | command-line review, 2026-11-12; computer records step, 2026-11-13 | sections now arrive from the fleet's other computers, which are the person's own; revisit if computers that aren't one person's ever share a fleet |
 | `--body-file -` can read up to 8 KiB of stdin past the bound before refusing an over-long body (the standard input buffer), so a caller sharing stdin loses those bytes | it happens only on that refusal, and the bytes kept in memory are still capped | command-line review, 2026-11-12 | if a caller ever needs stdin intact after a refused body |
 | A FIFO, a terminal or a stalled network file named by `--body-file` blocks the command, with no deadline | the path is the user's own argument, and the body is read before connecting, so the daemon is never held | command-line review, 2026-11-12 | if a script ever needs a deadline on its body |
 | A misspelled flag (`--expire-at`) is taken as a positional, so `radio line set <room> --expire-at <t> --as <member>` sets a line under a junk key that never expires | positionals are taken verbatim so a room or key may start with `--`; only the op's own flag names are refused there; the daemon answers every other value | command-line review, 2026-11-12 | if a caller is caught by it: refuse any `--` positional unless it follows `--` |

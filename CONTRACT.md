@@ -159,5 +159,7 @@ A computer's record is signed by that computer's own key and carries its name, i
 
 Every read goes through the socket: the daemon is the only process that opens its rooms store. The
 exact field names and types of each op are `radio-client`'s types. `contract/v1/` holds a fixture per
-op, replayed against a real daemon and through `radio-client`'s types, so a minor that would break an
+op but the four file ops (`send`, `delivery_folder_set`, `delivery_folder_clear`, `deliveries`),
+whose requests `crates/radio-client/tests/contract.rs` round-trips instead; the fixtures are
+replayed against a real daemon and through `radio-client`'s types, so a minor that would break an
 older client fails its test. Ops for seats arrive as minors of major 1 when they are built.
