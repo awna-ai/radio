@@ -50,3 +50,23 @@ pub fn restore_store(snapshot: &Path, store: &Path) -> Result<(), String> {
     }
     fs::rename(snapshot, store).map_err(|_| RESTORE_FAILED.into())
 }
+
+/// Merges the store's write-ahead log into `store` and empties it, waiting at most `wait` while the store is busy.
+pub fn checkpoint_store(store: &Path, wait: Duration) -> Result<(), String> {
+    const CHECKPOINT_FAILED: &str = "the room store could not be checkpointed";
+    let store = store
+        .parent()
+        .and_then(|parent| parent.canonicalize().ok())
+        .and_then(|parent| store.file_name().map(|name| parent.join(name)))
+        .ok_or("the room store could not be opened")?;
+    let conn = Connection::open_with_flags(&store, STORE_OPEN_FLAGS)
+        .map_err(|_| "the room store could not be opened")?;
+    conn.busy_timeout(wait).map_err(|_| CHECKPOINT_FAILED)?;
+    let busy: i64 = conn
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+        .map_err(|_| CHECKPOINT_FAILED)?;
+    if busy != 0 {
+        return Err(CHECKPOINT_FAILED.into());
+    }
+    Ok(())
+}

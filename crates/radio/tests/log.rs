@@ -187,6 +187,34 @@ impl Daemon {
 }
 
 #[test]
+fn term_checkpoints_the_rooms_store() {
+    let home = Home::new();
+    let mut daemon = home.start();
+    let started = Instant::now();
+    daemon.signal(libc::SIGTERM);
+    daemon.wait_for_stop(started);
+    assert_eq!(
+        fs::metadata(home.0.join(".local/state/radio/rooms.db-wal"))
+            .unwrap()
+            .len(),
+        0
+    );
+    let conn = rusqlite::Connection::open_with_flags(
+        home.0.join(".local/state/radio/rooms.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let rooms: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM rooms WHERE id = 'test-host'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(rooms, 1);
+}
+
+#[test]
 fn term_does_not_wait_for_queued_stalled_clients() {
     let home = Home::new();
     let mut daemon = home.start();

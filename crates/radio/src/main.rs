@@ -240,6 +240,7 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
         let busy = server.busy();
         let stopping = server.stopping();
         let stop_log = log.clone();
+        let db = db.clone();
         std::thread::spawn(move || {
             loop {
                 let mut signal = 0;
@@ -247,7 +248,7 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
                 if unsafe { libc::sigwait(&signals, &mut signal) } == 0 {
                     stopping.store(true, Ordering::SeqCst);
                     let deadline = Instant::now() + STOP_WAIT;
-                    let _guard = loop {
+                    let guard = loop {
                         match busy.try_lock() {
                             Ok(guard) => break Some(guard),
                             Err(TryLockError::Poisoned(poison)) => break Some(poison.into_inner()),
@@ -258,6 +259,13 @@ fn run(args: &[String]) -> Result<(), (i32, String)> {
                         }
                         std::thread::sleep(Duration::from_millis(10));
                     };
+                    if guard.is_some() {
+                        // The log is already durable; merging it only tidies it.
+                        let _ = radio_rooms::checkpoint_store(
+                            &db,
+                            deadline.saturating_duration_since(Instant::now()),
+                        );
+                    }
                     stop_log.event(
                         "serve",
                         "stop",

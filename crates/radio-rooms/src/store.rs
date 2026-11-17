@@ -244,7 +244,7 @@ pub use import::{Import, ImportReport};
 
 #[path = "snapshot.rs"]
 mod snapshot;
-pub use snapshot::{restore_store, snapshot_store};
+pub use snapshot::{checkpoint_store, restore_store, snapshot_store};
 
 /// A private SQLite rooms store with one writing daemon.
 pub struct RoomStore {

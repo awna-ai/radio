@@ -140,7 +140,15 @@ round: the deliberation is `agreed` when, in that round, every seat but the hold
 stopped moving while the others moved closer) agreed on one answer (for a `list`, the same `n`
 items; for a `text`, the same draft) and those seats are more than half of all seats, and
 `deadlock` after four rounds in a row in which the seats did not move closer. The
-result is a proposal for the people the seats act for, never a decision. A deliberation convened
+result is a proposal for the people the seats act for, never a decision. A seat with no valid block
+is too far from every other seat to share a group (the greatest distance for a `list`, at least
+0.5 for a `text`), so it is a group of its own, its `weight` its round weight over the number of
+seats (0.5 of two equally weighted seats) and its `answer` `[]` for a `list` or `null` for a
+`text`. `dissent` lists every seat outside `groups[0]` and every holdout,
+with `objections` `""` for a seat with no block. Groups sort by weight, then size, then the seat
+order of their first member, so on a tie a silent seat's group can come first and put every seat
+that posted in `dissent`. In `markdown`, a `null` answer (the result's `answer` unless `agreed`, or
+a `text` group with no draft) reads `None`. A deliberation convened
 with a `time_box` of `15m` or `1h` ends when that much time has passed since it was convened: Radio
 steps the open round with the seats that have posted in it, if any, and the deliberation takes no
 more turns, its outcome what that step decided (usually `open`) and its result the newest round's.

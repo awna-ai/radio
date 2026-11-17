@@ -55,6 +55,28 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn a_record_outside_the_app_name_rules_is_never_read() {
+    let f = Fixture::new("/bin/cat");
+    let sub = f.dir.join("sub");
+    fs::create_dir(&sub).unwrap();
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(
+        sub.join("notes.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "app": "sub/notes",
+            "app_version": "1.0.0",
+            "majors": [1],
+            "handler": f.dir.join("handler"),
+            "at": 0
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(install::recorded_handler(&f.dir, "sub/notes").is_none());
+    assert!(!f.handler.has_handler("sub/notes"));
+}
+
+#[test]
 fn recorded_handler_gets_message_argument_and_body() {
     let f = Fixture::new("printf '%s:' \"$1\"; /bin/cat");
     assert!(f.handler.has_handler("notes"));

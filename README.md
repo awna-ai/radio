@@ -438,6 +438,9 @@ For a `text`, the block holds a `draft` (or, to agree, `agree_with` naming an ea
 - **Time box.** When the time is up, Radio steps the open round with the seats that have posted,
   the deliberation takes no more turns, and `deliberation_state` shows `expired: true`, usually
   with outcome `open`; once a seat had posted, `deliberation_result` answers the result so far.
+- **A seat that never posted** shows in the result as a group of its own, with no answer (`[]` for
+  a list) and an empty objection in `dissent`. On a tie it can be listed first, so read `outcome`
+  and the weights, not only the first group. A missing answer reads `None` in the markdown.
 - **Only `deliberation_turn` counts:** a plain `post` in the room is just a message. A turn that
   isn't a valid block is refused `the turn holds no valid deliberation block`, and nothing changes.
 

@@ -2413,6 +2413,30 @@ fn the_source_message_cap_rolls_back_the_import() {
 }
 
 #[test]
+fn a_checkpoint_empties_the_wal_while_the_store_stays_open() {
+    let fixture = Store::new("checkpoint");
+    let store = fixture.room();
+    let rooms = store.rooms(None, READ_MAX).unwrap();
+    let wal = fixture.path().with_file_name("rooms.db-wal");
+    assert!(fs::metadata(&wal).unwrap().len() > 0);
+    assert_eq!(
+        checkpoint_store(&fixture.path(), Duration::from_secs(1)),
+        Ok(())
+    );
+    assert_eq!(fs::metadata(&wal).unwrap().len(), 0);
+    let reopened = fixture.open();
+    assert_eq!(reopened.rooms(None, READ_MAX).unwrap(), rooms);
+}
+
+#[test]
+fn a_checkpoint_never_creates_a_missing_store() {
+    let fixture = Store::new("checkpoint-missing");
+    fs::create_dir_all(fixture.path().parent().unwrap()).unwrap();
+    assert!(checkpoint_store(&fixture.path(), Duration::from_secs(1)).is_err());
+    assert!(!fixture.path().exists());
+}
+
+#[test]
 fn a_snapshot_restores_rooms_messages_and_schema_without_migrating() {
     let fixture = Store::new("snapshot");
     let mut store = fixture.room();
