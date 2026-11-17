@@ -139,6 +139,16 @@ stable Rust (edition 2024) and a C++ compiler (the fuzz crate's `libfuzzer-sys` 
 shellcheck and gitleaks are skipped when missing. `RADIO_STRICT=1` makes
 every tool and the term list required, and is how the maintainers run it before a land.
 
+`bash scripts/ci-local.sh --tier touched` checks only what a change can break: the crates it touches
+and every workspace crate that depends on them (`cargo clippy` and `cargo test` with `-p`), the fuzz
+crate when `radio-link` is among them, and the test of each shell script it touches. Files a crate's
+tests read count as that crate (`contract/` and `CONTRACT.md` as `radio-client`, `README.md` as
+`radio`, `fuzz/` as `radio-link`); other Markdown, `LICENSE` and `.gitignore` add nothing, and any
+other path, or a base that doesn't resolve, runs the full tier instead. The change is everything since
+the base, `RADIO_CI_BASE` (default `origin/main`), untracked files included. Shellcheck, the term
+check, gitleaks and both format checks run in every tier. `--list` prints a tier's steps and runs
+none; `tests/ci_local_test.sh` checks the choices. A release still runs the full tier first.
+
 The link's property tests (`crates/radio-link/tests/properties.rs`, D21) run 256 cases each from a
 fixed seed. `RADIO_PROPERTY_CASES=100000 cargo test --locked -p radio-link --test properties` runs
 more, and `RADIO_PROPERTY_SEED=<n>` replays the seed a failure names.
