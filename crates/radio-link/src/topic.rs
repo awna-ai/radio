@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const ANNOUNCEMENT_DOMAIN: &[u8] = b"radio computer announcement 1\n";
-/// iroh-gossip's default `max_message_size`; a larger message is dropped unread.
+/// iroh-gossip's default `max_message_size`; a larger message is dropped unread. It bounds the
+/// whole gossip frame, so what a member can send is a few dozen bytes less.
 pub const TOPIC_MESSAGE_MAX: usize = 4096;
 const INVALID: &str = "not a topic message";
 
@@ -37,7 +38,7 @@ pub enum TopicMessage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Received {
     Record(Applied),
-    Announcement,
+    Announcement(Announcement),
 }
 
 #[derive(Serialize)]
@@ -140,7 +141,7 @@ pub fn receive(
         }
         TopicMessage::Announcement(announcement) => db
             .apply_announcement(node, &announcement)
-            .map(|()| Received::Announcement),
+            .map(|()| Received::Announcement(announcement)),
     }
 }
 

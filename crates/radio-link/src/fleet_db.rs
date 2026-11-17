@@ -827,6 +827,8 @@ impl FleetDb {
             if current.name.as_deref() != Some(name) {
                 tx.execute("DELETE FROM computer_records WHERE key = ?1", [&key])
                     .map_err(|_| WRITE)?;
+                tx.execute("DELETE FROM announcements WHERE key = ?1", [&key])
+                    .map_err(|_| WRITE)?;
             }
             tx.execute(
                 "UPDATE computers SET state = 'accepted', name = ?2, addrs = ?3 WHERE key = ?1",

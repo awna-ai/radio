@@ -2832,8 +2832,14 @@ fn readmitting_under_a_new_name_drops_the_old_computer_record() {
     admit_new(&mut db, &node, &peer, "birch", 10.0);
     let record = computer_record(&db, &peer, "birch", 1);
     db.apply_computer(&node.public(), &record).unwrap();
+    db.apply_announcement(
+        &node.public(),
+        &topic::announce(&computer_record(&db, &peer, "birch", 5), &peer),
+    )
+    .unwrap();
     admit_new(&mut db, &node, &peer, "cedar", 11.0);
     assert!(db.computer_records().unwrap().is_empty());
+    assert_eq!(count(&db, "announcements"), 0);
     let other = iroh::SecretKey::generate();
     admit_new(&mut db, &node, &other, "birch", 12.0);
     let record = computer_record(&db, &other, "birch", 1);
@@ -3665,7 +3671,9 @@ fn topic_messages_are_checked_before_they_are_applied() {
     .encode();
     assert_eq!(
         topic::receive(&mut db, &node.public(), "garden", &announcement, 12.0),
-        Ok(Received::Announcement)
+        Ok(Received::Announcement(
+            db.announcement(&newcomer.public()).unwrap().unwrap()
+        ))
     );
     assert_eq!(
         topic::receive(&mut db, &node.public(), "garden", &announcement, 13.0),

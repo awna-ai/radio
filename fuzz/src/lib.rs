@@ -4,6 +4,7 @@ use radio_link::{
     fleet::{self, FleetRecord},
     frame as framing,
     membership::{JoinAnswer, SignedRecord},
+    topic::TopicMessage,
     wire::{Answer, JoinRequest, Request},
 };
 use std::sync::OnceLock;
@@ -89,7 +90,14 @@ pub fn records(data: &[u8]) -> u32 {
             }
         }};
     }
-    check!(ComputerRecord) + check!(SignedRecord) + check!(FleetRecord)
+    let topic = match TopicMessage::decode(data) {
+        Ok(message) => {
+            assert!(TopicMessage::decode(&message.encode()) == Ok(message));
+            1
+        }
+        Err(_) => 0,
+    };
+    check!(ComputerRecord) + check!(SignedRecord) + check!(FleetRecord) + topic
 }
 
 pub fn join_code(data: &[u8]) -> u32 {

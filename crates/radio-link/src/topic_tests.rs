@@ -128,3 +128,22 @@ fn the_largest_announcement_is_far_under_the_cap() {
     eprintln!("announcement={}", bytes.len());
     assert!(bytes.len() <= 512, "{}", bytes.len());
 }
+
+#[test]
+fn the_signed_bytes_and_the_wire_form_are_fixed() {
+    assert_eq!(
+        signed_bytes("f", "k", 7, "h"),
+        b"radio computer announcement 1\n{\"fleet\":\"f\",\"key\":\"k\",\"version\":7,\"hash\":\"h\"}"
+    );
+    let node = iroh::SecretKey::generate();
+    let announcement = announce(&record(&node, &"ab".repeat(32), 5), &node);
+    let encoded =
+        String::from_utf8(TopicMessage::Announcement(announcement.clone()).encode()).unwrap();
+    assert_eq!(
+        encoded,
+        format!(
+            r#"{{"announcement":{{"key":"{}","version":5,"hash":"{}","signature":"{}"}}}}"#,
+            announcement.key, announcement.hash, announcement.signature
+        )
+    );
+}
