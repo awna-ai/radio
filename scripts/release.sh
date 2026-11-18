@@ -27,6 +27,7 @@ fail() {
     exit 1
 }
 commit=$(git -C "$root" rev-parse --verify -q "refs/tags/$tag^{commit}") || fail "no tag $tag"
+bash "$root/scripts/release-check.sh" --remote origin "$commit" || exit 1
 terms=${RADIO_TERMS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/radio-dev/terms.txt}
 [ -f "$terms" ] && [ -r "$terms" ] || fail "no term list at $terms"
 

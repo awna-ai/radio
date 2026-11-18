@@ -19,7 +19,18 @@ cat > "$tmp/bin/git" <<'STUB'
 #!/usr/bin/env bash
 for arg in "$@"; do
     if [ "$arg" = ls-remote ]; then
+        case "$*" in
+            *' refs/heads/main refs/green/main refs/green/frozen')
+                printf '%s\n' "$*" >> "$STUB_ROOT/calls/green"
+                [ -f "$STUB_ROOT/green-refs" ] || exit 1
+                cat "$STUB_ROOT/green-refs"
+                exit 0 ;;
+        esac
         printf '%s\n' "$*" >> "$STUB_ROOT/calls/git-remote"
+        exit 1
+    fi
+    if [ "$arg" = fetch ]; then
+        printf '%s\n' "$*" >> "$STUB_ROOT/calls/git-fetch"
         exit 1
     fi
 done
@@ -374,6 +385,7 @@ new_case() {
     unset STUB_CDYLIB_CRATES STUB_CDYLIB_ONLY_CRATES STUB_BINARY_CODE STUB_REGION STUB_REGION_AFTER
     export RADIO_TERMS_FILE="$tmp/terms.txt"
     git init -q -b main "$repo" || exit 1
+    git -C "$repo" remote add origin git@github.com:example-org/example-repo.git
     git -C "$repo" config user.name Test
     git -C "$repo" config user.email test@example.invalid
     git -C "$repo" config commit.gpgsign false
@@ -382,11 +394,16 @@ new_case() {
     if [ -f "$root/scripts/release.sh" ]; then
         cp "$root/scripts/release.sh" "$repo/scripts/release.sh"
     fi
+    if [ -f "$root/scripts/release-check.sh" ]; then
+        cp "$root/scripts/release-check.sh" "$repo/scripts/release-check.sh"
+    fi
     git -C "$repo" add .
     git -C "$repo" commit -qm 'add source' || exit 1
     git -C "$repo" tag -a -m v0.1.0 v0.1.0 || exit 1
     printf 'MIT test licence v2\n' > "$repo/LICENSE"
     git -C "$repo" commit -qam 'update licence' || exit 1
+    fixture_head=$(git -C "$repo" rev-parse HEAD)
+    printf '%s\t%s\n' "$fixture_head" refs/heads/main "$fixture_head" refs/green/main > "$tmp/green-refs"
     printf 'scratch\n' > "$repo/scratch.txt"
     out="$repo/target/release-dist/v0.1.0"
 }
@@ -417,7 +434,6 @@ refused() {
 
 origin() {
     git init --bare -q "$tmp/origin-$case_number.git" || exit 1
-    git -C "$repo" remote add origin git@github.com:example-org/example-repo.git
     export STUB_ORIGIN="$tmp/origin-$case_number.git"
     git -C "$STUB_ORIGIN" config user.name Test
     git -C "$STUB_ORIGIN" config user.email test@example.invalid
@@ -1083,6 +1099,44 @@ done
 new_case 86
 export STUB_OTOOL=cmdbig STUB_BINARY_TRIE='edge trie edge'
 refused 1 'skipped region over a read one (load command 4)' v0.1.0
+
+# The full check gates every build before any toolchain or publishing call.
+new_case green-current
+expect 0 'SHA256SUMS' v0.1.0
+[ -f "$tmp/calls/green" ] && [ "$(wc -l < "$tmp/calls/green")" -eq 1 ] || fail 'green was not read exactly once'
+[ ! -f "$tmp/calls/git-fetch" ] || fail 'green check fetched'
+
+for mode in unchecked frozen absent unreadable sideways publish; do
+    new_case "green-$mode"
+    # Tag the newest commit, whose workspace version still matches the tag.
+    git -C "$repo" tag -d v0.1.0 > /dev/null
+    git -C "$repo" tag -a -m v0.1.0 v0.1.0
+    head=$(git -C "$repo" rev-parse HEAD)
+    parent=$(git -C "$repo" rev-parse HEAD^)
+    printf '%s\t%s\n' "$head" refs/heads/main "$parent" refs/green/main > "$tmp/green-refs"
+    case "$mode" in
+        unchecked|publish) message='has not passed the full check on main yet' ;;
+        frozen)
+            printf '%s\t%s\n' "$head" refs/green/frozen >> "$tmp/green-refs"
+            message="releases are frozen at ${head:0:12}: main went red twice there. Revert or fix it, and wait for the next green." ;;
+        absent)
+            printf '%s\t%s\n' "$head" refs/heads/main > "$tmp/green-refs"
+            message='nothing on main has passed the full check yet.' ;;
+        unreadable) rm "$tmp/green-refs"; message='could not read origin' ;;
+        sideways)
+            orphan=$(printf 'orphan\n' | git -C "$repo" commit-tree "$head^{tree}")
+            printf '%s\t%s\n' "$orphan" refs/heads/main "$head" refs/green/main > "$tmp/green-refs"
+            message="green ${head:0:12} is not on origin/main; nothing can be released until verify-main.sh moves it." ;;
+    esac
+    if [ "$mode" = publish ]; then
+        refused 1 "$message" v0.1.0 --publish
+        [ ! -f "$tmp/calls/gh" ] || fail 'publishing tool called before green'
+    else
+        refused 1 "$message" v0.1.0
+    fi
+    no_build
+    [ ! -f "$tmp/calls/git-fetch" ] || fail 'green refusal fetched'
+done
 
 if [ "$failed" -ne 0 ]; then
     exit 1

@@ -106,20 +106,23 @@ killed), and carries no extended attribute over. Each point below says how it wa
 
 `bash scripts/release.sh <vX.Y.Z>` builds a tag's release on this Mac, with no Actions (D14):
 
-1. It checks the tag (it must exist and name the workspace version), the term list, the tools, and
+1. The tag's commit must have passed the full check on `main`, and releases must not be frozen.
+   `bash scripts/release-check.sh <commit>` checks this; `release.sh` runs it itself, with or without
+   `--publish`, before the term list, tools or build.
+2. It checks the tag (it must exist and name the workspace version), the term list, the tools, and
    both Rust targets (`aarch64-apple-darwin` and `x86_64-apple-darwin`; it prints the
    `rustup target add` line for a missing one and installs nothing).
-2. It builds `radio` for each target from a clean copy of the tag in a temporary folder, so neither
+3. It builds `radio` for each target from a clean copy of the tag in a temporary folder, so neither
    the working tree nor HEAD matter, with `--remap-path-prefix` over the home folder, the Cargo and
    rustup folders and the build folder, then strips the debug map with Apple's `strip -S`. The remap
    can't reach the debug map, which the linker writes with the full paths of the precompiled std
    libraries, and rustc's own strip goes through `rust-objcopy`, which can fail with only a warning
    (it did on the maintainers' Mac, leaving four such paths).
-3. It refuses a binary of the wrong architecture, or one that still holds a build path, this
+4. It refuses a binary of the wrong architecture, or one that still holds a build path, this
    account's name or a private term, then signs each ad hoc. Terms of five or more letters are
    matched anywhere, since Rust packs string literals with nothing between them; shorter ones only
    as whole words, because they turn up inside the library's symbol names.
-4. It packs `radio-<tag>-macos-<arch>.tar.gz` (the binary and `LICENSE`, owned by `root:wheel`, no
+5. It packs `radio-<tag>-macos-<arch>.tar.gz` (the binary and `LICENSE`, owned by `root:wheel`, no
    macOS metadata) and `SHA256SUMS` into `target/release-dist/<tag>/`, replacing an earlier build of
    that tag only once the build has passed.
 
@@ -130,6 +133,15 @@ private temporary folder as a draft, downloads them again and compares them byte
 the draft lists exactly those three, asks GitHub for the tag's commit once more, and only then
 publishes the draft. A draft that fails any of these stays a draft, and the script prints the
 `gh release delete` line that removes it.
+
+### The full check on main
+
+Lands gate on the touched tier. `bash scripts/verify-main.sh` runs the full strict gate on the
+newest `main` in a scratch worktree, checking every land since the last green at once. A pass moves
+`refs/green/main` on `origin`. A red runs once more on the same commit; red twice sets
+`refs/green/frozen` and names the commit, or range, to revert or fix. Releases stay frozen until a
+check of a `main` that contains the frozen commit passes. It is meant to run on a schedule on a
+maintainer's Mac; what calls it lives outside this repo.
 
 ## Running the checks
 
@@ -147,7 +159,8 @@ tests read count as that crate (`contract/` and `CONTRACT.md` as `radio-client`,
 other path, a base that doesn't resolve, or a dependents query that fails or finds nothing runs the full tier instead. The change is everything since
 the base, `RADIO_CI_BASE` (default `origin/main`), untracked files included. Shellcheck, the term
 check, gitleaks and both format checks run in every tier. `--list` prints a tier's steps and runs
-none; `tests/ci_local_test.sh` checks the choices. A release still runs the full tier first.
+none; `tests/ci_local_test.sh` checks the choices. The full tier also runs
+`tests/verify_main_test.sh`, which checks the full check on `main` and the release refusals.
 
 The link's property tests (`crates/radio-link/tests/properties.rs`, D21) run 256 cases each from a
 fixed seed. `RADIO_PROPERTY_CASES=100000 cargo test --locked -p radio-link --test properties` runs

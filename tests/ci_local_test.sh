@@ -143,6 +143,21 @@ has self 'bash tests/ci_local_test.sh'
 [ "$(grep -c -F -x 'bash tests/ci_local_test.sh' "$tmp/out")" -eq 1 ] || fail 'self: the test is listed twice'
 lacks self 'bash tests/release_test.sh'
 
+# Verification scripts select their shell tests without Rust checks.
+for path in scripts/verify-main.sh tests/verify_main_test.sh scripts/release-check.sh; do
+    reset
+    printf '# touched\n' >> "$repo/$path"
+    list --tier touched --list || fail "$path: exit $?"
+    has "$path" 'bash tests/verify_main_test.sh'
+    lacks "$path" 'cargo test'
+    lacks "$path" 'cargo clippy'
+    if [ "$path" = scripts/release-check.sh ]; then
+        has "$path" 'bash tests/release_test.sh'
+    else
+        lacks "$path" 'bash tests/release_test.sh'
+    fi
+done
+
 # A document no check reads runs only the repo-wide scans.
 reset
 printf 'x\n' > "$repo/NOTES.md"
@@ -163,6 +178,7 @@ for path in Cargo.lock unknown.txt; do
     has "$path" 'bash tests/release_test.sh'
     has "$path" 'bash tests/term_check_test.sh'
     has "$path" 'bash tests/ci_local_test.sh'
+    has "$path" 'bash tests/verify_main_test.sh'
 done
 
 # No change at all still runs the repo-wide scans.
@@ -207,6 +223,7 @@ has full 'cargo test --locked'
 has full 'cargo test --locked -p radio-client -p radio-rooms'
 has full "$fuzz_test"
 has full 'bash tests/ci_local_test.sh'
+has full 'bash tests/verify_main_test.sh'
 
 # Bad arguments are refused.
 for args in '--tier' '--tier fast' '--bogus'; do

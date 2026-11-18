@@ -46,7 +46,7 @@ package_in() {
 
 # What the run checks. The full tier checks everything; the touched tier only what the change since
 # the base (RADIO_CI_BASE, default origin/main) can break. The repo-wide scans run in both.
-all_shell_tests=(term_check_test release_test ci_local_test)
+all_shell_tests=(term_check_test release_test ci_local_test verify_main_test)
 shell_tests=("${all_shell_tests[@]}")
 crates=()
 fuzz=1
@@ -76,6 +76,8 @@ if [ "$tier" = touched ]; then
                 scripts/term-check.sh | tests/term_check_test.sh) touched_shell+=(term_check_test) ;;
                 scripts/release.sh | tests/release_test.sh) touched_shell+=(release_test) ;;
                 scripts/ci-local.sh | tests/ci_local_test.sh) touched_shell+=(ci_local_test) ;;
+                scripts/verify-main.sh | tests/verify_main_test.sh) touched_shell+=(verify_main_test) ;;
+                scripts/release-check.sh) touched_shell+=(verify_main_test release_test) ;;
                 *.md | LICENSE | .gitignore) ;;
                 *) everything=1 ;;
             esac
