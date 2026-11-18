@@ -30,9 +30,9 @@ while [ "$#" -gt 0 ]; do
         *) usage ;;
     esac
 done
-url=$(git remote get-url -- "$remote" 2> /dev/null) || usage
-push_url=$(git remote get-url --push -- "$remote" 2> /dev/null) || usage
-[ "$url" = "$push_url" ] || usage
+urls=$(git remote get-url --all -- "$remote" 2> /dev/null) || usage
+push_urls=$(git remote get-url --push --all -- "$remote" 2> /dev/null) || usage
+[[ "$urls" != *$'\n'* ]] && [ "$urls" = "$push_urls" ] || usage
 common=$(git rev-parse --git-common-dir) || fail 'could not find the common git directory'
 lock="$common/verify-main.lock"
 work=''
@@ -58,12 +58,13 @@ running() {
     printf 'verify-main: already running (pid %s)\n' "$pid"
     exit 0
 }
-if ! ln -s "$$" "$lock" 2> /dev/null; then
+if [ -d "$lock" ] || ! ln -s "$$" "$lock" 2> /dev/null; then
     owner=$(readlink "$lock" 2> /dev/null || true)
     case "$owner" in
         ''|*[!0-9]*) ;;
         *) if kill -0 "$owner" 2> /dev/null; then running; fi ;;
     esac
+    [ ! -d "$lock" ] || fail "$lock points at a folder; remove it by hand"
     ln -s "$$" "$lock.$$" 2> /dev/null || running
     if ! mv -f "$lock.$$" "$lock"; then
         rm -f "$lock.$$"
@@ -113,7 +114,13 @@ reread_main() {
 }
 orphan_freeze() {
     if [ -n "$frozen" ]; then
-        ensure_commit "$frozen"
+        if ! git cat-file -e "$frozen^{commit}" 2> /dev/null; then
+            git fetch --quiet -- "$remote" "$frozen" || true
+        fi
+        if ! git cat-file -e "$frozen^{commit}" 2> /dev/null ||
+            ! git cat-file -e "$remote_main^{commit}" 2> /dev/null; then
+            return 0
+        fi
         if ! git merge-base --is-ancestor "$frozen" "$remote_main"; then
             printf 'verify-main: releases stay frozen at %s, which is no longer on %s/main; remove the freeze with: git push %s :refs/green/frozen\n' "${frozen:0:12}" "$remote" "$remote"
         fi

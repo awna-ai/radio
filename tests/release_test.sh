@@ -1160,6 +1160,7 @@ printf '%s\t%s\n' "$head" refs/green/frozen >> "$tmp/green-refs-second"
 expect 1 "releases are frozen at ${head:0:12}: main went red twice there. Revert or fix it, and wait for the next green." v0.1.0 --publish
 [ -f "$tmp/calls/green" ] && [ "$(wc -l < "$tmp/calls/green")" -eq 2 ] || fail 'freeze did not read green exactly twice'
 printf '%s\n' "$output" | grep -F -q 'release-check: releases are frozen' || fail 'freeze diagnostic absent'
+printf '%s\n' "$output" | grep -F -q 'the draft is still there: gh release delete v0.1.0' || fail 'draft cleanup diagnostic absent'
 grep -q '^release create ' "$tmp/calls/gh" || fail 'draft was not created'
 no_edit
 

@@ -425,7 +425,7 @@ gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name' > "$work/a
 sort "$work/assets" > "$work/actual" || fail "$readback_failure"
 cmp -s "$work/expected" "$work/actual" || fail "$readback_failure"
 tag_on_github "; the draft is still there: gh release delete $tag -R $repo --yes"
-bash "$root/scripts/release-check.sh" --remote origin "$commit" || exit 1
+bash "$root/scripts/release-check.sh" --remote origin "$commit" || fail "not published; the draft is still there: gh release delete $tag -R $repo --yes"
 gh release edit "$tag" -R "$repo" --draft=false > /dev/null 2>&1 || fail "could not publish the $tag draft"
 is_draft=$(gh release view "$tag" -R "$repo" --json isDraft --jq .isDraft 2> /dev/null) || fail "$tag is still a draft"
 [ "$is_draft" = false ] || fail "$tag is still a draft"

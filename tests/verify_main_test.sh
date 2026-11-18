@@ -117,6 +117,13 @@ err_last 'usage: scripts/verify-main.sh [--remote <name>] [-- <check command>...
 run 2 release-check main
 err_last 'usage: scripts/release-check.sh [--remote <name>] <commit>'
 git -C "$work" config --unset-all remote.origin.pushurl
+git -C "$work" config --add remote.origin.url "$tmp/push.git"
+run 2 verify-main -- "$tmp/check.sh"
+err_last 'usage: scripts/verify-main.sh [--remote <name>] [-- <check command>...]'
+run 2 release-check main
+err_last 'usage: scripts/release-check.sh [--remote <name>] <commit>'
+git -C "$work" config --unset-all remote.origin.url
+git -C "$work" config remote.origin.url "$tmp/remote.git"
 git -C "$work" remote add no-main "$tmp/push.git"
 run 1 verify-main --remote no-main -- "$tmp/check.sh"
 err_last 'verify-main: no-main has no main'
@@ -182,7 +189,8 @@ ref_is refs/green/main "$head"
 green=$head
 push_commit red add RED
 red=$head
-verify 5
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=push.followTags GIT_CONFIG_VALUE_0=true verify 5
+ref_is refs/tags/local-only ''
 runs 2
 last "red $head culprit $head"
 [ "$(tail -n 2 "$tmp/out" | head -n 1)" = "verify-main: releases are frozen. Revert or fix ${head:0:12}, then run this again." ] || fail 'one culprit guidance'
@@ -310,6 +318,13 @@ for target in "$sleeper" not-a-pid; do
     [ ! -L "$common/verify-main.lock" ] || fail 'stale lock remains'
 done
 sleeper=''
+mkdir "$common/lock-folder"
+ln -s lock-folder "$common/verify-main.lock"
+run 1 verify-main -- "$tmp/check.sh"
+err_last "verify-main: $(git -C "$work" rev-parse --git-common-dir)/verify-main.lock points at a folder; remove it by hand"
+[ "$(readlink "$common/verify-main.lock")" = lock-folder ] || fail 'folder lock changed'
+rm "$common/verify-main.lock"
+rmdir "$common/lock-folder"
 push_commit strange-argument
 # The literal shell syntax must reach the check as one argument.
 # shellcheck disable=SC2016

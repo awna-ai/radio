@@ -20,9 +20,9 @@ if [ "${1:-}" = --remote ]; then
 fi
 [ "$#" -eq 1 ] || usage
 case "$1" in -*) usage ;; esac
-url=$(git remote get-url -- "$remote" 2> /dev/null) || usage
-push_url=$(git remote get-url --push -- "$remote" 2> /dev/null) || usage
-[ "$url" = "$push_url" ] || usage
+urls=$(git remote get-url --all -- "$remote" 2> /dev/null) || usage
+push_urls=$(git remote get-url --push --all -- "$remote" 2> /dev/null) || usage
+[[ "$urls" != *$'\n'* ]] && [ "$urls" = "$push_urls" ] || usage
 commit=$(git rev-parse --verify --quiet --end-of-options "$1^{commit}") || {
     printf 'release-check: %s is not a commit\n' "$1" >&2
     exit 2
