@@ -106,9 +106,9 @@ killed), and carries no extended attribute over. Each point below says how it wa
 
 `bash scripts/release.sh <vX.Y.Z>` builds a tag's release on this Mac, with no Actions (D14):
 
-1. The tag's commit must have passed the full check on `main`, and releases must not be frozen.
+1. The tag's commit must be green or behind green on `main`, and releases must not be frozen.
    `bash scripts/release-check.sh <commit>` checks this; `release.sh` runs it itself, with or without
-   `--publish`, before the term list, tools or build.
+   `--publish`, before the term list, tools or build, and again just before publishing.
 2. It checks the tag (it must exist and name the workspace version), the term list, the tools, and
    both Rust targets (`aarch64-apple-darwin` and `x86_64-apple-darwin`; it prints the
    `rustup target add` line for a missing one and installs nothing).
@@ -142,6 +142,11 @@ newest `main` in a scratch worktree, checking every land since the last green at
 `refs/green/frozen` and names the commit, or range, to revert or fix. Releases stay frozen until a
 check of a `main` that contains the frozen commit passes. It is meant to run on a schedule on a
 maintainer's Mac; what calls it lives outside this repo.
+
+A freeze whose commit was removed from `main` by a force-push stays until removed by hand
+(`git push origin :refs/green/frozen`); the script says so on each green run. A red caused by the
+machine, such as a missing tool or a fetch failure in the check, freezes releases too. Once the
+machine is fixed, a green run that contains the frozen commit clears it.
 
 ## Running the checks
 

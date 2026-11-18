@@ -43,8 +43,13 @@ push_commit() {
 remote_ref() {
     git -C "$tmp/remote.git" rev-parse -q --verify "$1" 2> /dev/null || true
 }
+cat > "$work/scripts/ci-local.sh" <<'CHECK'
+#!/usr/bin/env bash
+printf 'strict=%s %s %s\n' "${RADIO_STRICT:-}" "$(pwd -P)" "$(git rev-parse HEAD)" >> "$DEFAULT_RAN"
+CHECK
 push_commit initial
 base=$head
+export DEFAULT_RAN="$tmp/default-ran"
 cat > "$tmp/check.sh" <<'CHECK'
 #!/usr/bin/env bash
 set -eu
@@ -72,6 +77,9 @@ verify() {
 last() {
     [ "$(tail -n 1 "$tmp/out")" = "$1" ] || fail "last line: $(tail -n 1 "$tmp/out"), expected $1"
 }
+err_last() {
+    [ "$(tail -n 1 "$tmp/err")" = "$1" ] || fail "last stderr line: $(tail -n 1 "$tmp/err"), expected $1"
+}
 ref_is() {
     [ "$(remote_ref "$1")" = "$2" ] || fail "wrong $1"
 }
@@ -80,6 +88,7 @@ runs() {
 }
 clean_worktrees() {
     [ "$(git -C "$work" worktree list | wc -l)" -eq 1 ] || fail 'scratch worktree remains'
+    [ -z "$(git -C "$work" rev-parse -q --verify refs/verify-main/main)" ] || fail 'private ref remains'
 }
 contains() {
     grep -F -q -- "$1" "$tmp/out" "$tmp/err" || fail "missing message: $1"
@@ -95,13 +104,26 @@ for args in '' 'main main'; do
     [ "$(cat "$tmp/err")" = 'usage: scripts/release-check.sh [--remote <name>] <commit>' ] || fail 'release usage'
 done
 run 2 release-check nosuchref
-contains 'release-check: nosuchref is not a commit'
+err_last 'release-check: nosuchref is not a commit'
 run 2 verify-main --remote '--upload-pack=touch PWNED'
 run 2 verify-main --remote ''
 run 2 release-check --remote -x main
 run 2 release-check --remote nosuch main
 
-verify 0
+git init --bare -q -b main "$tmp/push.git"
+git -C "$work" config remote.origin.pushurl "$tmp/push.git"
+run 2 verify-main -- "$tmp/check.sh"
+err_last 'usage: scripts/verify-main.sh [--remote <name>] [-- <check command>...]'
+run 2 release-check main
+err_last 'usage: scripts/release-check.sh [--remote <name>] <commit>'
+git -C "$work" config --unset-all remote.origin.pushurl
+git -C "$work" remote add no-main "$tmp/push.git"
+run 1 verify-main --remote no-main -- "$tmp/check.sh"
+err_last 'verify-main: no-main has no main'
+
+git -C "$work" tag -a -m local local-only "$head"
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=push.followTags GIT_CONFIG_VALUE_0=true verify 0
+ref_is refs/tags/local-only ''
 last "green $head"
 ref_is refs/green/main "$head"
 runs 1
@@ -117,6 +139,27 @@ verify 0
 last "green $head"
 runs 1
 ref_is refs/green/main "$head"
+
+# No default fetch mapping or stale tracking ref may choose the checked commit.
+push_commit remote-main
+local_only=$(printf 'local only\n' | git -C "$work" commit-tree "$head^{tree}" -p "$head")
+git -C "$work" config --unset-all remote.origin.fetch
+git -C "$work" update-ref refs/remotes/origin/main "$local_only"
+verify 0
+last "green $head"
+ref_is refs/green/main "$head"
+[ -z "$(git -C "$tmp/remote.git" for-each-ref --contains "$local_only" --format='%(refname)' 2> /dev/null)" ] || fail 'local-only commit reached remote ref'
+if git -C "$tmp/remote.git" cat-file -e "$local_only" 2> /dev/null; then fail 'local-only object reached remote'; fi
+[ -z "$(git -C "$work" rev-parse -q --verify refs/verify-main/main)" ] || fail 'private ref remains'
+git -C "$tmp/remote.git" update-ref refs/green/main "$head"
+git -C "$work" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+
+# The default check is strict and runs on remote main in the scratch worktree.
+push_commit default-check
+run 0 verify-main --remote origin
+last "green $head"
+read -r strict directory checked < "$tmp/default-ran"
+[ "$strict" = strict=1 ] && [ "$directory" != "$work" ] && [ "$checked" = "$head" ] || fail 'wrong default check'
 
 # The caller can be dirty and detached at an older commit.
 push_commit newer
@@ -147,7 +190,7 @@ ref_is refs/green/main "$green"
 ref_is refs/green/frozen "$head"
 clean_worktrees
 run 1 release-check --remote origin "$green"
-contains "release-check: releases are frozen at ${red:0:12}: main went red twice there. Revert or fix it, and wait for the next green."
+err_last "release-check: releases are frozen at ${red:0:12}: main went red twice there. Revert or fix it, and wait for the next green."
 push_commit fix rm RED
 verify 0
 last "releases unfrozen (freeze at $red cleared)"
@@ -170,29 +213,29 @@ git -C "$work" tag -a -m checked checked "$green"
 run 0 release-check checked
 push_commit unchecked
 run 1 release-check main
-contains "${head:0:12} has not passed the full check on main yet (green is ${green:0:12}). Release a green commit, or run scripts/verify-main.sh first."
+err_last "release-check: ${head:0:12} has not passed the full check on main yet (green is ${green:0:12}). Release a green commit, or run scripts/verify-main.sh first."
 git init --bare -q -b main "$tmp/empty.git"
 git -C "$work" remote add empty "$tmp/empty.git"
 run 1 release-check --remote empty main
-contains 'nothing on main has passed the full check yet.'
+err_last 'release-check: nothing on main has passed the full check yet.'
 git -C "$work" push -q empty "$base:refs/green/main" || exit 1
 run 1 release-check --remote empty main
-contains 'empty has no main.'
+err_last 'release-check: empty has no main.'
 git -C "$work" remote add unreadable "$tmp/missing.git"
 run 1 release-check --remote unreadable main
-contains 'release-check: could not read unreadable'
+err_last 'release-check: could not read unreadable'
 run 1 verify-main --remote unreadable -- "$tmp/check.sh"
-contains 'verify-main: could not fetch unreadable'
+err_last 'verify-main: could not read unreadable'
 ref_is refs/heads/main "$head"
 
 orphan=$(printf 'orphan\n' | git -C "$work" commit-tree "$head^{tree}")
 git -C "$work" push -q origin "+$orphan:refs/green/main" || exit 1
 verify 1
 runs 0
-contains "green ${orphan:0:12} is not on origin/main; nothing changed"
+err_last "verify-main: green ${orphan:0:12} is not on origin/main; nothing changed"
 ref_is refs/green/main "$orphan"
 run 1 release-check main
-contains "green ${orphan:0:12} is not on origin/main; nothing can be released until verify-main.sh moves it."
+err_last "release-check: green ${orphan:0:12} is not on origin/main; move it back onto main by hand (git push origin +<a main commit>:refs/green/main)."
 git -C "$tmp/remote.git" update-ref refs/green/main "$green"
 
 # A pass must keep a freeze whose commit it does not contain.
@@ -200,6 +243,10 @@ git -C "$tmp/remote.git" update-ref refs/green/frozen "$orphan"
 verify 0
 last "green $head"
 ref_is refs/green/frozen "$orphan"
+contains "verify-main: releases stay frozen at ${orphan:0:12}, which is no longer on origin/main; remove the freeze with: git push origin :refs/green/frozen"
+run 0 verify-main -- "$tmp/check.sh"
+last "green is current: $head"
+contains "verify-main: releases stay frozen at ${orphan:0:12}, which is no longer on origin/main; remove the freeze with: git push origin :refs/green/frozen"
 git -C "$tmp/remote.git" update-ref -d refs/green/frozen
 git -C "$tmp/remote.git" update-ref refs/green/main "$green"
 
@@ -211,12 +258,15 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 git -C "$here/remote.git" update-ref refs/green/main "$(cat "$here/move-to")"
 CHECK
 printf '%s\n' "$head" > "$tmp/move-to"
+git -C "$tmp/remote.git" update-ref refs/green/frozen "$orphan"
 run 0 verify-main -- "$BASH" "$tmp/race.sh"
 last "covered: green is $head"
+contains "verify-main: releases stay frozen at ${orphan:0:12}, which is no longer on origin/main; remove the freeze with: git push origin :refs/green/frozen"
+git -C "$tmp/remote.git" update-ref -d refs/green/frozen
 push_commit lease-race
 printf '%s\n' "$base" > "$tmp/move-to"
 run 1 verify-main -- bash "$tmp/race.sh"
-contains 'green moved during the check; nothing changed; run it again'
+err_last 'verify-main: green moved during the check; nothing changed; run it again'
 ref_is refs/green/main "$base"
 clean_worktrees
 
@@ -227,7 +277,14 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 git -C "$here/remote.git" update-ref refs/heads/main "$(git rev-parse HEAD^)"
 CHECK
 run 1 verify-main -- bash "$tmp/rewind.sh"
-contains "origin/main no longer holds ${head:0:12}; nothing changed"
+err_last "verify-main: origin/main no longer holds ${head:0:12}; nothing changed"
+ref_is refs/green/main "$base"
+clean_worktrees
+git -C "$work" push -q origin main
+printf 'exit 1\n' >> "$tmp/rewind.sh"
+run 1 verify-main -- bash "$tmp/rewind.sh"
+err_last "verify-main: origin/main no longer holds ${head:0:12}; nothing changed"
+ref_is refs/green/frozen ''
 ref_is refs/green/main "$base"
 clean_worktrees
 git -C "$work" push -q origin main
@@ -241,6 +298,7 @@ ln -s "$sleeper" "$common/verify-main.lock"
 run 0 verify-main -- "$tmp/check.sh"
 last "verify-main: already running (pid $sleeper)"
 runs 0
+[ "$(readlink "$common/verify-main.lock")" = "$sleeper" ] || fail 'live lock removed'
 kill "$sleeper"
 wait "$sleeper" 2> /dev/null || true
 rm "$common/verify-main.lock"

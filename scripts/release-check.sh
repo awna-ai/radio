@@ -20,7 +20,9 @@ if [ "${1:-}" = --remote ]; then
 fi
 [ "$#" -eq 1 ] || usage
 case "$1" in -*) usage ;; esac
-git remote get-url -- "$remote" > /dev/null 2>&1 || usage
+url=$(git remote get-url -- "$remote" 2> /dev/null) || usage
+push_url=$(git remote get-url --push -- "$remote" 2> /dev/null) || usage
+[ "$url" = "$push_url" ] || usage
 commit=$(git rev-parse --verify --quiet --end-of-options "$1^{commit}") || {
     printf 'release-check: %s is not a commit\n' "$1" >&2
     exit 2
@@ -46,7 +48,7 @@ if ! git cat-file -e "$green^{commit}" 2> /dev/null || ! git cat-file -e "$main^
     git cat-file -e "$green^{commit}" 2> /dev/null || fail "could not fetch $remote"
     git cat-file -e "$main^{commit}" 2> /dev/null || fail "could not fetch $remote"
 fi
-git merge-base --is-ancestor "$green" "$main" || fail "green ${green:0:12} is not on $remote/main; nothing can be released until verify-main.sh moves it."
+git merge-base --is-ancestor "$green" "$main" || fail "green ${green:0:12} is not on $remote/main; move it back onto main by hand (git push $remote +<a main commit>:refs/green/main)."
 if git merge-base --is-ancestor "$commit" "$green"; then
     printf 'release-check: %s passed the full check (green is %s).\n' "${commit:0:12}" "${green:0:12}"
     exit 0

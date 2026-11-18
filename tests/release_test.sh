@@ -23,7 +23,11 @@ for arg in "$@"; do
             *' refs/heads/main refs/green/main refs/green/frozen')
                 printf '%s\n' "$*" >> "$STUB_ROOT/calls/green"
                 [ -f "$STUB_ROOT/green-refs" ] || exit 1
-                cat "$STUB_ROOT/green-refs"
+                if [ -f "$STUB_ROOT/green-refs-second" ] && [ "$(wc -l < "$STUB_ROOT/calls/green")" -ge 2 ]; then
+                    cat "$STUB_ROOT/green-refs-second"
+                else
+                    cat "$STUB_ROOT/green-refs"
+                fi
                 exit 0 ;;
         esac
         printf '%s\n' "$*" >> "$STUB_ROOT/calls/git-remote"
@@ -373,6 +377,7 @@ new_case() {
     repo="$tmp/case-$case_number"
     mkdir -p "$repo/scripts"
     rm -rf "$tmp/calls" "$tmp/server"
+    rm -f "$tmp/green-refs-second"
     rm -rf "$tmp/tmpdir"
     mkdir "$tmp/calls" "$tmp/tmpdir"
     export TMPDIR="$tmp/tmpdir"
@@ -1115,7 +1120,10 @@ for mode in unchecked frozen absent unreadable sideways publish; do
     parent=$(git -C "$repo" rev-parse HEAD^)
     printf '%s\t%s\n' "$head" refs/heads/main "$parent" refs/green/main > "$tmp/green-refs"
     case "$mode" in
-        unchecked|publish) message='has not passed the full check on main yet' ;;
+        unchecked)
+            export RADIO_TERMS_FILE="$tmp/missing-terms"
+            message='has not passed the full check on main yet' ;;
+        publish) message='has not passed the full check on main yet' ;;
         frozen)
             printf '%s\t%s\n' "$head" refs/green/frozen >> "$tmp/green-refs"
             message="releases are frozen at ${head:0:12}: main went red twice there. Revert or fix it, and wait for the next green." ;;
@@ -1126,7 +1134,7 @@ for mode in unchecked frozen absent unreadable sideways publish; do
         sideways)
             orphan=$(printf 'orphan\n' | git -C "$repo" commit-tree "$head^{tree}")
             printf '%s\t%s\n' "$orphan" refs/heads/main "$head" refs/green/main > "$tmp/green-refs"
-            message="green ${head:0:12} is not on origin/main; nothing can be released until verify-main.sh moves it." ;;
+            message="green ${head:0:12} is not on origin/main; move it back onto main by hand (git push origin +<a main commit>:refs/green/main)." ;;
     esac
     if [ "$mode" = publish ]; then
         refused 1 "$message" v0.1.0 --publish
@@ -1137,6 +1145,23 @@ for mode in unchecked frozen absent unreadable sideways publish; do
     no_build
     [ ! -f "$tmp/calls/git-fetch" ] || fail 'green refusal fetched'
 done
+
+# Publishing checks green a second time, after the tag is checked again.
+new_case green-current-publish
+origin tag
+expect 0 'release: published v0.1.0' v0.1.0 --publish
+[ -f "$tmp/calls/green" ] && [ "$(wc -l < "$tmp/calls/green")" -eq 2 ] || fail 'publish did not read green exactly twice'
+
+new_case green-freezes-during-build
+origin tag
+head=$(git -C "$repo" rev-parse HEAD)
+cp "$tmp/green-refs" "$tmp/green-refs-second"
+printf '%s\t%s\n' "$head" refs/green/frozen >> "$tmp/green-refs-second"
+expect 1 "releases are frozen at ${head:0:12}: main went red twice there. Revert or fix it, and wait for the next green." v0.1.0 --publish
+[ -f "$tmp/calls/green" ] && [ "$(wc -l < "$tmp/calls/green")" -eq 2 ] || fail 'freeze did not read green exactly twice'
+printf '%s\n' "$output" | grep -F -q 'release-check: releases are frozen' || fail 'freeze diagnostic absent'
+grep -q '^release create ' "$tmp/calls/gh" || fail 'draft was not created'
+no_edit
 
 if [ "$failed" -ne 0 ]; then
     exit 1

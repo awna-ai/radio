@@ -30,7 +30,9 @@ while [ "$#" -gt 0 ]; do
         *) usage ;;
     esac
 done
-git remote get-url -- "$remote" > /dev/null 2>&1 || usage
+url=$(git remote get-url -- "$remote" 2> /dev/null) || usage
+push_url=$(git remote get-url --push -- "$remote" 2> /dev/null) || usage
+[ "$url" = "$push_url" ] || usage
 common=$(git rev-parse --git-common-dir) || fail 'could not find the common git directory'
 lock="$common/verify-main.lock"
 work=''
@@ -41,6 +43,7 @@ cleanup() {
         git worktree prune > /dev/null 2>&1 || true
     fi
     if [ "$(readlink "$lock" 2> /dev/null || true)" = "$$" ]; then
+        git update-ref -d refs/verify-main/main > /dev/null 2>&1 || true
         rm -f "$lock"
     fi
 }
@@ -61,27 +64,35 @@ if ! ln -s "$$" "$lock" 2> /dev/null; then
         ''|*[!0-9]*) ;;
         *) if kill -0 "$owner" 2> /dev/null; then running; fi ;;
     esac
-    if [ "$(readlink "$lock" 2> /dev/null || true)" = "$owner" ]; then
-        rm -f "$lock" || running
+    ln -s "$$" "$lock.$$" 2> /dev/null || running
+    if ! mv -f "$lock.$$" "$lock"; then
+        rm -f "$lock.$$"
+        running
     fi
-    ln -s "$$" "$lock" 2> /dev/null || running
+    if [ "$(readlink "$lock" 2> /dev/null || true)" != "$$" ]; then
+        rm -f "$lock.$$"
+        running
+    fi
 fi
 fetch_main() {
-    git fetch --quiet -- "$remote" main || fail "could not fetch $remote"
+    git fetch --quiet -- "$remote" +refs/heads/main:refs/verify-main/main || fail "could not fetch $remote"
 }
 read_refs() {
     local refs oid ref
-    refs=$(git ls-remote -- "$remote" refs/green/main refs/green/frozen) || fail "could not read $remote"
+    refs=$(git ls-remote -- "$remote" refs/heads/main refs/green/main refs/green/frozen) || fail "could not read $remote"
+    remote_main=''
     green=''
     frozen=''
     while read -r oid ref; do
         [ -n "$oid" ] || continue
         [[ "$oid" =~ ^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$ ]] || fail "invalid oid from $remote"
         case "$ref" in
+            refs/heads/main) remote_main=$oid ;;
             refs/green/main) green=$oid ;;
             refs/green/frozen) frozen=$oid ;;
         esac
     done <<< "$refs"
+    [ -n "$remote_main" ] || fail "$remote has no main"
 }
 ensure_commit() {
     if ! git cat-file -e "$1^{commit}" 2> /dev/null; then
@@ -89,10 +100,31 @@ ensure_commit() {
         git cat-file -e "$1^{commit}" 2> /dev/null || fail "could not fetch $remote"
     fi
 }
-fetch_main
-head=$(git rev-parse --verify "refs/remotes/$remote/main^{commit}") || fail "could not fetch $remote"
+# Keep the original green and freeze for the push leases when re-reading main.
+reread_main() {
+    local new_head green frozen
+    fetch_main
+    new_head=$(git rev-parse --verify 'refs/verify-main/main^{commit}') || fail "could not fetch $remote"
+    read_refs
+    if ! git merge-base --is-ancestor "$head" "$new_head" ||
+        ! git merge-base --is-ancestor "$head" "$remote_main"; then
+        fail "$remote/main no longer holds ${head:0:12}; nothing changed"
+    fi
+}
+orphan_freeze() {
+    if [ -n "$frozen" ]; then
+        ensure_commit "$frozen"
+        if ! git merge-base --is-ancestor "$frozen" "$remote_main"; then
+            printf 'verify-main: releases stay frozen at %s, which is no longer on %s/main; remove the freeze with: git push %s :refs/green/frozen\n' "${frozen:0:12}" "$remote" "$remote"
+        fi
+    fi
+}
 read_refs
+fetch_main
+head=$(git rev-parse --verify 'refs/verify-main/main^{commit}') || fail "could not fetch $remote"
+[ "$head" = "$remote_main" ] || fail "$remote/main moved while it was read; nothing changed; run it again"
 if [ "$green" = "$head" ]; then
+    orphan_freeze
     printf 'green is current: %s\n' "$head"
     exit 0
 fi
@@ -135,7 +167,8 @@ red_line() {
     fi
 }
 if [ "$status" -ne 0 ]; then
-    if ! git push --porcelain "--force-with-lease=refs/green/frozen:$frozen" -- "$remote" "$head:refs/green/frozen"; then
+    reread_main
+    if ! git push --no-follow-tags --recurse-submodules=no --porcelain "--force-with-lease=refs/green/frozen:$frozen" -- "$remote" "$head:refs/green/frozen"; then
         red_line
         fail "${head:0:12} is red, and the freeze could not be pushed"
     fi
@@ -148,9 +181,7 @@ if [ "$status" -ne 0 ]; then
     red_line
     exit 6
 fi
-fetch_main
-new_head=$(git rev-parse --verify "refs/remotes/$remote/main^{commit}") || fail "could not fetch $remote"
-git merge-base --is-ancestor "$head" "$new_head" || fail "$remote/main no longer holds ${head:0:12}; nothing changed"
+reread_main
 leases=("--force-with-lease=refs/green/main:$green")
 refs=("$head:refs/green/main")
 cleared=''
@@ -163,19 +194,21 @@ if [ -n "$frozen" ]; then
     fi
 fi
 push_status=0
-pushed=$(git push --atomic --porcelain "${leases[@]}" -- "$remote" "${refs[@]}") || push_status=$?
+pushed=$(git push --no-follow-tags --recurse-submodules=no --atomic --porcelain "${leases[@]}" -- "$remote" "${refs[@]}") || push_status=$?
 # Git can report '=' even when the lease no longer matched.
 if [ "$push_status" -ne 0 ] || [[ "$pushed" == *$'\n='* ]] || [[ "$pushed" == =* ]]; then
     read_refs
     if [ -n "$green" ]; then
         ensure_commit "$green"
         if git merge-base --is-ancestor "$head" "$green"; then
+            orphan_freeze
             printf 'covered: green is %s\n' "$green"
             exit 0
         fi
     fi
     fail 'green moved during the check; nothing changed; run it again'
 fi
+orphan_freeze
 printf 'green %s\n' "$head"
 if [ -n "$cleared" ]; then
     printf 'releases unfrozen (freeze at %s cleared)\n' "$cleared"
