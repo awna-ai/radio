@@ -52,11 +52,18 @@ pub fn frame(data: &[u8]) -> u32 {
                 }
                 Request::Computer { record } => record.verify().is_ok(),
                 Request::Record { record } => record.verify().is_ok(),
+                Request::Fetch { key } => key.parse::<radio_link::EndpointId>().is_ok(),
                 Request::Hello { .. } | Request::App { .. } | Request::Heartbeat {} => true,
             });
         }
-        if decode!(Answer, framing::CONTROL_CAP).is_some() {
-            checked += 1;
+        if let Some(answer) = decode!(Answer, framing::CONTROL_CAP) {
+            checked += u32::from(match answer {
+                Answer::Computer { record } => record.verify().is_ok(),
+                Answer::Reply { .. }
+                | Answer::Refused { .. }
+                | Answer::Hello { .. }
+                | Answer::Ok => true,
+            });
         }
         if let Some(request) = decode!(JoinRequest, framing::CONTROL_CAP) {
             checked += u32::from(JoinCode::parse(&request.code).is_ok());
@@ -171,7 +178,12 @@ mod tests {
             serde_json::to_vec(&Request::Computer { record: computer() }).unwrap(),
             serde_json::to_vec(&Request::Hello { hello: hello() }).unwrap(),
             serde_json::to_vec(&Request::Heartbeat {}).unwrap(),
+            serde_json::to_vec(&Request::Fetch {
+                key: node().public().to_string(),
+            })
+            .unwrap(),
             serde_json::to_vec(&Answer::Ok).unwrap(),
+            serde_json::to_vec(&Answer::Computer { record: computer() }).unwrap(),
             serde_json::to_vec(&JoinRequest {
                 code: code().encode(),
                 consent: String::new(),
@@ -189,6 +201,18 @@ mod tests {
         ] {
             assert!(frame(&framed(json)) >= 1);
         }
+    }
+    #[test]
+    fn a_fetch_with_a_bad_key_is_decoded_but_not_checked() {
+        assert_eq!(
+            frame(&framed(
+                serde_json::to_vec(&Request::Fetch {
+                    key: "garden".into(),
+                })
+                .unwrap()
+            )),
+            0
+        );
     }
     #[test]
     fn a_frame_that_grows_on_rewrite_is_not_a_crash() {
