@@ -34,6 +34,9 @@ pub const ANNOUNCEMENT_SEND_WINDOW: f64 = 600.0;
 /// Held in memory beside `FleetDb`, never in `fleet.db`, so a restart clears it.
 /// Bounds this member's work, not the topic's traffic: iroh-gossip forwards a message
 /// before the application sees it.
+/// An announcement dropped inside the window is not kept or retried here. The version
+/// it named arrives with the computer's next announcement after the window, or with
+/// the catch-up a later step adds.
 #[derive(Debug, Default)]
 pub struct ReceiveBar {
     kept: HashMap<String, f64>,
@@ -49,6 +52,7 @@ impl ReceiveBar {
 #[derive(Debug, Default)]
 pub struct Announcer {
     last: Option<f64>,
+    sent: Option<u64>,
     pending: Option<ComputerRecord>,
 }
 
@@ -58,6 +62,9 @@ impl Announcer {
     }
 
     pub fn changed(&mut self, record: ComputerRecord) {
+        if self.sent.is_some_and(|v| record.body.version <= v) {
+            return;
+        }
         if self
             .pending
             .as_ref()
@@ -68,6 +75,9 @@ impl Announcer {
     }
 
     pub fn due(&mut self, now: f64) -> Option<ComputerRecord> {
+        if !now.is_finite() {
+            return None;
+        }
         let due = self
             .last
             .is_none_or(|last| now < last || now - last >= ANNOUNCEMENT_SEND_WINDOW);
@@ -76,15 +86,22 @@ impl Announcer {
         }
         let record = self.pending.take()?;
         self.last = Some(now);
+        self.sent = Some(record.body.version);
         Some(record)
     }
 
     pub fn next_due(&self, now: f64) -> Option<f64> {
+        if !now.is_finite() {
+            return None;
+        }
         self.pending.as_ref()?;
-        Some(
-            self.last
-                .map_or(now, |last| now.max(last + ANNOUNCEMENT_SEND_WINDOW)),
-        )
+        Some(self.last.map_or(now, |last| {
+            if now < last {
+                now
+            } else {
+                now.max(last + ANNOUNCEMENT_SEND_WINDOW)
+            }
+        }))
     }
 }
 
@@ -254,6 +271,9 @@ pub fn receive(
             db.apply(node, own_name, &record, now).map(Received::Record)
         }
         TopicMessage::Announcement(announcement) => {
+            if !now.is_finite() {
+                return Err("the clock is not a finite number");
+            }
             if bar
                 .kept
                 .get(&announcement.key)

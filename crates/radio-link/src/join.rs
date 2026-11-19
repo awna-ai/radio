@@ -248,6 +248,9 @@ pub async fn fetch(link: &Link, db: &Mutex<FleetDb>, key: &crate::EndpointId) ->
         {
             return announcement.matches(&record);
         }
+        let Ok(Some(_)) = db.fetch_wanted(key) else {
+            return false;
+        };
         let Ok(recipients) = db.recipients(&link.id()) else {
             return false;
         };

@@ -967,6 +967,36 @@ fn announce_to(computer: &Computer, record: &ComputerRecord, key: &SecretKey) {
 }
 
 #[tokio::test]
+async fn fetch_for_a_pending_computer_returns_false_and_stores_nothing() {
+    let (a, b, c) = trio().await;
+    assert_eq!(row(&b, c.link.id()).unwrap().state, State::Pending);
+    let record = resign(&c, "newer");
+    join::apply_computer(&a.link, &a.db, &record).unwrap();
+    announce_to(&b, &record, &c.key);
+    assert!(!bounded(join::fetch(&b.link, &b.db, &c.link.id())).await);
+    assert_ne!(
+        b.db.lock().unwrap().computer_record(&c.link.id()).unwrap(),
+        Some(record)
+    );
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
+async fn fetch_for_a_blocked_computer_returns_false_and_stores_nothing() {
+    let (a, b, c) = accepted_trio().await;
+    let record = resign(&c, "newer");
+    join::apply_computer(&a.link, &a.db, &record).unwrap();
+    announce_to(&b, &record, &c.key);
+    join::block(&b.link, &b.db, &c.link.id().to_string()).unwrap();
+    assert!(!bounded(join::fetch(&b.link, &b.db, &c.link.id())).await);
+    assert_ne!(
+        b.db.lock().unwrap().computer_record(&c.link.id()).unwrap(),
+        Some(record)
+    );
+    stop(&[&a, &b, &c]).await;
+}
+
+#[tokio::test]
 async fn fetch_uses_another_computer_when_the_owner_is_unreachable() {
     let (a, b, c) = accepted_trio().await;
     let record = resign(&a, "newer");

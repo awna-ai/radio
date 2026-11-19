@@ -3870,6 +3870,36 @@ fn receive_bar_opens_at_exactly_five_minutes() {
 }
 
 #[test]
+fn receive_bar_refuses_a_clock_that_is_not_finite() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let mut bar = topic::ReceiveBar::new();
+    let first = announcement_bytes(&db, &peer, 1);
+    for now in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(
+            topic::receive(&mut db, &mut bar, &node.public(), "alpha", &first, now),
+            Err("the clock is not a finite number")
+        );
+        assert_eq!(db.announcement(&peer.public()).unwrap(), None);
+    }
+    topic::receive(&mut db, &mut bar, &node.public(), "alpha", &first, 100.0).unwrap();
+    let held = db.announcement(&peer.public()).unwrap();
+    let newer = announcement_bytes(&db, &peer, 2);
+    for now in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(
+            topic::receive(&mut db, &mut bar, &node.public(), "alpha", &newer, now),
+            Err("the clock is not a finite number")
+        );
+    }
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &newer, 101.0),
+        Err(WINDOW_ERROR)
+    );
+    assert_eq!(db.announcement(&peer.public()).unwrap(), held);
+}
+
+#[test]
 fn receive_bar_forgery_cannot_start_or_extend_a_window() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();

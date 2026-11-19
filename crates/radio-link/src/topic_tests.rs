@@ -294,6 +294,52 @@ fn announcer_keeps_the_newest_pending_record_including_equal_versions() {
 }
 
 #[test]
+fn announcer_never_queues_a_record_at_or_below_the_one_announced() {
+    let node = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let sent = record(&node, &fleet, 3);
+    let mut equal = sent.body.clone();
+    equal.addrs.clear();
+    let mut announcer = Announcer::new();
+    announcer.changed(sent.clone());
+    assert_eq!(announcer.due(0.0), Some(sent));
+    for stale in [
+        record(&node, &fleet, 2),
+        computer_record::sign(equal, &node),
+    ] {
+        announcer.changed(stale);
+        assert_eq!(announcer.next_due(600.0), None);
+        assert_eq!(announcer.due(600.0), None);
+    }
+    let newer = record(&node, &fleet, 4);
+    announcer.changed(newer.clone());
+    assert_eq!(announcer.next_due(600.0), Some(600.0));
+    assert_eq!(announcer.due(600.0), Some(newer));
+}
+
+#[test]
+fn announcer_ignores_a_clock_that_is_not_finite() {
+    let node = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let first = record(&node, &fleet, 1);
+    let mut announcer = Announcer::new();
+    announcer.changed(first.clone());
+    for now in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(announcer.due(now), None);
+        assert_eq!(announcer.next_due(now), None);
+    }
+    assert_eq!(announcer.due(0.0), Some(first));
+    let newer = record(&node, &fleet, 2);
+    announcer.changed(newer.clone());
+    for now in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(announcer.due(now), None);
+        assert_eq!(announcer.next_due(now), None);
+    }
+    assert_eq!(announcer.next_due(1.0), Some(600.0));
+    assert_eq!(announcer.due(600.0), Some(newer));
+}
+
+#[test]
 fn announcer_next_due_tracks_pending_changes() {
     let node = iroh::SecretKey::generate();
     let fleet = "ab".repeat(32);
@@ -317,8 +363,20 @@ fn announcer_due_handles_a_clock_that_went_backwards() {
     assert!(announcer.due(100.0).is_some());
     let newest = record(&node, &fleet, 2);
     announcer.changed(newest.clone());
-    assert_eq!(announcer.next_due(99.0), Some(700.0));
+    assert_eq!(announcer.next_due(99.0), Some(99.0));
     assert_eq!(announcer.due(99.0), Some(newest));
     announcer.changed(record(&node, &fleet, 3));
     assert_eq!(announcer.next_due(100.0), Some(699.0));
+
+    for now in [99.0, 100.0, 699.0, 700.0] {
+        let mut announcer = Announcer::new();
+        announcer.changed(record(&node, &fleet, 1));
+        assert!(announcer.due(100.0).is_some());
+        announcer.changed(record(&node, &fleet, 2));
+        assert_eq!(
+            announcer.next_due(now) == Some(now),
+            announcer.due(now).is_some(),
+            "{now}"
+        );
+    }
 }
