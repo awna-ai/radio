@@ -32,8 +32,9 @@ pub const ANNOUNCEMENT_RECEIVE_WINDOW: f64 = 300.0;
 pub const ANNOUNCEMENT_SEND_WINDOW: f64 = 600.0;
 
 /// Held in memory beside `FleetDb`, never in `fleet.db`, so a restart clears it.
-/// Bounds this member's work, not the topic's traffic: iroh-gossip forwards a message
-/// before the application sees it.
+/// Bounds how often an announcement from one computer is kept and acted on, not the topic's
+/// traffic (iroh-gossip forwards a message before the application sees it) and not the cost of
+/// checking a forgery.
 /// An announcement dropped inside the window is not kept or retried here. The version
 /// it named arrives with the computer's next announcement after the window, or with
 /// the catch-up a later step adds.
@@ -74,6 +75,8 @@ impl Announcer {
         }
     }
 
+    /// The returned record counts as announced; if the caller's send fails, that version is not
+    /// offered again and goes out with the next change.
     pub fn due(&mut self, now: f64) -> Option<ComputerRecord> {
         if !now.is_finite() {
             return None;

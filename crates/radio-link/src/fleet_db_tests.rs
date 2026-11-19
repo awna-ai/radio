@@ -3605,6 +3605,27 @@ fn announcements_of_removed_computers_are_dropped_and_forgotten() {
 }
 
 #[test]
+fn fetched_records_are_refused_unless_the_computer_is_accepted() {
+    for state in [State::Accepted, State::Pending] {
+        let temp = Temp::new();
+        let (mut db, node) = temp.found();
+        let peer = iroh::SecretKey::generate();
+        computer(&db, &peer.public(), "birch", state, None, &addr());
+        let fifth = computer_record(&db, &peer, "birch", 5);
+        db.apply_announcement(&node.public(), &topic::announce(&fifth, &peer))
+            .unwrap();
+        if state == State::Accepted {
+            db.block("birch").unwrap();
+        }
+        assert_eq!(
+            db.apply_fetched(&node.public(), &fifth),
+            Err("the computer is not accepted")
+        );
+        assert!(db.computer_records().unwrap().is_empty());
+    }
+}
+
+#[test]
 fn fetched_records_are_applied_only_when_they_match_the_newest_announcement() {
     let temp = Temp::new();
     let (mut db, node) = temp.found();

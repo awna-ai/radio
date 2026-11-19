@@ -746,6 +746,12 @@ impl FleetDb {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| WRITE)?;
+        let key = &record.body.key;
+        if tombstoned(&tx, key)?
+            || !find_computer(&tx, key)?.is_some_and(|c| c.state == State::Accepted)
+        {
+            return Err("the computer is not accepted");
+        }
         let announcement =
             load_announcement(&tx, &record.body.key)?.ok_or("no announcement for that record")?;
         if !announcement.matches(record) {
