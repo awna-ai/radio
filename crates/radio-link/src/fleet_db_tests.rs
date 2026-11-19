@@ -3673,6 +3673,7 @@ fn fetched_records_are_applied_only_when_they_match_the_newest_announcement() {
 
 #[test]
 fn topic_messages_are_checked_before_they_are_applied() {
+    let mut bar = topic::ReceiveBar::new();
     let temp = Temp::new();
     let (mut db, node) = temp.found();
     let inviter = iroh::SecretKey::generate();
@@ -3702,7 +3703,7 @@ fn topic_messages_are_checked_before_they_are_applied() {
         ),
     ] {
         assert_eq!(
-            topic::receive(&mut db, &node.public(), "garden", &bytes, 10.0),
+            topic::receive(&mut db, &mut bar, &node.public(), "garden", &bytes, 10.0),
             Err(phrase)
         );
         assert_eq!(count(&db, "announcements"), 0);
@@ -3713,11 +3714,25 @@ fn topic_messages_are_checked_before_they_are_applied() {
         .encode()
         .unwrap();
     assert_eq!(
-        topic::receive(&mut db, &node.public(), "garden", &introduction, 10.0),
+        topic::receive(
+            &mut db,
+            &mut bar,
+            &node.public(),
+            "garden",
+            &introduction,
+            10.0
+        ),
         Ok(Received::Record(Applied::Added { pending: true }))
     );
     assert_eq!(
-        topic::receive(&mut db, &node.public(), "garden", &introduction, 11.0),
+        topic::receive(
+            &mut db,
+            &mut bar,
+            &node.public(),
+            "garden",
+            &introduction,
+            11.0
+        ),
         Err("the record was already seen")
     );
     let announcement = TopicMessage::Announcement(topic::announce(
@@ -3727,19 +3742,34 @@ fn topic_messages_are_checked_before_they_are_applied() {
     .encode()
     .unwrap();
     assert_eq!(
-        topic::receive(&mut db, &node.public(), "garden", &announcement, 12.0),
+        topic::receive(
+            &mut db,
+            &mut bar,
+            &node.public(),
+            "garden",
+            &announcement,
+            12.0
+        ),
         Ok(Received::Announcement(
             db.announcement(&newcomer.public()).unwrap().unwrap()
         ))
     );
     assert_eq!(
-        topic::receive(&mut db, &node.public(), "garden", &announcement, 13.0),
+        topic::receive(
+            &mut db,
+            &mut bar,
+            &node.public(),
+            "garden",
+            &announcement,
+            312.0
+        ),
         Err("the announcement is not newer")
     );
 }
 
 #[test]
 fn a_removal_beats_its_introduction_in_either_order() {
+    let mut bar = topic::ReceiveBar::new();
     for removal_first in [false, true] {
         let temp = Temp::new();
         let (mut db, node) = temp.found();
@@ -3765,7 +3795,15 @@ fn a_removal_beats_its_introduction_in_either_order() {
             [&introduction, &removed]
         };
         for (i, bytes) in order.into_iter().enumerate() {
-            topic::receive(&mut db, &node.public(), "garden", bytes, 10.0 + i as f64).unwrap();
+            topic::receive(
+                &mut db,
+                &mut bar,
+                &node.public(),
+                "garden",
+                bytes,
+                10.0 + i as f64,
+            )
+            .unwrap();
         }
         assert_eq!(db.standing(&newcomer.public()), Ok(Standing::Refused));
         assert!(tombstoned(&db.conn, &newcomer.public().to_string()).unwrap());
@@ -3793,4 +3831,262 @@ fn migrates_version_six_with_an_announcements_table() {
     );
     assert_eq!(count(&db, "announcements"), 0);
     assert!(db.fleet().unwrap().is_some());
+}
+
+fn announcement_bytes(db: &FleetDb, peer: &iroh::SecretKey, version: u64) -> Vec<u8> {
+    TopicMessage::Announcement(topic::announce(
+        &computer_record(db, peer, "beta", version),
+        peer,
+    ))
+    .encode()
+    .unwrap()
+}
+
+fn accepted_peer(db: &FleetDb) -> iroh::SecretKey {
+    let peer = iroh::SecretKey::generate();
+    computer(db, &peer.public(), "beta", State::Accepted, None, &addr());
+    peer
+}
+
+const WINDOW_ERROR: &str = "an announcement from this computer was kept less than 5 minutes ago";
+
+#[test]
+fn receive_bar_opens_at_exactly_five_minutes() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let mut bar = topic::ReceiveBar::new();
+    let first = announcement_bytes(&db, &peer, 1);
+    let newer = announcement_bytes(&db, &peer, 2);
+    topic::receive(&mut db, &mut bar, &node.public(), "alpha", &first, 0.0).unwrap();
+    let held = db.announcement(&peer.public()).unwrap();
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &newer, 299.0),
+        Err(WINDOW_ERROR)
+    );
+    assert_eq!(db.announcement(&peer.public()).unwrap(), held);
+    assert!(topic::receive(&mut db, &mut bar, &node.public(), "alpha", &newer, 300.0).is_ok());
+    assert_eq!(db.announcement(&peer.public()).unwrap().unwrap().version, 2);
+}
+
+#[test]
+fn receive_bar_forgery_cannot_start_or_extend_a_window() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let mut bar = topic::ReceiveBar::new();
+    let forged = TopicMessage::Announcement(topic::announce(
+        &computer_record(&db, &peer, "beta", 3),
+        &node,
+    ))
+    .encode()
+    .unwrap();
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &forged, 0.0),
+        Err("the announcement's signature does not verify")
+    );
+    assert_eq!(db.announcement(&peer.public()).unwrap(), None);
+    let first = announcement_bytes(&db, &peer, 1);
+    topic::receive(&mut db, &mut bar, &node.public(), "alpha", &first, 1.0).unwrap();
+    let held = db.announcement(&peer.public()).unwrap();
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &forged, 299.0),
+        Err(WINDOW_ERROR)
+    );
+    assert_eq!(db.announcement(&peer.public()).unwrap(), held);
+    let newer = announcement_bytes(&db, &peer, 2);
+    topic::receive(&mut db, &mut bar, &node.public(), "alpha", &newer, 301.0).unwrap();
+}
+
+#[test]
+fn receive_bar_not_newer_cannot_start_a_window() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let first = topic::announce(&computer_record(&db, &peer, "beta", 1), &peer);
+    db.apply_announcement(&node.public(), &first).unwrap();
+    let mut bar = topic::ReceiveBar::new();
+    let stale = TopicMessage::Announcement(first).encode().unwrap();
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &stale, 0.0),
+        Err("the announcement is not newer")
+    );
+    let newer = announcement_bytes(&db, &peer, 2);
+    topic::receive(&mut db, &mut bar, &node.public(), "alpha", &newer, 1.0).unwrap();
+    let newest = announcement_bytes(&db, &peer, 3);
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &newest, 300.0),
+        Err(WINDOW_ERROR)
+    );
+    topic::receive(&mut db, &mut bar, &node.public(), "alpha", &newest, 301.0).unwrap();
+}
+
+#[test]
+fn receive_bar_keys_have_independent_windows() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let other = iroh::SecretKey::generate();
+    computer(
+        &db,
+        &other.public(),
+        "gamma",
+        State::Accepted,
+        None,
+        &addr(),
+    );
+    let mut bar = topic::ReceiveBar::new();
+    for (key, now) in [(&peer, 0.0), (&other, 1.0)] {
+        let bytes = announcement_bytes(&db, key, 1);
+        assert!(topic::receive(&mut db, &mut bar, &node.public(), "alpha", &bytes, now).is_ok());
+        assert_eq!(db.announcement(&key.public()).unwrap().unwrap().version, 1);
+    }
+    let bytes = announcement_bytes(&db, &peer, 2);
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &bytes, 2.0),
+        Err(WINDOW_ERROR)
+    );
+}
+
+#[test]
+fn receive_bar_never_holds_back_a_record() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let mut bar = topic::ReceiveBar::new();
+    let bytes = announcement_bytes(&db, &peer, 1);
+    topic::receive(&mut db, &mut bar, &node.public(), "alpha", &bytes, 0.0).unwrap();
+    let newcomer = iroh::SecretKey::generate();
+    let bytes = TopicMessage::Record(intro(&db, &peer, &newcomer, "gamma", 1))
+        .encode()
+        .unwrap();
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &bytes, 1.0),
+        Ok(Received::Record(Applied::Added { pending: true }))
+    );
+    let bytes = announcement_bytes(&db, &peer, 2);
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &bytes, 2.0),
+        Err(WINDOW_ERROR)
+    );
+}
+
+#[test]
+fn receive_bar_clock_backwards_and_restart_clear_the_window() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let mut bar = topic::ReceiveBar::new();
+    for (version, now) in [(1, 100.0), (2, 99.0)] {
+        let bytes = announcement_bytes(&db, &peer, version);
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &bytes, now).unwrap();
+    }
+    let bytes = announcement_bytes(&db, &peer, 3);
+    assert_eq!(
+        topic::receive(&mut db, &mut bar, &node.public(), "alpha", &bytes, 100.0),
+        Err(WINDOW_ERROR)
+    );
+    drop(db);
+    let mut db = temp.open();
+    let mut bar = topic::ReceiveBar::new();
+    assert!(topic::receive(&mut db, &mut bar, &node.public(), "alpha", &bytes, 100.0).is_ok());
+}
+
+#[test]
+fn fetch_wanted_only_for_an_accepted_computer() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = iroh::SecretKey::generate();
+    computer(&db, &peer.public(), "beta", State::Pending, None, &addr());
+    let announcement = topic::announce(&computer_record(&db, &peer, "beta", 2), &peer);
+    db.apply_announcement(&node.public(), &announcement)
+        .unwrap();
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
+    db.accept("beta").unwrap();
+    assert_eq!(
+        db.fetch_wanted(&peer.public()),
+        Ok(Some(announcement.clone()))
+    );
+    db.block("beta").unwrap();
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
+    db.accept("beta").unwrap();
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(Some(announcement)));
+    db.remove(&node, "beta", 10.0).unwrap();
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
+}
+
+#[test]
+fn fetch_wanted_only_when_the_record_is_behind() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let record = computer_record(&db, &peer, "beta", 2);
+    let announcement = topic::announce(&record, &peer);
+    db.apply_announcement(&node.public(), &announcement)
+        .unwrap();
+    assert_eq!(
+        db.fetch_wanted(&peer.public()),
+        Ok(Some(announcement.clone()))
+    );
+    db.apply_computer(&node.public(), &computer_record(&db, &peer, "beta", 1))
+        .unwrap();
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(Some(announcement)));
+    db.apply_fetched(&node.public(), &record).unwrap();
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
+    db.apply_computer(&node.public(), &computer_record(&db, &peer, "beta", 3))
+        .unwrap();
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
+}
+
+#[test]
+fn fetch_wanted_needs_a_held_announcement_and_a_known_computer() {
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
+    assert_eq!(
+        db.fetch_wanted(&iroh::SecretKey::generate().public()),
+        Ok(None)
+    );
+    let announcement = topic::announce(&computer_record(&db, &peer, "beta", 1), &peer);
+    db.apply_announcement(&node.public(), &announcement)
+        .unwrap();
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(Some(announcement)));
+}
+
+#[test]
+fn fetch_wanted_excludes_terminal_states_and_tombstones() {
+    for left in [false, true] {
+        let temp = Temp::new();
+        let (mut db, node) = temp.found();
+        let peer = accepted_peer(&db);
+        let announcement = topic::announce(&computer_record(&db, &peer, "beta", 1), &peer);
+        db.apply_announcement(&node.public(), &announcement)
+            .unwrap();
+        assert_eq!(db.fetch_wanted(&peer.public()), Ok(Some(announcement)));
+        if left {
+            let record = removal(&db, &peer, &peer.public(), 1);
+            db.apply(&node.public(), "alpha", &record, 10.0).unwrap();
+        } else {
+            db.remove(&node, "beta", 10.0).unwrap();
+        }
+        assert_eq!(
+            db.computers().unwrap()[0].state,
+            if left { State::Left } else { State::Removed }
+        );
+        assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
+    }
+    let temp = Temp::new();
+    let (mut db, node) = temp.found();
+    let peer = accepted_peer(&db);
+    let announcement = topic::announce(&computer_record(&db, &peer, "beta", 1), &peer);
+    db.apply_announcement(&node.public(), &announcement)
+        .unwrap();
+    assert_eq!(
+        db.fetch_wanted(&peer.public()),
+        Ok(Some(announcement.clone()))
+    );
+    tombstone(&db, &peer.public(), &node.public());
+    assert_eq!(db.announcement(&peer.public()), Ok(Some(announcement)));
+    assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
 }

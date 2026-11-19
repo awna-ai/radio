@@ -249,3 +249,76 @@ fn the_largest_announcement_is_far_under_the_cap() {
     eprintln!("announcement={}", bytes.len());
     assert_eq!(bytes.len(), ANNOUNCEMENT_LEN);
 }
+
+#[test]
+fn announcer_first_change_is_due_once() {
+    let node = iroh::SecretKey::generate();
+    let record = record(&node, &"ab".repeat(32), 1);
+    let mut announcer = Announcer::new();
+    assert_eq!(announcer.due(0.0), None);
+    announcer.changed(record.clone());
+    assert_eq!(announcer.due(0.0), Some(record));
+    assert_eq!(announcer.due(600.0), None);
+    assert_eq!(announcer.next_due(600.0), None);
+}
+
+#[test]
+fn announcer_coalesces_changes_until_exactly_ten_minutes() {
+    let node = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let mut announcer = Announcer::new();
+    announcer.changed(record(&node, &fleet, 1));
+    assert!(announcer.due(0.0).is_some());
+    announcer.changed(record(&node, &fleet, 2));
+    assert_eq!(announcer.due(60.0), None);
+    let newest = record(&node, &fleet, 3);
+    announcer.changed(newest.clone());
+    assert_eq!(announcer.due(120.0), None);
+    assert_eq!(announcer.due(599.0), None);
+    assert_eq!(announcer.due(600.0), Some(newest));
+    assert_eq!(announcer.due(1200.0), None);
+}
+
+#[test]
+fn announcer_keeps_the_newest_pending_record_including_equal_versions() {
+    let node = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let newest = record(&node, &fleet, 3);
+    let mut equal = newest.body.clone();
+    equal.addrs.clear();
+    let mut announcer = Announcer::new();
+    announcer.changed(newest.clone());
+    announcer.changed(computer_record::sign(equal, &node));
+    announcer.changed(record(&node, &fleet, 2));
+    assert_eq!(announcer.due(0.0), Some(newest));
+}
+
+#[test]
+fn announcer_next_due_tracks_pending_changes() {
+    let node = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let mut announcer = Announcer::new();
+    assert_eq!(announcer.next_due(10.0), None);
+    announcer.changed(record(&node, &fleet, 1));
+    assert_eq!(announcer.next_due(10.0), Some(10.0));
+    assert!(announcer.due(10.0).is_some());
+    assert_eq!(announcer.next_due(20.0), None);
+    announcer.changed(record(&node, &fleet, 2));
+    assert_eq!(announcer.next_due(20.0), Some(610.0));
+    assert_eq!(announcer.next_due(700.0), Some(700.0));
+}
+
+#[test]
+fn announcer_due_handles_a_clock_that_went_backwards() {
+    let node = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let mut announcer = Announcer::new();
+    announcer.changed(record(&node, &fleet, 1));
+    assert!(announcer.due(100.0).is_some());
+    let newest = record(&node, &fleet, 2);
+    announcer.changed(newest.clone());
+    assert_eq!(announcer.next_due(99.0), Some(700.0));
+    assert_eq!(announcer.due(99.0), Some(newest));
+    announcer.changed(record(&node, &fleet, 3));
+    assert_eq!(announcer.next_due(100.0), Some(699.0));
+}

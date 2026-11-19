@@ -803,6 +803,26 @@ impl FleetDb {
         load_announcement(&self.conn, &key.to_string())
     }
 
+    /// Every fetch is scheduled through this.
+    pub fn fetch_wanted(
+        &self,
+        key: &iroh::EndpointId,
+    ) -> Result<Option<Announcement>, &'static str> {
+        if self.standing(key)? != Standing::Accepted {
+            return Ok(None);
+        }
+        let Some(announcement) = self.announcement(key)? else {
+            return Ok(None);
+        };
+        if self
+            .computer_record(key)?
+            .is_some_and(|record| record.body.version >= announcement.version)
+        {
+            return Ok(None);
+        }
+        Ok(Some(announcement))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn admit(
         &mut self,

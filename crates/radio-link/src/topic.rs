@@ -16,6 +16,7 @@ use crate::{
 use data_encoding::HEXLOWER;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 pub const ANNOUNCEMENT_DOMAIN: &[u8] = b"radio computer announcement 1\n";
 /// iroh-gossip's default `max_message_size`; a larger message is dropped unread. It bounds the
@@ -25,6 +26,67 @@ pub const TAG_RECORD: u8 = 1;
 pub const TAG_ANNOUNCEMENT: u8 = 2;
 pub const ANNOUNCEMENT_LEN: usize = 137;
 const INVALID: &str = "not a topic message";
+
+pub const ANNOUNCEMENT_RECEIVE_WINDOW: f64 = 300.0;
+// Ten minutes on the sender against five on the receiver leaves room for clock skew.
+pub const ANNOUNCEMENT_SEND_WINDOW: f64 = 600.0;
+
+/// Held in memory beside `FleetDb`, never in `fleet.db`, so a restart clears it.
+/// Bounds this member's work, not the topic's traffic: iroh-gossip forwards a message
+/// before the application sees it.
+#[derive(Debug, Default)]
+pub struct ReceiveBar {
+    kept: HashMap<String, f64>,
+}
+
+impl ReceiveBar {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+/// Coalesces this computer's changes; the caller signs and sends the returned record.
+#[derive(Debug, Default)]
+pub struct Announcer {
+    last: Option<f64>,
+    pending: Option<ComputerRecord>,
+}
+
+impl Announcer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn changed(&mut self, record: ComputerRecord) {
+        if self
+            .pending
+            .as_ref()
+            .is_none_or(|pending| pending.body.version < record.body.version)
+        {
+            self.pending = Some(record);
+        }
+    }
+
+    pub fn due(&mut self, now: f64) -> Option<ComputerRecord> {
+        let due = self
+            .last
+            .is_none_or(|last| now < last || now - last >= ANNOUNCEMENT_SEND_WINDOW);
+        if !due {
+            return None;
+        }
+        let record = self.pending.take()?;
+        self.last = Some(now);
+        Some(record)
+    }
+
+    pub fn next_due(&self, now: f64) -> Option<f64> {
+        self.pending.as_ref()?;
+        Some(
+            self.last
+                .map_or(now, |last| now.max(last + ANNOUNCEMENT_SEND_WINDOW)),
+        )
+    }
+}
 
 /// A computer's signed statement that its record is now at `version`, with SHA-256 `hash` of the
 /// record's bytes. The signature also covers the fleet id, which is not sent: the topic is per fleet.
@@ -181,6 +243,7 @@ impl TopicMessage {
 /// check is dropped with nothing written.
 pub fn receive(
     db: &mut FleetDb,
+    bar: &mut ReceiveBar,
     node: &iroh::EndpointId,
     own_name: &str,
     bytes: &[u8],
@@ -190,9 +253,18 @@ pub fn receive(
         TopicMessage::Record(record) => {
             db.apply(node, own_name, &record, now).map(Received::Record)
         }
-        TopicMessage::Announcement(announcement) => db
-            .apply_announcement(node, &announcement)
-            .map(|()| Received::Announcement(announcement)),
+        TopicMessage::Announcement(announcement) => {
+            if bar
+                .kept
+                .get(&announcement.key)
+                .is_some_and(|last| (0.0..ANNOUNCEMENT_RECEIVE_WINDOW).contains(&(now - last)))
+            {
+                return Err("an announcement from this computer was kept less than 5 minutes ago");
+            }
+            db.apply_announcement(node, &announcement)?;
+            bar.kept.insert(announcement.key.clone(), now);
+            Ok(Received::Announcement(announcement))
+        }
     }
 }
 
