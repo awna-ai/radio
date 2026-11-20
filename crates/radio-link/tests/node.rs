@@ -243,6 +243,7 @@ fn block_closes_the_keys_connections() {
 #[test]
 fn blocking_a_computer_closes_its_topic_connection() {
     let (a, b) = joined();
+    assert!(b.node.link().topic_accepted().contains(&a.node.id()));
     b.node.block(&a.node.id().to_string()).unwrap();
     assert!(!b.node.link().topic_accepted().contains(&a.node.id()));
     wait(|| {
