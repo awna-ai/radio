@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 11
+      "minor": 12
     },
     "majors": [
       1
@@ -50,7 +50,8 @@
       "deliberation_convene",
       "deliberation_turn",
       "deliberation_state",
-      "deliberation_result"
+      "deliberation_result",
+      "deliberation_time_box"
     ]
   },
   "exact": false

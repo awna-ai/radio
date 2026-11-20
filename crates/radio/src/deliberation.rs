@@ -18,6 +18,7 @@ pub(crate) const POSTED: &str = "this seat has already posted in this round";
 pub(crate) const ROUND_LIMIT: &str = "the deliberation has had its 50 rounds";
 pub(crate) const NO_ROUND: &str = "no round has finished yet";
 pub(crate) const TIME_BOX: &str = "a time box is 15m, 1h or deadlock";
+const ALREADY_BOXED: &str = "the deliberation already has a time box";
 const NOT_KIND: &str = "not a deliberation kind";
 const LIST_N: &str = "a list deliberation needs n from 1 to 12";
 const TEXT_N: &str = "a text deliberation takes no n";
@@ -36,8 +37,8 @@ pub(crate) struct Record {
     /// The open round's blocks, by seat name.
     pending: BTreeMap<String, Block>,
     last: Option<RoundReport>,
-    /// The time box asked at convene; absent means until an outcome. Absent and unexpired fields
-    /// are not written, so a record with no time box reads as it did before time boxes.
+    /// The time box asked at convene or set once while open; counted from then. Absent means
+    /// until an outcome. Absent and unexpired fields are not written, so old records still read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     time_box: Option<Boxed>,
     /// Whether the time box ran out while the deliberation was open; it then takes no turns.
@@ -45,12 +46,13 @@ pub(crate) struct Record {
     expired: bool,
 }
 
-/// A time box, as `TimeBox` parses its word, and the time it counts from.
+/// A time box asked at convene or set once while open; counted from then.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Boxed {
     word: String,
-    convened_at: f64,
+    #[serde(rename = "convened_at")]
+    counts_from: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,25 +104,41 @@ impl Record {
         }
         self.time_box = time_box.map(|word| Boxed {
             word: word.to_owned(),
-            convened_at: now,
+            counts_from: now,
         });
         Ok(self)
+    }
+
+    /// Sets a time box once while open, counted from `now`. Nothing changes on an error.
+    pub(crate) fn set_time_box(&mut self, word: &str, now: f64) -> Result<(), String> {
+        TimeBox::parse(word).map_err(|_| TIME_BOX)?;
+        if self.state.closed.is_some() || self.expired {
+            return Err(CLOSED.into());
+        }
+        if self.time_box.is_some() {
+            return Err(ALREADY_BOXED.into());
+        }
+        self.time_box = Some(Boxed {
+            word: word.to_owned(),
+            counts_from: now,
+        });
+        Ok(())
     }
 
     /// Ends an open deliberation whose time box has run out at `now`: the open round steps with
     /// the seats that posted, if any, and the outcome stays as the step leaves it; a round that
     /// can't step is dropped, and the deliberation still ends. Answers whether the record changed.
     pub(crate) fn expire(&mut self, now: f64) -> bool {
-        let Some((time_box, convened_at)) = self
+        let Some((time_box, counts_from)) = self
             .time_box
             .as_ref()
-            .and_then(|boxed| Some((TimeBox::parse(&boxed.word).ok()?, boxed.convened_at)))
+            .and_then(|boxed| Some((TimeBox::parse(&boxed.word).ok()?, boxed.counts_from)))
         else {
             return false;
         };
         if self.expired
             || self.state.closed.is_some()
-            || !timebox_decision(now - convened_at, &[], &[], Some(time_box), false, false).expired
+            || !timebox_decision(now - counts_from, &[], &[], Some(time_box), false, false).expired
         {
             return false;
         }

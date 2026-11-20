@@ -1,0 +1,17 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_time_box",
+    "room": "vote",
+    "author": {
+      "kind": "human",
+      "name": "moss"
+    },
+    "time_box": "15m"
+  },
+  "response": {
+    "ok": false,
+    "error": "the deliberation already has a time box"
+  },
+  "exact": true
+}

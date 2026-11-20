@@ -1,9 +1,10 @@
-use crate::deliberation::{NOT_DELIBERATION, NOT_SEAT, Record};
+use crate::deliberation::{NOT_DELIBERATION, NOT_SEAT, Record, TIME_BOX};
 use crate::log::{Field, Log};
 use radio_client::{
     Computer, Delivery, Fleet, JoinCodeInfo, Member, Message, OPS, PROTOCOL_MAJOR, PROTOCOL_MINOR,
     Protocol, REQUEST_MAX_BYTES, Request, Response, Room, StatusLine,
 };
+use radio_panels::TimeBox;
 use radio_rooms::{Author, OWNED, READ_MAX, RoomStore};
 use std::{
     fs,
@@ -932,6 +933,18 @@ impl Server {
                 let (result, markdown) = self.deliberation(&room, now)?.result()?;
                 response.result = Some(result);
                 response.markdown = Some(markdown);
+            }
+            Request::DeliberationTimeBox {
+                room,
+                author,
+                time_box,
+            } => {
+                self.member(author)?;
+                TimeBox::parse(&time_box).map_err(|_| TIME_BOX)?;
+                let mut record = self.deliberation(&room, now)?;
+                record.set_time_box(&time_box, now)?;
+                self.store.replace_deliberation(&room, &record.to_json()?)?;
+                response.deliberation = Some(record.view());
             }
             Request::StatusClear { room, key, author } => {
                 let author = self.member(author)?;

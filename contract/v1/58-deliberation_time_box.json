@@ -1,0 +1,33 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_time_box",
+    "room": "council-later",
+    "author": {
+      "kind": "human",
+      "name": "moss"
+    },
+    "time_box": "15m"
+  },
+  "response": {
+    "ok": true,
+    "deliberation": {
+      "kind": "text",
+      "seats": [
+        {
+          "kind": "helper",
+          "name": "juniper"
+        },
+        {
+          "kind": "helper",
+          "name": "fern"
+        }
+      ],
+      "round": 0,
+      "posted": [],
+      "outcome": "open",
+      "time_box": "15m"
+    }
+  },
+  "exact": true
+}

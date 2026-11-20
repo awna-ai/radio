@@ -543,7 +543,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":11},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":12},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -3651,5 +3651,101 @@ fn a_turn_or_a_result_first_after_the_box_runs_out_ends_it_and_keeps_that() {
         (&serde_json::json!("open"), &serde_json::json!(1))
     );
     assert_eq!(expired(&store, "resulted"), serde_json::json!(true));
+    worker.join().unwrap();
+}
+
+#[test]
+fn a_member_can_set_an_unboxed_deliberations_time_box_once() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 13);
+    let socket = fixture.socket();
+    let member = serde_json::json!({"kind":"human","name":"moss"});
+    let set = |room: &str, author: serde_json::Value, word: &str| {
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_time_box","room":room,"author":author,"time_box":word}),
+        )
+    };
+    assert_eq!(
+        set(
+            "missing",
+            serde_json::json!({"kind":"scribe","name":"wren"}),
+            "5m"
+        ),
+        serde_json::json!({"ok":false,"error":"not a member","refused":true})
+    );
+    assert_eq!(
+        set("missing", member.clone(), "5m"),
+        serde_json::json!({"ok":false,"error":"a time box is 15m, 1h or deadlock"})
+    );
+    assert_eq!(
+        set("missing", member.clone(), "15m"),
+        serde_json::json!({"ok":false,"error":"no such room"})
+    );
+    fixture.create();
+    assert_eq!(
+        set("garden", member.clone(), "15m"),
+        serde_json::json!({"ok":false,"error":"not a deliberation"})
+    );
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_convene","room":"council","title":"Council","author":member,"kind":"text","seats":[{"kind":"human","name":"juniper"},{"kind":"human","name":"fern"}]})
+        ),
+        serde_json::json!({"ok":true})
+    );
+    let before = fixture.reader().deliberation("council").unwrap().unwrap();
+    assert_eq!(
+        set("council", member.clone(), "5m"),
+        serde_json::json!({"ok":false,"error":"a time box is 15m, 1h or deadlock"})
+    );
+    assert_eq!(
+        fixture.reader().deliberation("council").unwrap().unwrap(),
+        before
+    );
+    let answer = set("council", member.clone(), "15m");
+    assert_eq!(
+        answer,
+        serde_json::json!({"ok":true,"deliberation":{"kind":"text","seats":[{"kind":"human","name":"juniper"},{"kind":"human","name":"fern"}],"round":0,"posted":[],"outcome":"open","time_box":"15m"}})
+    );
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_state","room":"council"})
+        ),
+        answer
+    );
+    let stored = fixture.reader().deliberation("council").unwrap().unwrap();
+    assert_eq!(
+        set("council", member.clone(), "1h"),
+        serde_json::json!({"ok":false,"error":"the deliberation already has a time box"})
+    );
+    assert_eq!(
+        fixture.reader().deliberation("council").unwrap().unwrap(),
+        stored
+    );
+    // Reading through the op applies expiry before checking whether a box is already present.
+    let mut value: serde_json::Value = serde_json::from_str(&stored).unwrap();
+    value["time_box"]["convened_at"] = serde_json::json!(0.0);
+    fixture
+        .reader()
+        .replace_deliberation("council", &value.to_string())
+        .unwrap();
+    assert_eq!(
+        set("council", member, "1h"),
+        serde_json::json!({"ok":false,"error":"the deliberation is closed"})
+    );
+    let expired = call(
+        &socket,
+        serde_json::json!({"v":1,"op":"deliberation_state","room":"council"}),
+    );
+    assert_eq!(expired["deliberation"]["expired"], true);
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"read","room":"council"})
+        )["messages"],
+        serde_json::json!([])
+    );
     worker.join().unwrap();
 }

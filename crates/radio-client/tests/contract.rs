@@ -40,7 +40,7 @@ fn file_ops_and_protocol_minor_are_available() {
     ] {
         assert!(radio_client::OPS.contains(&op), "{op}");
     }
-    assert_eq!(radio_client::PROTOCOL_MINOR, 11);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 12);
 }
 
 #[test]
@@ -95,14 +95,15 @@ fn delivery_type_round_trips_and_accepts_future_fields() {
 fn deliberation_contract_round_trips() {
     use radio_client::{Request, Response};
     use serde_json::json;
-    assert_eq!(radio_client::PROTOCOL_MINOR, 11);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 12);
     assert_eq!(
         &radio_client::OPS[33..],
         &[
             "deliberation_convene",
             "deliberation_turn",
             "deliberation_state",
-            "deliberation_result"
+            "deliberation_result",
+            "deliberation_time_box"
         ]
     );
     let seat = json!({"kind":"helper","name":"juniper"});
@@ -130,4 +131,27 @@ fn deliberation_contract_round_trips() {
         let response: Response = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(response).unwrap(), value);
     }
+}
+
+#[test]
+fn setting_a_deliberations_time_box_is_an_additive_request() {
+    use radio_client::Request;
+    use serde_json::json;
+    let value = json!({"op":"deliberation_time_box","room":"council","author":{"kind":"human","name":"moss"},"time_box":"15m"});
+    let request = serde_json::from_value::<Request>(value.clone());
+    assert!(request.is_ok(), "{request:?}");
+    assert_eq!(serde_json::to_value(request.unwrap()).unwrap(), value);
+    for field in ["room", "author", "time_box"] {
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<Request>(missing).is_err());
+    }
+    let mut extra = value.clone();
+    extra["extra"] = json!(true);
+    assert!(serde_json::from_value::<Request>(extra).is_err());
+    let mut wrong_type = value;
+    wrong_type["time_box"] = json!(15);
+    assert!(serde_json::from_value::<Request>(wrong_type).is_err());
+    assert_eq!(radio_client::PROTOCOL_MINOR, 12);
+    assert_eq!(radio_client::OPS.last(), Some(&"deliberation_time_box"));
 }

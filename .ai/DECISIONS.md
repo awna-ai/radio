@@ -2,6 +2,14 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-20: D27. A deliberation's time box can be set once while it is open
+
+Any member may set a time box on an open deliberation convened without one, even if that member
+is not a seat. The box counts from when it is set, so the duration the person asks for mid-run
+starts then rather than ending the deliberation at once because of time already spent.
+A box asked at convene, including `deadlock`, or set later cannot be replaced.
+A deliberation with an agreed or deadlock outcome, or an expired box, takes no box.
+
 ## 2026-11-16: D26. A deliberation may end on a clock
 
 D25's round steps only when the last seat posts. `deliberation_convene` now takes an optional

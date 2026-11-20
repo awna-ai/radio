@@ -1,0 +1,27 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_convene",
+    "room": "council-later",
+    "title": "Council",
+    "author": {
+      "kind": "human",
+      "name": "moss"
+    },
+    "kind": "text",
+    "seats": [
+      {
+        "kind": "helper",
+        "name": "juniper"
+      },
+      {
+        "kind": "helper",
+        "name": "fern"
+      }
+    ]
+  },
+  "response": {
+    "ok": true
+  },
+  "exact": true
+}

@@ -404,3 +404,100 @@ fn a_time_box_that_runs_out_ends_the_deliberation_even_when_its_round_cannot_ste
     assert!(view.posted.is_empty());
     assert_eq!(record.turn(&seat("fern"), PROPOSE), Err(CLOSED.to_owned()));
 }
+
+#[test]
+fn a_time_box_set_later_counts_from_the_set() {
+    let mut record = Record::convene("list", Some(1), seats(&["juniper", "fern"]))
+        .unwrap()
+        .time_boxed(None, 1000.0)
+        .unwrap();
+    assert_eq!(record.set_time_box("15m", 2000.0), Ok(()));
+    assert_eq!(record.view().time_box.as_deref(), Some("15m"));
+    assert!(!record.expire(2899.0));
+    assert!(!record.view().expired);
+    assert!(record.expire(2900.0));
+    assert!(record.view().expired);
+}
+
+#[test]
+fn a_time_box_set_later_cannot_be_replaced() {
+    let mut record = Record::convene("text", None, seats(&["juniper", "fern"])).unwrap();
+    // Seed the state a first set writes, independently of the setter being checked.
+    record.time_box = Some(Boxed {
+        word: "15m".into(),
+        counts_from: 2000.0,
+    });
+    let before = record.to_json().unwrap();
+    assert_eq!(
+        record.set_time_box("1h", 2100.0),
+        Err("the deliberation already has a time box".into())
+    );
+    assert_eq!(record.to_json().unwrap(), before);
+}
+
+#[test]
+fn a_time_box_asked_at_convene_cannot_be_replaced_even_when_deadlock() {
+    for word in ["15m", "1h", "deadlock"] {
+        let mut record = Record::convene("text", None, seats(&["juniper", "fern"]))
+            .unwrap()
+            .time_boxed(Some(word), 1000.0)
+            .unwrap();
+        let before = record.to_json().unwrap();
+        assert_eq!(
+            record.set_time_box("15m", 1100.0),
+            Err("the deliberation already has a time box".into())
+        );
+        assert_eq!(record.to_json().unwrap(), before);
+    }
+}
+
+#[test]
+fn an_unknown_time_box_set_later_changes_nothing() {
+    let mut record = Record::convene("text", None, seats(&["juniper", "fern"])).unwrap();
+    let before = record.to_json().unwrap();
+    for word in ["5m", "", "15M", "1h "] {
+        assert_eq!(record.set_time_box(word, 2000.0), Err(TIME_BOX.into()));
+        assert_eq!(record.to_json().unwrap(), before);
+    }
+}
+
+#[test]
+fn a_closed_deliberation_takes_no_time_box() {
+    for outcome in [Some(Outcome::Agreed), Some(Outcome::Deadlock), None] {
+        let mut record = Record::convene("text", None, seats(&["juniper", "fern"])).unwrap();
+        record.state.closed = outcome;
+        record.expired = outcome.is_none();
+        let before = record.to_json().unwrap();
+        assert_eq!(record.set_time_box("15m", 2000.0), Err(CLOSED.into()));
+        assert_eq!(record.to_json().unwrap(), before);
+        assert_eq!(record.set_time_box("5m", 2000.0), Err(TIME_BOX.into()));
+    }
+}
+
+#[test]
+fn a_time_box_set_later_keeps_the_stored_clock_key() {
+    let mut record = Record::convene("text", None, seats(&["juniper", "fern"])).unwrap();
+    assert_eq!(record.set_time_box("15m", 2000.0), Ok(()));
+    let json = record.to_json().unwrap();
+    let value: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        value["time_box"],
+        serde_json::json!({"word":"15m","convened_at":2000.0})
+    );
+    let mut reread = Record::from_json(&json).unwrap();
+    assert_eq!(reread.view(), record.view());
+    assert!(!reread.expire(2899.0));
+    assert!(reread.expire(2900.0));
+}
+
+#[test]
+fn an_open_deliberation_at_the_round_limit_can_take_deadlock_once() {
+    let mut record = Record::convene("text", None, seats(&["juniper", "fern"])).unwrap();
+    record.state.round_no = ROUNDS_MAX;
+    assert_eq!(record.set_time_box("deadlock", 2000.0), Ok(()));
+    assert!(!record.expire(1e12));
+    assert_eq!(
+        record.set_time_box("15m", 2100.0),
+        Err("the deliberation already has a time box".into())
+    );
+}

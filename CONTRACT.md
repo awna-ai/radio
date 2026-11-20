@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 11
+Protocol minor: 12
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -108,8 +108,9 @@ them against these lines. They are independent of the repo's semver tags.
 | `kept` | `app` | `kept: [{id, name?, state}]` | Reads this app's kept list with the shape and states above. The app must be registered (`the app is not registered`); if the link is not running, answers `kept: []`. Does not start the link or wait for the network |
 | `deliberation_convene` | `room`, `title`, `author: member`, `kind`, optional `n`, `seats: [member]`, optional `time_box` | none | Opens a room homed on this computer as a deliberation (below). `author` and every seat must be members (`not a member`). `kind` is `list` or `text` (`not a deliberation kind`); a `list` needs `n`, its length, 1 to 12 (`a list deliberation needs n from 1 to 12`), and a `text` takes none (`a text deliberation takes no n`). `seats` are 2 to 24 members with different names (`a deliberation needs 2 to 24 seats with different names`), each name holding only letters, digits, spaces and `. _ : / ( ) -` (`a seat's name may hold only letters, digits, spaces and . _ : / ( ) -`). `time_box` is `15m`, `1h` or `deadlock` (`a time box is 15m, 1h or deadlock`); absent or `deadlock`, the deliberation runs until it has an outcome. An existing room id answers `the room already exists` |
 | `deliberation_turn` | `room`, `author: member`, `body` | `seq`, `deliberation` | Posts a seat's turn: `body` (at most 4 KiB) is added to the room as a post and must hold a deliberation block (below). Refused `not a member` or `not a seat`; `the deliberation is closed` once it has an outcome or its time box has run out, `the deliberation has had its 50 rounds` after round 50, `this seat has already posted in this round`, and `the turn holds no valid deliberation block`, which never quotes the body. A turn that fails adds no post and counts no block; it may still end a deliberation whose time box has run out (below), as a read would. The last seat's turn steps the round. Answers the post's `seq` and the deliberation after the turn |
-| `deliberation_state` | `room` | `deliberation: {kind, n?, seats, round, posted, outcome, time_box?, expired?}` | The deliberation's kind, `n` for a list, its seats, the number of rounds stepped, the seats that have posted in the open round, `outcome`: `open`, `agreed` or `deadlock`, the `time_box` asked at convene when one was, and `expired: true` once that box ran out while the deliberation was open. A room that is not a deliberation answers `not a deliberation` |
+| `deliberation_state` | `room` | `deliberation: {kind, n?, seats, round, posted, outcome, time_box?, expired?}` | The deliberation's kind, `n` for a list, its seats, the number of rounds stepped, the seats that have posted in the open round, `outcome`: `open`, `agreed` or `deadlock`, the `time_box` asked at convene or set later, when one was, and `expired: true` once that box ran out while the deliberation was open. A room that is not a deliberation answers `not a deliberation` |
 | `deliberation_result` | `room` | `result`, `markdown` | The proposal after the newest round: `result` is `{label, outcome, kind, answer, groups: [{members, weight, answer}], dissent: [{member, holdout, objections}], trajectory: {D, rounds}}`, and `markdown` the same as a document with every answer and objection fenced. Before the first round it answers `no round has finished yet` |
+| `deliberation_time_box` | `room`, `author: member`, `time_box` | `deliberation` | Sets the time box once on an open deliberation convened without one, counted from now. Checks in order: `author` must be a member (`not a member`); `time_box` must be `15m`, `1h` or `deadlock` (`a time box is 15m, 1h or deadlock`); the room must exist (`no such room`) and be a deliberation (`not a deliberation`); it must have no outcome and not be expired (`the deliberation is closed`); it must have no box yet (`the deliberation already has a time box`), including one asked as `deadlock`. Answers the same view as `deliberation_state`, with the new box. Posts no room message |
 
 Files: a file goes to one app on one computer of the fleet, up to 64 MiB, only when
 that computer answers now. Nothing is kept to resend. It lands in the folder that app
@@ -148,10 +149,12 @@ seats (0.5 of two equally weighted seats) and its `answer` `[]` for a `list` or 
 with `objections` `""` for a seat with no block. Groups sort by weight, then size, then the seat
 order of their first member, so on a tie a silent seat's group can come first and put every seat
 that posted in `dissent`. In `markdown`, a `null` answer (the result's `answer` unless `agreed`, or
-a `text` group with no draft) reads `None`. A deliberation convened
-with a `time_box` of `15m` or `1h` ends when that much time has passed since it was convened: Radio
+a `text` group with no draft) reads `None`. A deliberation
+with a `time_box` of `15m` or `1h` ends when that much time has passed since it was convened, or since
+`deliberation_time_box` set it: Radio
 steps the open round with the seats that have posted in it, if any, and the deliberation takes no
 more turns, its outcome what that step decided (usually `open`) and its result the newest round's.
+A deliberation convened without a box can take one once while open.
 Radio applies the time box when an op reads or turns the deliberation, so `deliberation_state` shows
 it ended once the time has passed. After 50 rounds with no outcome a deliberation stays `open` and
 takes no more turns. A plain

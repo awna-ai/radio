@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 11;
+pub const PROTOCOL_MINOR: u32 = 12;
 
-/// The ops major 1, minor 11 serves, in this order.
+/// The ops major 1, minor 12 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -51,6 +51,7 @@ pub const OPS: &[&str] = &[
     "deliberation_turn",
     "deliberation_state",
     "deliberation_result",
+    "deliberation_time_box",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -221,6 +222,12 @@ pub enum Request {
     DeliberationState { room: String },
     /// Reads a deliberation's result after its first round.
     DeliberationResult { room: String },
+    /// Sets the time box of an open deliberation convened without one, counted from now; once.
+    DeliberationTimeBox {
+        room: String,
+        author: Member,
+        time_box: String,
+    },
 }
 
 /// A member identified by a kind and a name.
@@ -342,7 +349,8 @@ pub struct Response {
     /// This app's kept computers, in the order requested with duplicates removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept: Option<Vec<KeptPeer>>,
-    /// A deliberation's state, answered by `deliberation_state` and `deliberation_turn`.
+    /// A deliberation's state, answered by `deliberation_state`, `deliberation_turn` and
+    /// `deliberation_time_box`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deliberation: Option<Deliberation>,
     /// A deliberation's result, answered by `deliberation_result`.
@@ -368,7 +376,7 @@ pub struct Deliberation {
     pub posted: Vec<Member>,
     /// `open`, `agreed` or `deadlock`.
     pub outcome: String,
-    /// The time box asked at convene, when one was.
+    /// The time box asked at convene or set once while open; counted from then, when one was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_box: Option<String>,
     /// `true` once the time box ran out while the deliberation was open: it takes no more turns.
@@ -579,7 +587,7 @@ mod tests {
 
     #[test]
     fn kept_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 11);
+        assert_eq!(PROTOCOL_MINOR, 12);
         assert_eq!(&OPS[31..33], &["keep", "kept"]);
         for value in [
             serde_json::json!({"op":"keep","app":"notes","computers":["birch","cedar"]}),
@@ -616,7 +624,7 @@ mod tests {
 
     #[test]
     fn message_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 11);
+        assert_eq!(PROTOCOL_MINOR, 12);
         assert_eq!(OPS[30], "message");
         let value =
             serde_json::json!({"op":"message","app":"notes","computer":"birch","body":"hello"});
@@ -644,7 +652,7 @@ mod tests {
 
     #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 11);
+        assert_eq!(PROTOCOL_MINOR, 12);
         assert_eq!(
             &OPS[20..23],
             &[

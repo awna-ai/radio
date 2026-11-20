@@ -17,7 +17,7 @@ use std::{
 #[path = "support/contract_match.rs"]
 mod contract_match;
 
-const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio id\n       radio fleet init <name>\n       radio code create [--name <name>] [--ttl <n>m|<n>h]\n       radio code list\n       radio code revoke <id>\n       radio computer list\n       radio computer accept <computer>\n       radio computer block <computer>\n       radio computer trust <computer>\n       radio join (reads the code on standard input)\n       radio computer remove <computer>\n       radio leave\n       radio message <computer> --app <app> (reads the body on standard input)\n       radio keep [<computer>]... --app <app>\n       radio kept --app <app>\n       radio send <computer> <file> --app <app> [--name <name>]\n       radio delivery folder set <folder> --app <app>\n       radio delivery folder clear --app <app>\n       radio deliveries --app <app> [--after <id>] [--limit <n>]\n       radio resign --app <app> [--section <text> | --section-file <path|->] [--roles <role>,...]\n       radio computer records --app <app>\n       radio link address add <address>\n       radio link address list\n       radio link address remove <address>\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>\n       radio deliberation convene <room> --title <title> --as <kind>:<name> --kind list|text [--n <n>] --seat <kind>:<name>... [--time-box 15m|1h|deadlock]\n       radio deliberation turn <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio deliberation state <room>\n       radio deliberation result <room>\n";
+const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio id\n       radio fleet init <name>\n       radio code create [--name <name>] [--ttl <n>m|<n>h]\n       radio code list\n       radio code revoke <id>\n       radio computer list\n       radio computer accept <computer>\n       radio computer block <computer>\n       radio computer trust <computer>\n       radio join (reads the code on standard input)\n       radio computer remove <computer>\n       radio leave\n       radio message <computer> --app <app> (reads the body on standard input)\n       radio keep [<computer>]... --app <app>\n       radio kept --app <app>\n       radio send <computer> <file> --app <app> [--name <name>]\n       radio delivery folder set <folder> --app <app>\n       radio delivery folder clear --app <app>\n       radio deliveries --app <app> [--after <id>] [--limit <n>]\n       radio resign --app <app> [--section <text> | --section-file <path|->] [--roles <role>,...]\n       radio computer records --app <app>\n       radio link address add <address>\n       radio link address list\n       radio link address remove <address>\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>\n       radio deliberation convene <room> --title <title> --as <kind>:<name> --kind list|text [--n <n>] --seat <kind>:<name>... [--time-box 15m|1h|deadlock]\n       radio deliberation turn <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio deliberation state <room>\n       radio deliberation time-box <room> --as <kind>:<name> --time-box 15m|1h|deadlock\n       radio deliberation result <room>\n";
 
 #[test]
 fn invalid_arguments_and_names_print_only_usage() {
@@ -455,6 +455,83 @@ fn fixture_commands() -> Vec<(usize, Vec<&'static str>)> {
         (21, vec!["code", "revoke", "0000000000000000"]),
         (39, vec!["keep", "birch", "--app", "notes"]),
         (40, vec!["kept", "--app", "notes"]),
+        (
+            41,
+            vec![
+                "register",
+                "--app",
+                "orchard",
+                "--app-version",
+                "1.0.0",
+                "--member",
+                "helper:fern",
+                "--member",
+                "helper:moss",
+            ],
+        ),
+        (
+            54,
+            vec![
+                "deliberation",
+                "convene",
+                "vote",
+                "--title",
+                "Vote",
+                "--as",
+                "human:sam",
+                "--kind",
+                "text",
+                "--seat",
+                "helper:juniper",
+                "--seat",
+                "helper:fern",
+                "--time-box",
+                "1h",
+            ],
+        ),
+        (55, vec!["deliberation", "state", "vote"]),
+        (
+            56,
+            vec![
+                "deliberation",
+                "time-box",
+                "vote",
+                "--as",
+                "human:moss",
+                "--time-box",
+                "15m",
+            ],
+        ),
+        (
+            57,
+            vec![
+                "deliberation",
+                "convene",
+                "council-later",
+                "--title",
+                "Council",
+                "--as",
+                "human:moss",
+                "--kind",
+                "text",
+                "--seat",
+                "helper:juniper",
+                "--seat",
+                "helper:fern",
+            ],
+        ),
+        (
+            58,
+            vec![
+                "deliberation",
+                "time-box",
+                "council-later",
+                "--as",
+                "human:moss",
+                "--time-box",
+                "15m",
+            ],
+        ),
     ]
 }
 
@@ -521,7 +598,7 @@ fn commands_replay_the_contract_against_a_real_daemon() {
         let output = daemon.home.run(&args);
         let code = match number {
             12 => 3,
-            16 | 39 | 40 => 1,
+            16 | 39 | 40 | 56 => 1,
             _ => 0,
         };
         assert_eq!(output.status.code(), Some(code), "{args:?}: {output:?}");
@@ -864,4 +941,30 @@ fn link_address_commands_print_the_fixed_port() {
             serde_json::json!({"ok":true,"port":7341,"addresses":["127.0.0.1"]})
         );
     }
+}
+
+#[test]
+fn setting_a_deliberations_time_box_sends_the_request_and_requires_both_flags() {
+    let server = StandIn::start(r#"{"ok":true}"#);
+    let words = [
+        "deliberation",
+        "time-box",
+        "council",
+        "--as",
+        "human:moss",
+        "--time-box",
+        "15m",
+    ];
+    let output = server.home.run(&words);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        server.request(),
+        serde_json::json!({"v":1,"op":"deliberation_time_box","room":"council","author":{"kind":"human","name":"moss"},"time_box":"15m"})
+    );
+    for missing in [3..5, 5..7] {
+        let mut incomplete = words.to_vec();
+        incomplete.drain(missing);
+        assert_usage(server.home.run(&incomplete));
+    }
+    server.assert_no_connection();
 }

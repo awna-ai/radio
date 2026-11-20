@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 11);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 12);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1470,5 +1470,31 @@ fn deliberation_commands_build_their_requests() {
         &["deliberation", "vote", "council"],
     ] {
         assert_eq!(parse(&args(words)), Err(()), "{words:?}");
+    }
+}
+
+#[test]
+fn setting_a_deliberations_time_box_requires_both_flags() {
+    let words = [
+        "deliberation",
+        "time-box",
+        "council",
+        "--as",
+        "human:moss",
+        "--time-box",
+        "15m",
+    ];
+    let parsed = parse(&args(&words));
+    assert!(parsed.is_ok(), "{parsed:?}");
+    let command = parsed.unwrap();
+    assert_eq!(
+        serde_json::to_value(command.request).unwrap(),
+        serde_json::json!({"op":"deliberation_time_box","room":"council","author":{"kind":"human","name":"moss"},"time_box":"15m"})
+    );
+    assert_eq!(command.body, None);
+    for missing in [3..5, 5..7] {
+        let mut incomplete = words.to_vec();
+        incomplete.drain(missing);
+        assert!(parse(&args(&incomplete)).is_err());
     }
 }

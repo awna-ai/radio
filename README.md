@@ -417,6 +417,7 @@ Radio keeps the outcome.
 | **`deliberation_turn`** | A seat's turn: a room post whose body ends in a `deliberation` block (below). |
 | **`deliberation_state`** | Shows which seats have posted in the open round, and `expired: true` once a time box has run out. |
 | **`deliberation_result`** | The proposal, its agreement groups, the dissent and how far apart the seats were each round, as fields and as markdown that fences every answer and objection. |
+| **`deliberation_time_box`** | Sets a `time_box` of `15m`, `1h` or `deadlock`, counted from now, on an open deliberation convened without one. Any member may set it, once, with `room`, `author` and `time_box`. |
 
 A turn for a `list` ends in a block like this one:
 
@@ -579,6 +580,7 @@ UTF-8, and Radio applies its own 4 KiB limit.
 | `radio deliberation convene <room> --title <title> --as <kind>:<name> --kind list\|text [--n <n>] --seat <kind>:<name> [--time-box 15m\|1h\|deadlock]` (repeat `--seat`) | `deliberation_convene` |
 | `radio deliberation turn <room> --as <kind>:<name> --body <text>`, or `--body-file <path>` (`-` reads stdin) | `deliberation_turn` |
 | `radio deliberation state <room>` | `deliberation_state` |
+| `radio deliberation time-box <room> --as <kind>:<name> --time-box 15m\|1h\|deadlock` | `deliberation_time_box` |
 | `radio deliberation result <room>` | `deliberation_result` |
 
 </details>
