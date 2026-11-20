@@ -413,7 +413,7 @@ Radio keeps the outcome.
 
 | Op | What it does |
 | --- | --- |
-| **`deliberation_convene`** | Opens one: a new `room` and `title`, the convening `author`, `kind` `list` (with `n`, how many items the answer holds) or `text`, and 2 to 24 `seats`, each a member some app registered, or the person. To limit its time, add a `time_box` of `15m` or `1h` (`deadlock`, the default, runs until it has an outcome). |
+| **`deliberation_convene`** | Opens one: a new `room` and `title`, the convening `author`, `kind` `list` (with `n`, how many items the answer holds) or `text`, and 2 to 24 `seats`, each a member some app registered, or the person. To limit its time, add a `time_box` of `15m` or `1h` (with none, it runs until it has an outcome, and a box can still be set once later; `deadlock` also runs until an outcome, but takes no later box). |
 | **`deliberation_turn`** | A seat's turn: a room post whose body ends in a `deliberation` block (below). |
 | **`deliberation_state`** | Shows which seats have posted in the open round, and `expired: true` once a time box has run out. |
 | **`deliberation_result`** | The proposal, its agreement groups, the dissent and how far apart the seats were each round, as fields and as markdown that fences every answer and objection. |

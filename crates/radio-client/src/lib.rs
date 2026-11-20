@@ -208,7 +208,8 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         n: Option<i64>,
         seats: Vec<Member>,
-        /// `15m`, `1h` or `deadlock`; absent, like `deadlock`, means until an outcome.
+        /// `15m`, `1h` or `deadlock`. Absent means until an outcome, unless a box is set later;
+        /// `deadlock` also means until an outcome, and takes no later box.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         time_box: Option<String>,
     },
