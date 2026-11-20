@@ -217,7 +217,7 @@ fn remove_reaches_its_subject() {
 #[test]
 fn leave_reaches_the_others() {
     let (a, b) = joined();
-    assert_eq!(b.node.leave(now()), Ok(0));
+    assert_eq!(b.node.leave(now()), Ok(1));
     wait(|| a.state(&b) == Some(State::Left));
     assert!(b.db.lock().unwrap().fleet().unwrap().is_none());
 }
@@ -498,15 +498,9 @@ fn an_announcement_crosses_the_topic_and_is_fetched_only_on_demand() {
         Some(record.clone())
     );
     b.node.fetch_records();
-    assert_eq!(
-        b.db.lock().unwrap().computer_record(&a.node.id()).unwrap(),
-        Some(record.clone())
-    );
+    wait(|| b.db.lock().unwrap().computer_record(&a.node.id()).unwrap() == Some(record.clone()));
     c.node.fetch_records();
-    assert_eq!(
-        c.db.lock().unwrap().computer_record(&a.node.id()).unwrap(),
-        Some(record)
-    );
+    wait(|| c.db.lock().unwrap().computer_record(&a.node.id()).unwrap() == Some(record.clone()));
     assert!(!a.node.link().connected_to(&c.node.id()));
     assert!(!c.node.link().connected_to(&a.node.id()));
 }
@@ -587,7 +581,9 @@ fn an_on_demand_fetch_drops_a_record_that_does_not_match_its_announcement() {
             .unwrap()
             .is_some()
     });
+    let (_, finished) = b.node.link().fetch_counts();
     b.node.fetch_records();
+    wait(|| b.node.link().fetch_counts().1 > finished);
     assert_eq!(
         b.db.lock().unwrap().computer_record(&a.node.id()).unwrap(),
         before
@@ -770,4 +766,151 @@ fn status_lists_a_connected_computer_until_its_connection_closes() {
     a.node.block(&b_key).unwrap();
     wait(|| listed(&a.status(), &b_key).is_none());
     wait(|| listed(&b.status(), &a_key).is_none());
+}
+
+#[test]
+fn the_topic_is_joined_again_after_its_connections_close() {
+    let (a, b) = joined();
+    a.node.link().close_connections();
+    b.node.link().close_connections();
+    wait(|| {
+        a.node.link().topic_neighbors().is_empty() && b.node.link().topic_neighbors().is_empty()
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !a.node.link().topic_neighbors().contains(&b.node.id())
+        || !b.node.link().topic_neighbors().contains(&a.node.id())
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the topic neighbours did not return"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let record =
+        a.db.lock()
+            .unwrap()
+            .resign(
+                &a.key,
+                "garden",
+                &a.node.addrs(),
+                "lantern",
+                Some("ready"),
+                None,
+                now(),
+            )
+            .unwrap();
+    a.node.publish(record.clone());
+    wait(|| {
+        b.db.lock()
+            .unwrap()
+            .announcement(&a.node.id())
+            .unwrap()
+            .is_some_and(|held| held.matches(&record))
+    });
+}
+
+#[test]
+fn fetching_records_never_waits_for_an_offline_computer() {
+    let (a, b) = joined();
+    let id = b.node.id();
+    let before =
+        b.db.lock()
+            .unwrap()
+            .resign(
+                &b.key,
+                "birch",
+                &b.node.addrs(),
+                "lantern",
+                Some("stored"),
+                None,
+                now(),
+            )
+            .unwrap();
+    a.db.lock()
+        .unwrap()
+        .apply_computer(&a.node.id(), &before)
+        .unwrap();
+    let record =
+        b.db.lock()
+            .unwrap()
+            .resign(
+                &b.key,
+                "birch",
+                &b.node.addrs(),
+                "lantern",
+                Some("ready"),
+                None,
+                now(),
+            )
+            .unwrap();
+    a.db.lock()
+        .unwrap()
+        .apply_announcement(&a.node.id(), &radio_link::topic::announce(&record, &b.key))
+        .unwrap();
+    drop(b);
+    let start = Instant::now();
+    a.node.fetch_records();
+    let held = a.db.lock().unwrap().computer_record(&id).unwrap();
+    assert!(
+        start.elapsed() < Duration::from_secs(1),
+        "fetching records waited for the network"
+    );
+    assert_eq!(held, Some(before));
+}
+
+#[test]
+fn leaving_without_a_topic_neighbour_does_not_drain() {
+    let a = Computer::new("garden");
+    a.found();
+    assert!(a.node.link().topic_neighbors().is_empty());
+    let start = Instant::now();
+    assert_eq!(a.node.leave(now()), Ok(0));
+    assert!(start.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
+fn repeated_peer_calls_share_a_fetch_and_its_failure_back_off() {
+    let (a, b) = joined();
+    let stored =
+        a.db.lock()
+            .unwrap()
+            .resign(
+                &a.key,
+                "garden",
+                &a.node.addrs(),
+                "lantern",
+                Some("stored"),
+                None,
+                now(),
+            )
+            .unwrap();
+    let mut body = stored.body.clone();
+    body.apps.insert("lantern".into(), "announced".into());
+    let announced = radio_link::computer_record::sign(body, &a.key);
+    b.db.lock()
+        .unwrap()
+        .apply_announcement(
+            &b.node.id(),
+            &radio_link::topic::announce(&announced, &a.key),
+        )
+        .unwrap();
+    assert!(
+        b.db.lock()
+            .unwrap()
+            .fetch_wanted(&a.node.id())
+            .unwrap()
+            .is_some()
+    );
+    let (started, finished) = b.node.link().fetch_counts();
+    for _ in 0..2 {
+        let _ = b.node.message(&a.node.id().to_string(), "lantern", "ready");
+    }
+    assert_eq!(b.node.link().fetch_counts().0, started + 1);
+    wait(|| b.node.link().fetch_counts().1 == finished + 1);
+    assert_ne!(
+        b.db.lock().unwrap().computer_record(&a.node.id()).unwrap(),
+        Some(announced)
+    );
+    let _ = b.node.message(&a.node.id().to_string(), "lantern", "ready");
+    assert_eq!(b.node.link().fetch_counts().0, started + 1);
 }

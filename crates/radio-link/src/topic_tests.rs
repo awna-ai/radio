@@ -394,3 +394,56 @@ fn announcer_due_handles_a_clock_that_went_backwards() {
         );
     }
 }
+
+#[test]
+fn precheck_refuses_forged_membership_without_a_store() {
+    let mut record = signed_record();
+    let valid = TopicMessage::Record(record.clone());
+    let bar = std::sync::Mutex::new(ReceiveBar::new());
+    assert_eq!(
+        precheck(&valid.encode().unwrap(), &"ab".repeat(32), &bar, 1000.0),
+        Ok(valid)
+    );
+    record.signature = "00".repeat(64);
+    let bytes = TopicMessage::Record(record).encode().unwrap();
+    assert!(
+        precheck(
+            &bytes,
+            &"ab".repeat(32),
+            &std::sync::Mutex::new(ReceiveBar::new()),
+            1000.0
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn precheck_refuses_forged_announcements_without_a_store() {
+    let key = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let forged = announce(&record(&key, &fleet, 5), &iroh::SecretKey::generate());
+    let bytes = TopicMessage::Announcement(forged).encode().unwrap();
+    assert!(
+        precheck(
+            &bytes,
+            &fleet,
+            &std::sync::Mutex::new(ReceiveBar::new()),
+            1000.0
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn precheck_refuses_announcements_inside_the_bar_without_a_store() {
+    let key = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let message = TopicMessage::Announcement(announce(&record(&key, &fleet, 5), &key));
+    let bytes = message.encode().unwrap();
+    let mut bar = ReceiveBar::new();
+    bar.kept.insert(key.public().to_string(), 1000.0);
+    let bar = std::sync::Mutex::new(bar);
+    assert!(precheck(&bytes, &fleet, &bar, 1299.0).is_err());
+    assert_eq!(precheck(&bytes, &fleet, &bar, 1300.0), Ok(message));
+    assert_eq!(bar.lock().unwrap().kept[&key.public().to_string()], 1000.0);
+}

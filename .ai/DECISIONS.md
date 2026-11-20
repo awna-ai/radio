@@ -8,13 +8,15 @@ Each link runs one gossip actor on Radio's `radio-gossip/1` ALPN, admitted only 
 members. A fleet's topic id is SHA-256 of `radio fleet topic 1\n` followed by its id's UTF-8
 bytes. An in-memory address lookup holds accepted members' stored addresses and removes members
 that are removed or blocked; gossip also learns addresses from its neighbours, behind the same gate.
-Introductions, removals and leaves are signed membership records on the topic. A removal still
-goes directly to its subject first, and a leave drains for at most two seconds before forgetting.
+Introductions, removals and leaves are signed membership records on the topic.
+Removals and leaves still go directly to every accepted member, as before, and are also broadcast,
+so their `delivered` keeps its released meaning and a minor-6 member still hears them; a later major may drop the direct sends. A leave drains the topic for at most two seconds,
+only when it has a neighbour.
 A computer's own record travels only as a signed announcement of its version and hash, coalesced
 to one per ten minutes. Records are fetched on demand after dialing an accepted member or when
-an app asks for computer records, with five seconds for that whole request's fetches. Link minor 7
-speaks gossip; minor 6 still links but hears membership changes only after upgrading or through
-the catch-up a later step adds.
+an app asks for computer records; the call lists held records at once and fetches in the
+background. Link minor 7 speaks gossip; minor 6 still links and hears removals and leaves directly,
+but hears introductions and record announcements only after upgrading or through the catch-up a later step adds.
 
 ## 2026-11-20: D28. A deliberation's round can be stepped with the seats that posted
 

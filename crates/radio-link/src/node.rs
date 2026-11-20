@@ -25,8 +25,10 @@ use tokio::{
     task::JoinSet,
 };
 
-/// The total time spent fetching newer records for one computer-records request.
-pub const FETCH_RECORDS_WAIT: Duration = Duration::from_secs(5);
+/// The first pause before retrying a topic with no neighbours.
+const REJOIN_FIRST: Duration = Duration::from_secs(1);
+/// The longest pause between attempts to re-join a topic with no neighbours.
+const REJOIN_MAX: Duration = Duration::from_secs(60);
 
 pub(crate) const WAIT: Duration = Duration::from_secs(110);
 const STILL_TELLING: &str = "still telling the other computers; check computer_list later";
@@ -69,7 +71,7 @@ impl Node {
             handlers,
         ))?);
         link.configure_fleet(db.clone());
-        runtime.block_on(link.sync_topic())?;
+        let _ = runtime.block_on(link.sync_topic());
         let (stop, stopped) = oneshot::channel();
         let (publish, records) = watch::channel::<Option<ComputerRecord>>(None);
         let ended = Arc::new(AtomicBool::new(false));
@@ -294,30 +296,24 @@ impl Node {
             return;
         }
         let (link, db) = (self.link.clone(), self.db.clone());
-        let (sender, receiver) = sync_channel(1);
         self.runtime.handle().spawn(async move {
-            let _ = tokio::time::timeout(FETCH_RECORDS_WAIT, async {
-                let keys = {
-                    let Ok(db) = db.lock() else { return };
-                    let Ok(computers) = db.computers() else {
-                        return;
-                    };
-                    computers
-                        .into_iter()
-                        .filter_map(|computer| {
-                            let key: EndpointId = computer.key.parse().ok()?;
-                            db.fetch_wanted(&key).ok().flatten().map(|_| key)
-                        })
-                        .collect::<Vec<_>>()
+            let keys = {
+                let Ok(db) = db.lock() else { return };
+                let Ok(computers) = db.computers() else {
+                    return;
                 };
-                for key in keys {
-                    join::fetch(&link, &db, &key).await;
-                }
-            })
-            .await;
-            let _ = sender.send(());
+                computers
+                    .into_iter()
+                    .filter_map(|computer| {
+                        let key: EndpointId = computer.key.parse().ok()?;
+                        db.fetch_wanted(&key).ok().flatten().map(|_| key)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            for key in keys {
+                link.want_fetch(db.clone(), key);
+            }
         });
-        let _ = receiver.recv_timeout(FETCH_RECORDS_WAIT);
     }
 
     pub fn accept(&self, target: &str) -> Result<Computer, &'static str> {
@@ -430,6 +426,19 @@ async fn drive(
     let (sender, mut events) = mpsc::channel(64);
     let server = link.serve(sender);
     let mut joins = JoinSet::new();
+    let rejoin_link = link.clone();
+    joins.spawn(async move {
+        let mut wait = REJOIN_FIRST;
+        loop {
+            tokio::time::sleep(wait).await;
+            if rejoin_link.topic_neighbors().is_empty() {
+                let _ = rejoin_link.sync_topic().await;
+                wait = (wait * 2).min(REJOIN_MAX);
+            } else {
+                wait = REJOIN_FIRST;
+            }
+        }
+    });
     let (publisher_link, publisher_key) = (link.clone(), key.clone());
     joins.spawn(async move {
         let mut announcer = crate::topic::Announcer::new();

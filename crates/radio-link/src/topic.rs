@@ -268,6 +268,34 @@ impl TopicMessage {
     }
 }
 
+pub(crate) fn precheck(
+    bytes: &[u8],
+    fleet: &str,
+    bar: &std::sync::Mutex<ReceiveBar>,
+    now: f64,
+) -> Result<TopicMessage, &'static str> {
+    let message = TopicMessage::decode(bytes)?;
+    match &message {
+        TopicMessage::Record(record) => record.verify()?,
+        TopicMessage::Announcement(announcement) => {
+            if !now.is_finite() {
+                return Err("the clock is not a finite number");
+            }
+            let barred = {
+                let bar = bar.lock().map_err(|_| "the receive bar is busy")?;
+                bar.kept
+                    .get(&announcement.key)
+                    .is_some_and(|last| (0.0..ANNOUNCEMENT_RECEIVE_WINDOW).contains(&(now - last)))
+            };
+            if barred {
+                return Err("an announcement from this computer was kept less than 5 minutes ago");
+            }
+            announcement.verify(fleet)?;
+        }
+    }
+    Ok(message)
+}
+
 /// Checks one message from the fleet's topic and applies it: a membership record through
 /// `FleetDb::apply`, an announcement through `FleetDb::apply_announcement`. Anything that fails a
 /// check is dropped with nothing written.

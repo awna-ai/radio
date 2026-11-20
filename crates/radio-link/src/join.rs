@@ -76,7 +76,8 @@ pub async fn join(
     db.lock()
         .map_err(|_| READ)?
         .joined(&link.id(), code, &answer, now)?;
-    link.sync_topic().await
+    let _ = link.sync_topic().await;
+    Ok(())
 }
 
 pub async fn answer(
@@ -123,7 +124,7 @@ pub async fn answer(
         Ok::<(), &'static str>(())
     })
     .await;
-    link.sync_topic().await?;
+    let _ = link.sync_topic().await;
     Ok(introduction)
 }
 
@@ -185,14 +186,17 @@ pub async fn remove(
     } else {
         link.peer(subject, &computer.addrs).await.ok()
     };
-    let (record, _) = db
-        .lock()
-        .map_err(|_| READ)?
-        .remove(key, &computer.key, now)?;
+    let (record, to) = {
+        let mut db = db.lock().map_err(|_| READ)?;
+        let (record, _) = db.remove(key, &computer.key, now)?;
+        let to = db.recipients(&subject)?;
+        (record, to)
+    };
     let delivered = match peer {
         Some(peer) => usize::from(peer.send_record(&record).await.is_ok()),
         None => 0,
     };
+    let delivered = delivered + deliver(link, &record, &to).await;
     link.close_key(&subject);
     link.refresh_addresses(db);
     let _ = link
@@ -207,18 +211,17 @@ pub async fn leave(
     db: &Mutex<FleetDb>,
     now: f64,
 ) -> Result<usize, &'static str> {
-    let (record, _) = db.lock().map_err(|_| READ)?.leave(key, now)?;
-    let _ = timeout(LEAVE_DRAIN, async {
-        let _ = link
-            .broadcast(&crate::topic::TopicMessage::Record(record))
-            .await;
+    let (record, to) = db.lock().map_err(|_| READ)?.leave(key, now)?;
+    let delivered = deliver(link, &record, &to).await;
+    let _ = link
+        .broadcast(&crate::topic::TopicMessage::Record(record))
+        .await;
+    if !link.topic_neighbors().is_empty() {
         tokio::time::sleep(LEAVE_DRAIN).await;
-    })
-    .await;
+    }
     db.lock().map_err(|_| READ)?.forget()?;
     link.close_all();
-    // Only direct acknowledgements count as delivered; gossip has none.
-    Ok(0)
+    Ok(delivered)
 }
 
 /// Whether the announced record is held afterwards. If needed, tries the announcing

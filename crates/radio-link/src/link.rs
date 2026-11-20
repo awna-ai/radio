@@ -240,18 +240,23 @@ impl Link {
 
     pub async fn peer(&self, id: EndpointId, addrs: &[SocketAddr]) -> Result<Peer, &'static str> {
         let peer = self.peer_without_fetch(id, addrs).await?;
-        if let Some(db) = self.topic.db()
-            && db
-                .lock()
-                .ok()
-                .is_some_and(|db| db.fetch_wanted(&id).ok().flatten().is_some())
-        {
-            let link = self.clone();
-            tokio::spawn(async move {
-                crate::join::fetch(&link, &db, &id).await;
-            });
+        if let Some(db) = self.topic.db() {
+            self.want_fetch(db, id);
         }
         Ok(peer)
+    }
+
+    pub(crate) fn want_fetch(
+        &self,
+        db: Arc<std::sync::Mutex<crate::fleet_db::FleetDb>>,
+        id: EndpointId,
+    ) {
+        self.topic.want_fetch(self, db, id);
+    }
+
+    #[doc(hidden)]
+    pub fn fetch_counts(&self) -> (u64, u64) {
+        self.topic.fetch_counts()
     }
 
     pub(crate) async fn peer_without_fetch(
@@ -317,6 +322,11 @@ impl Link {
         .await
         .map_err(|_| "the computer could not be reached")?
         .map_err(|_| "the computer could not be reached")
+    }
+
+    #[doc(hidden)]
+    pub fn close_connections(&self) {
+        self.gate.close_all();
     }
 
     pub fn close_all(&self) {
