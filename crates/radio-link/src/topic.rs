@@ -268,33 +268,48 @@ impl TopicMessage {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct TopicMembers {
+    pub(crate) accepted: HashSet<iroh::EndpointId>,
+    pub(crate) listed: HashSet<iroh::EndpointId>,
+}
+
 pub(crate) fn precheck(
     bytes: &[u8],
     fleet: &str,
-    accepted: &HashSet<iroh::EndpointId>,
+    members: &std::sync::Mutex<TopicMembers>,
     bar: &std::sync::Mutex<ReceiveBar>,
     now: f64,
 ) -> Result<TopicMessage, &'static str> {
     let message = TopicMessage::decode(bytes)?;
+    {
+        let members = members.lock().unwrap();
+        match &message {
+            TopicMessage::Record(record) => {
+                if !record
+                    .signer()
+                    .parse::<iroh::EndpointId>()
+                    .is_ok_and(|key| members.accepted.contains(&key))
+                {
+                    return Err("the record's signer is not an accepted member here");
+                }
+            }
+            TopicMessage::Announcement(announcement) => {
+                if !announcement
+                    .key
+                    .parse::<iroh::EndpointId>()
+                    .is_ok_and(|key| members.listed.contains(&key))
+                {
+                    return Err("the announcing computer is not on this computer's list");
+                }
+            }
+        }
+    }
     match &message {
         TopicMessage::Record(record) => {
-            if !record
-                .signer()
-                .parse::<iroh::EndpointId>()
-                .is_ok_and(|key| accepted.contains(&key))
-            {
-                return Err("the record's signer is not an accepted member here");
-            }
             record.verify()?;
         }
         TopicMessage::Announcement(announcement) => {
-            if !announcement
-                .key
-                .parse::<iroh::EndpointId>()
-                .is_ok_and(|key| accepted.contains(&key))
-            {
-                return Err("the announcing computer is not an accepted member here");
-            }
             if !now.is_finite() {
                 return Err("the clock is not a finite number");
             }

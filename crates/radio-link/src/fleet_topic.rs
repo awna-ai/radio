@@ -2,7 +2,7 @@ use crate::{
     EndpointId,
     fleet_db::{FleetDb, State},
     link::Link,
-    topic::{self, ReceiveBar, Received, TopicMessage},
+    topic::{self, ReceiveBar, Received, TopicMembers, TopicMessage},
 };
 use futures_lite::StreamExt;
 use iroh::{EndpointAddr, TransportAddr, address_lookup::memory::MemoryLookup};
@@ -27,7 +27,7 @@ pub(crate) struct FleetTopic {
     pub(crate) gossip: Gossip,
     pub(crate) lookup: MemoryLookup,
     db: Mutex<Option<Arc<Mutex<FleetDb>>>>,
-    known: Arc<Mutex<HashSet<EndpointId>>>,
+    members: Arc<Mutex<TopicMembers>>,
     bar: Arc<Mutex<ReceiveBar>>,
     subscription: Mutex<Option<Subscription>>,
     subscribing: tokio::sync::Mutex<()>,
@@ -44,7 +44,7 @@ impl FleetTopic {
             gossip,
             lookup,
             db: Mutex::new(None),
-            known: Arc::new(Mutex::new(HashSet::new())),
+            members: Arc::new(Mutex::new(TopicMembers::default())),
             bar: Arc::new(Mutex::new(ReceiveBar::new())),
             subscription: Mutex::new(None),
             subscribing: tokio::sync::Mutex::new(()),
@@ -114,23 +114,30 @@ impl FleetTopic {
     ) -> Result<Vec<EndpointId>, &'static str> {
         let db = db.lock().map_err(|_| "the fleet store is busy")?;
         let computers = db.computers()?;
-        let mut known = self.known.lock().unwrap();
+        let mut members = self.members.lock().unwrap();
         let mut accepted = HashSet::new();
-        for computer in computers.into_iter().filter(|c| c.state == State::Accepted) {
+        let mut listed = HashSet::new();
+        for computer in computers
+            .into_iter()
+            .filter(|c| matches!(c.state, State::Accepted | State::Pending | State::Blocked))
+        {
             let key: EndpointId = computer.key.parse().map_err(|_| "not a computer key")?;
             if key != own {
-                self.lookup.set_endpoint_info(EndpointAddr::from_parts(
-                    key,
-                    computer.addrs.into_iter().map(TransportAddr::Ip),
-                ));
-                accepted.insert(key);
+                listed.insert(key);
+                if computer.state == State::Accepted {
+                    self.lookup.set_endpoint_info(EndpointAddr::from_parts(
+                        key,
+                        computer.addrs.into_iter().map(TransportAddr::Ip),
+                    ));
+                    accepted.insert(key);
+                }
             }
         }
-        for key in known.difference(&accepted) {
+        for key in members.accepted.difference(&accepted) {
             self.lookup.remove_endpoint_info(*key);
         }
-        *known = accepted;
-        Ok(known.iter().copied().collect())
+        *members = TopicMembers { accepted, listed };
+        Ok(members.accepted.iter().copied().collect())
     }
 
     pub(crate) async fn sync(&self, link: &Link) -> Result<(), &'static str> {
@@ -178,7 +185,7 @@ impl FleetTopic {
         {
             return Ok(());
         }
-        let (link, bar, known) = (link.clone(), self.bar.clone(), self.known.clone());
+        let (link, bar, members) = (link.clone(), self.bar.clone(), self.members.clone());
         let neighbors = Arc::new(Mutex::new(HashSet::new()));
         let seen_neighbors = neighbors.clone();
         let fleet_id = fleet.body.id.clone();
@@ -196,7 +203,7 @@ impl FleetTopic {
                 if topic::precheck(
                     &message.content,
                     &fleet_id,
-                    &known.lock().unwrap(),
+                    &members,
                     &bar,
                     crate::node::now(),
                 )
@@ -229,6 +236,16 @@ impl FleetTopic {
             neighbors,
         });
         Ok(())
+    }
+
+    pub(crate) fn accepted(&self) -> Vec<EndpointId> {
+        self.members
+            .lock()
+            .unwrap()
+            .accepted
+            .iter()
+            .copied()
+            .collect()
     }
 
     pub(crate) fn neighbors(&self) -> Vec<EndpointId> {
@@ -268,7 +285,9 @@ impl FleetTopic {
             fetches.clear();
         }
         self.drop_subscription();
-        for key in self.known.lock().unwrap().drain() {
+        let mut members = self.members.lock().unwrap();
+        members.listed.clear();
+        for key in members.accepted.drain() {
             self.lookup.remove_endpoint_info(key);
         }
     }

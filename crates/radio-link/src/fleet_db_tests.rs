@@ -1521,7 +1521,12 @@ fn a_blocked_founder_cannot_remove_computers_but_can_leave() {
         Ok(Applied::Removed(founder.public()))
     );
     assert_eq!(
-        db.computer(&founder.public().to_string()).unwrap().state,
+        db.computers()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.key == founder.public().to_string())
+            .unwrap()
+            .state,
         State::Left
     );
     assert_eq!(db.fleet().unwrap(), fleet);

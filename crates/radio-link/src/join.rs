@@ -117,6 +117,7 @@ pub async fn answer(
             return Err(error);
         }
     };
+    link.refresh_addresses(db);
     let _ = timeout_at(deadline, async {
         frame::write(&mut send, &answer, RECORD_CAP).await?;
         send.finish().map_err(|_| UNANSWERED)?;
@@ -193,13 +194,13 @@ pub async fn remove(
         let to = db.recipients(&subject)?;
         (record, to)
     };
+    link.refresh_addresses(db);
     let delivered = match peer {
         Some(peer) => usize::from(peer.send_record(&record).await.is_ok()),
         None => 0,
     };
     let delivered = delivered + deliver(link, &record, &to).await;
     link.close_key(&subject);
-    link.refresh_addresses(db);
     let _ = link
         .broadcast(&crate::topic::TopicMessage::Record(record))
         .await;

@@ -244,6 +244,7 @@ fn block_closes_the_keys_connections() {
 fn blocking_a_computer_closes_its_topic_connection() {
     let (a, b) = joined();
     b.node.block(&a.node.id().to_string()).unwrap();
+    assert!(!b.node.link().topic_accepted().contains(&a.node.id()));
     wait(|| {
         !a.node.link().topic_neighbors().contains(&b.node.id())
             && !b.node.link().topic_neighbors().contains(&a.node.id())

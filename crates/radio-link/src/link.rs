@@ -289,6 +289,12 @@ impl Link {
         self.peers.kept(app)
     }
 
+    /// Returns the topic's accepted members for tests.
+    #[doc(hidden)]
+    pub fn topic_accepted(&self) -> Vec<EndpointId> {
+        self.topic.accepted()
+    }
+
     #[doc(hidden)]
     pub fn topic_neighbors(&self) -> Vec<EndpointId> {
         self.topic.neighbors()
