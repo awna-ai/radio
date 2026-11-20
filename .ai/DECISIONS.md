@@ -8,6 +8,9 @@ The decisions this repo was founded on (2026-11-10). Newer decisions go above th
 seats that have posted, answers its state and posts no room message.
 Any seat may call it, even one that has not posted: Radio keeps no convener, and apps post as
 their seats, so a seat is the narrowest caller there is.
+So one seat's app can end rounds without the others' turns, and can bring a deliberation with
+no time box to `deadlock` alone; that stays within the same-user gap, where any local process
+can already post as every seat.
 A silent seat carries its earlier block for distance but never fresh agreement; a seat that
 never posted has no block and maximum distance, as in a step when a time box expires.
 The deliberation stays open unless the step gives an agreed or deadlock outcome.
