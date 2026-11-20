@@ -150,7 +150,8 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         roles: Option<Vec<String>>,
     },
-    /// Lists this computer's record and its accepted computers' records with this app's section from each.
+    /// Fetches newer announced records for at most five seconds, then lists this computer's
+    /// and its accepted computers' records with this app's section from each.
     ComputerRecords { app: String },
     /// Adds one of this computer's link addresses: an IP address, at most one per family.
     LinkAddressAdd { address: String },
@@ -160,9 +161,9 @@ pub enum Request {
     LinkAddressRemove { address: String },
     /// Joins through a one-time code.
     Join { code: String },
-    /// Removes a computer from the fleet.
+    /// Removes a computer from the fleet; delivered counts only its direct acknowledgement.
     ComputerRemove { computer: String },
-    /// Leaves this computer's fleet.
+    /// Broadcasts a leave and drains for at most two seconds; gossip has no acknowledgement.
     Leave {},
     /// Sends a regular file to this app on one computer of the fleet.
     /// If the answer thread cannot start, the daemon answers `the send could not be started`.

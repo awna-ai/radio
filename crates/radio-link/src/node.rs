@@ -25,6 +25,9 @@ use tokio::{
     task::JoinSet,
 };
 
+/// The total time spent fetching newer records for one computer-records request.
+pub const FETCH_RECORDS_WAIT: Duration = Duration::from_secs(5);
+
 pub(crate) const WAIT: Duration = Duration::from_secs(110);
 const STILL_TELLING: &str = "still telling the other computers; check computer_list later";
 
@@ -65,6 +68,8 @@ impl Node {
             local,
             handlers,
         ))?);
+        link.configure_fleet(db.clone());
+        runtime.block_on(link.sync_topic())?;
         let (stop, stopped) = oneshot::channel();
         let (publish, records) = watch::channel::<Option<ComputerRecord>>(None);
         let ended = Arc::new(AtomicBool::new(false));
@@ -284,6 +289,51 @@ impl Node {
         self.link.kept(app)
     }
 
+    pub fn fetch_records(&self) {
+        if !self.running() {
+            return;
+        }
+        let (link, db) = (self.link.clone(), self.db.clone());
+        let (sender, receiver) = sync_channel(1);
+        self.runtime.handle().spawn(async move {
+            let _ = tokio::time::timeout(FETCH_RECORDS_WAIT, async {
+                let keys = {
+                    let Ok(db) = db.lock() else { return };
+                    let Ok(computers) = db.computers() else {
+                        return;
+                    };
+                    computers
+                        .into_iter()
+                        .filter_map(|computer| {
+                            let key: EndpointId = computer.key.parse().ok()?;
+                            db.fetch_wanted(&key).ok().flatten().map(|_| key)
+                        })
+                        .collect::<Vec<_>>()
+                };
+                for key in keys {
+                    join::fetch(&link, &db, &key).await;
+                }
+            })
+            .await;
+            let _ = sender.send(());
+        });
+        let _ = receiver.recv_timeout(FETCH_RECORDS_WAIT);
+    }
+
+    pub fn accept(&self, target: &str) -> Result<Computer, &'static str> {
+        let computer = self
+            .db
+            .lock()
+            .map_err(|_| "the fleet store is busy")?
+            .accept(target)?;
+        self.link.refresh_addresses(&self.db);
+        let link = self.link.clone();
+        self.runtime.handle().spawn(async move {
+            let _ = link.sync_topic().await;
+        });
+        Ok(computer)
+    }
+
     pub fn block(&self, target: &str) -> Result<Computer, &'static str> {
         join::block(&self.link, &self.db, target)
     }
@@ -380,13 +430,35 @@ async fn drive(
     let (sender, mut events) = mpsc::channel(64);
     let server = link.serve(sender);
     let mut joins = JoinSet::new();
-    let (publisher_link, publisher_db) = (link.clone(), db.clone());
+    let (publisher_link, publisher_key) = (link.clone(), key.clone());
     joins.spawn(async move {
-        while records.changed().await.is_ok() {
-            let record = records.borrow_and_update().clone();
-            if let Some(record) = record {
-                published.fetch_add(1, Ordering::Relaxed);
-                join::publish(&publisher_link, &publisher_db, &record).await;
+        let mut announcer = crate::topic::Announcer::new();
+        loop {
+            let current = now();
+            if let Some(record) = announcer.due(current) {
+                let announcement = crate::topic::announce(&record, &publisher_key);
+                let _ = publisher_link
+                    .broadcast(&crate::topic::TopicMessage::Announcement(announcement))
+                    .await;
+            }
+            let delay = announcer
+                .next_due(now())
+                .map(|due| Duration::from_secs_f64((due - now()).max(0.0)));
+            tokio::select! {
+                changed = records.changed() => {
+                    if changed.is_err() { break; }
+                    let record = records.borrow_and_update().clone();
+                    if let Some(record) = record {
+                        published.fetch_add(1, Ordering::Relaxed);
+                        announcer.changed(record);
+                    }
+                }
+                _ = async {
+                    match delay {
+                        Some(delay) => tokio::time::sleep(delay).await,
+                        None => std::future::pending().await,
+                    }
+                } => {}
             }
         }
     });
@@ -398,7 +470,7 @@ async fn drive(
                     let (link, key, db) = (link.clone(), key.clone(), db.clone());
                     joins.spawn(async move {
                         if let Ok(Some(record)) = join::answer(&link, &key, &db, connection, now()).await {
-                            join::introduce(&link, &db, &record).await;
+                            let _ = link.broadcast(&crate::topic::TopicMessage::Record(record)).await;
                         }
                     });
                 }
@@ -431,7 +503,7 @@ async fn drive(
     let _ = tokio::time::timeout(Duration::from_secs(1), link.close()).await;
 }
 
-fn now() -> f64 {
+pub(crate) fn now() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

@@ -163,6 +163,8 @@ async fn invalid_app_destinations_and_names_reset_without_events() {
 #[tokio::test]
 async fn hook_refuses_unknown_and_removed_keys_with_empty_reasons() {
     for (standing, alpn, join_open) in [
+        (Standing::Unknown, radio_link::endpoint::GOSSIP_ALPN, true),
+        (Standing::Refused, radio_link::endpoint::GOSSIP_ALPN, true),
         (Standing::Unknown, ALPN, true),
         (Standing::Refused, ALPN, true),
         (Standing::Refused, JOIN_ALPN, true),
@@ -417,7 +419,7 @@ async fn caps_join_connections_and_reuses_closed_slots() {
 }
 
 #[tokio::test]
-async fn transport_allows_sixteen_bidirectional_and_no_unidirectional_streams() {
+async fn transport_allows_sixteen_bidirectional_and_one_unidirectional_stream() {
     let (a, b, _, _) = pair(Limits {
         frame: Duration::from_secs(10),
         ..Limits::default()
@@ -433,10 +435,12 @@ async fn transport_allows_sixteen_bidirectional_and_no_unidirectional_streams() 
             .await
             .is_err()
     );
-    assert!(!matches!(
-        timeout(Duration::from_millis(500), peer.connection().open_uni()).await,
-        Ok(Ok(_))
-    ));
+    let _uni = bounded(peer.connection().open_uni()).await.unwrap();
+    assert!(
+        timeout(Duration::from_millis(500), peer.connection().open_uni())
+            .await
+            .is_err()
+    );
     bounded(a.close()).await;
     bounded(b.close()).await;
 }

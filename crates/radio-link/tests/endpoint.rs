@@ -64,7 +64,7 @@ async fn refuses_unconfigured_and_nonlocal_addresses() {
     );
 }
 #[tokio::test(flavor = "current_thread")]
-async fn binds_only_configured_ipv4_without_relays_or_lookup() {
+async fn binds_only_configured_ipv4_with_only_memory_lookup() {
     assert_eq!(ALPN, b"radio/1");
     let key = SecretKey::generate();
     let id = key.public();
@@ -80,7 +80,7 @@ async fn binds_only_configured_ipv4_without_relays_or_lookup() {
             .all(|addr| addr.ip() == std::net::Ipv4Addr::LOCALHOST)
     );
     assert_eq!(endpoint.addr().relay_urls().count(), 0);
-    assert!(endpoint.address_lookup().unwrap().is_empty());
+    assert!(!endpoint.address_lookup().unwrap().is_empty());
     endpoint.close().await;
 }
 #[tokio::test(flavor = "current_thread")]

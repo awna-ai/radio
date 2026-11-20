@@ -20,6 +20,45 @@ fn defaults_bound_connections_and_deadlines() {
 }
 
 struct Book(Standing);
+
+#[test]
+fn gossip_handshakes_only_keep_audited_accepted_members() {
+    let key = iroh::SecretKey::generate().public();
+    for (state, standing, expected) in [
+        ("accepted", Standing::Accepted, true),
+        ("pending", Standing::Unknown, false),
+        ("blocked", Standing::Refused, false),
+        ("unknown", Standing::Unknown, false),
+    ] {
+        let gate = Gate::new(Arc::new(Book(standing)), Limits::default());
+        assert_eq!(
+            gate.member_protocol(b"radio-gossip/1", &key, standing),
+            expected,
+            "{state}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn gossip_dials_only_accepted_members() {
+    let remote = EndpointAddr::from(iroh::SecretKey::generate().public());
+    for (state, standing, expected) in [
+        ("accepted", Standing::Accepted, true),
+        ("pending", Standing::Unknown, false),
+        ("blocked", Standing::Refused, false),
+        ("unknown", Standing::Unknown, false),
+    ] {
+        let gate = Gate::new(Arc::new(Book(standing)), Limits::default());
+        assert_eq!(
+            matches!(
+                gate.before_connect(&remote, b"radio-gossip/1").await,
+                BeforeConnectOutcome::Accept
+            ),
+            expected,
+            "{state}"
+        );
+    }
+}
 impl Admission for Book {
     fn standing(&self, _: &EndpointId) -> Standing {
         self.0

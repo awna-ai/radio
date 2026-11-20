@@ -2,7 +2,7 @@ use crate::{
     EndpointId, SecretKey,
     admit::{Admission, Gate, Limits, Standing},
     computer_record::ComputerRecord,
-    endpoint::{self, ALPN, JOIN_ALPN},
+    endpoint::{self, ALPN, GOSSIP_ALPN, JOIN_ALPN},
     frame::{self, CONTROL_CAP},
     handler::{Envelope, Handlers, Messages, Ran, Reply, valid_reply},
     membership::SignedRecord,
@@ -59,7 +59,9 @@ pub enum Event {
     },
 }
 
+#[derive(Clone)]
 pub struct Link {
+    topic: Arc<crate::fleet_topic::FleetTopic>,
     endpoint: Endpoint,
     gate: Arc<Gate>,
     local: Local,
@@ -84,7 +86,13 @@ impl Link {
         }
         let gate = Arc::new(Gate::with_handlers(admission, limits, handlers));
         let messages = gate.messages.clone();
-        let endpoint = endpoint::bind(key, addrs, gate.clone()).await?;
+        let lookup = iroh::address_lookup::memory::MemoryLookup::new();
+        let endpoint = endpoint::bind_with_lookup(key, addrs, gate.clone(), lookup.clone()).await?;
+        let gossip = iroh_gossip::Gossip::builder()
+            .alpn(GOSSIP_ALPN)
+            .max_message_size(crate::topic::TOPIC_MESSAGE_MAX)
+            .spawn(endpoint.clone());
+        let topic = Arc::new(crate::fleet_topic::FleetTopic::new(gossip, lookup));
         // A file left by an earlier run lists no live connection.
         if let Some(status) = &gate.status {
             status.write();
@@ -98,12 +106,32 @@ impl Link {
             tokio::runtime::Handle::current(),
         );
         Ok(Self {
+            topic,
             peers,
             endpoint,
             gate,
             local,
             messages,
         })
+    }
+
+    pub fn configure_fleet(&self, db: Arc<std::sync::Mutex<crate::fleet_db::FleetDb>>) {
+        self.topic.configure(db);
+    }
+
+    pub async fn sync_topic(&self) -> Result<(), &'static str> {
+        self.topic.sync(self).await
+    }
+
+    pub(crate) fn refresh_addresses(&self, db: &std::sync::Mutex<crate::fleet_db::FleetDb>) {
+        let _ = self.topic.refresh(db, self.id());
+    }
+
+    pub async fn broadcast(
+        &self,
+        message: &crate::topic::TopicMessage,
+    ) -> Result<(), &'static str> {
+        self.topic.broadcast(message).await
     }
 
     pub fn id(&self) -> EndpointId {
@@ -127,6 +155,7 @@ impl Link {
         let gate = self.gate.clone();
         let local = self.local.clone();
         let messages = self.messages.clone();
+        let gossip = self.topic.gossip.clone();
         tokio::spawn(async move {
             let permits = Arc::new(Semaphore::new(gate.limits.handshakes));
             let mut connections = JoinSet::new();
@@ -142,13 +171,20 @@ impl Link {
                         let local = local.clone();
                         let messages = messages.clone();
                         let events = events.clone();
+                        let gossip = gossip.clone();
                         let id = endpoint.id();
                         connections.spawn(async move {
                             let Ok(accepting) = incoming.accept() else { return };
                             let result = timeout(gate.limits.handshake, accepting).await;
                             drop(permit);
                             let Ok(Ok(connection)) = result else { return };
-                            if connection.alpn() == JOIN_ALPN {
+                            if connection.alpn() == GOSSIP_ALPN {
+                                if gate.admission.standing(&connection.remote_id()) != Standing::Accepted {
+                                    connection.close(REFUSED.into(), &[]);
+                                    return;
+                                }
+                                let _ = gossip.handle_connection(connection).await;
+                            } else if connection.alpn() == JOIN_ALPN {
                                 let Some(deadline) = gate.join_deadline(&connection) else { return };
                                 let weak = connection.weak_handle();
                                 let permit = tokio::select! {
@@ -203,6 +239,26 @@ impl Link {
     }
 
     pub async fn peer(&self, id: EndpointId, addrs: &[SocketAddr]) -> Result<Peer, &'static str> {
+        let peer = self.peer_without_fetch(id, addrs).await?;
+        if let Some(db) = self.topic.db()
+            && db
+                .lock()
+                .ok()
+                .is_some_and(|db| db.fetch_wanted(&id).ok().flatten().is_some())
+        {
+            let link = self.clone();
+            tokio::spawn(async move {
+                crate::join::fetch(&link, &db, &id).await;
+            });
+        }
+        Ok(peer)
+    }
+
+    pub(crate) async fn peer_without_fetch(
+        &self,
+        id: EndpointId,
+        addrs: &[SocketAddr],
+    ) -> Result<Peer, &'static str> {
         if self.gate.admission.standing(&id) != Standing::Accepted {
             return Err("the computer is not let in");
         }
@@ -224,6 +280,16 @@ impl Link {
 
     pub fn kept(&self, app: &str) -> Vec<KeptPeer> {
         self.peers.kept(app)
+    }
+
+    #[doc(hidden)]
+    pub fn topic_neighbors(&self) -> Vec<EndpointId> {
+        self.topic.neighbors()
+    }
+
+    #[doc(hidden)]
+    pub fn connected_to(&self, key: &EndpointId) -> bool {
+        self.gate.connected_to(key)
     }
 
     #[doc(hidden)]
@@ -254,14 +320,17 @@ impl Link {
     }
 
     pub fn close_all(&self) {
+        self.topic.clear();
         self.gate.close_all();
     }
 
     pub fn close_key(&self, key: &EndpointId) {
+        self.topic.lookup.remove_endpoint_info(*key);
         self.gate.close_key(key);
     }
 
     pub async fn close(&self) {
+        self.topic.close().await;
         self.endpoint.close().await;
     }
 }

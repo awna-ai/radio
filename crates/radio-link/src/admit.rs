@@ -17,7 +17,7 @@ use iroh::{
 use tokio::time::Instant;
 
 use crate::{
-    endpoint::{ALPN, JOIN_ALPN},
+    endpoint::{ALPN, GOSSIP_ALPN, JOIN_ALPN},
     fleet_db::FleetDb,
     link::REFUSED,
 };
@@ -224,6 +224,16 @@ impl fmt::Debug for Gate {
 }
 
 impl Gate {
+    pub(crate) fn connected_to(&self, key: &EndpointId) -> bool {
+        self.live.lock().unwrap().iter().any(|entry| {
+            entry.key == *key
+                && entry
+                    .connection
+                    .upgrade()
+                    .is_some_and(|c| c.close_reason().is_none())
+        })
+    }
+
     pub(crate) fn live_connections(&self) -> usize {
         self.live
             .lock()
@@ -319,6 +329,10 @@ impl Gate {
         false
     }
 
+    fn member_protocol(&self, alpn: &[u8], key: &EndpointId, standing: Standing) -> bool {
+        (alpn == ALPN || alpn == GOSSIP_ALPN) && self.audited_member(key, standing)
+    }
+
     /// Release the admission lock before calling this, as for `close_key`.
     pub fn close_all(&self) {
         for entry in self.live.lock().unwrap().drain(..) {
@@ -356,7 +370,7 @@ impl Gate {
 impl EndpointHooks for Gate {
     async fn before_connect(&self, remote: &EndpointAddr, alpn: &[u8]) -> BeforeConnectOutcome {
         let standing = self.admission.standing(&remote.id);
-        if (alpn == ALPN && standing == Standing::Accepted)
+        if ((alpn == ALPN || alpn == GOSSIP_ALPN) && standing == Standing::Accepted)
             || (alpn == JOIN_ALPN && standing != Standing::Refused)
         {
             BeforeConnectOutcome::Accept
@@ -374,7 +388,7 @@ impl EndpointHooks for Gate {
         let mut live = self.live.lock().unwrap();
         let standing = self.admission.standing(&key);
         let join = match conn.alpn() {
-            ALPN if self.audited_member(&key, standing) => false,
+            alpn if self.member_protocol(alpn, &key, standing) => false,
             JOIN_ALPN
                 if standing != Standing::Refused
                     && (conn.side() == Side::Client || self.admission.join_open()) =>

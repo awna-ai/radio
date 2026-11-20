@@ -288,8 +288,8 @@ A first session looks like this:
 | **`computer_trust`** | Marks an accepted computer so that the computers it invites are let in here without asking. |
 | **`link_address_add`**, **`_list`**, **`_remove`** | This computer's link addresses (an IP address, no port), where Radio listens for its other computers. Every join code it makes carries them. |
 | **`join`** | Takes a code another computer made and joins that computer's fleet: Radio dials the address the code carries and answers with the fleet. |
-| **`computer_remove`** | Removes another computer from the fleet for everyone: the computers it reaches, the removed one included, drop it, and `delivered` says how many it reached. |
-| **`leave`** | Takes this computer out of its fleet and tells the others. |
+| **`computer_remove`** | Removes another computer from the fleet for everyone: tells the removed computer directly, then broadcasts the signed removal on the fleet topic. `delivered` counts only the direct acknowledgement; gossip has none. |
+| **`leave`** | Broadcasts this computer's signed leave, waits at most two seconds for it to go out, then forgets the fleet. `delivered` is zero because gossip has no acknowledgement. |
 
 The `computer_*` ops take a computer's name or id.
 
@@ -303,8 +303,9 @@ link address`. Radio's link name is its daemon's name, so a daemon whose name br
 computer-name rule doesn't listen and answers `this computer's name breaks the computer-name rule;
 restart Radio with --name`.
 
-**Waiting on the others.** `join`, `computer_remove` and `leave` wait for the other computers, up
-to 10 seconds for each one that can't be reached:
+**Waiting on the others.** A join waits for its inviter, and a removal makes one direct attempt
+to its subject, up to 10 seconds for either. A leave keeps its topic open for at most two seconds.
+Membership changes travel on the fleet topic; a broadcast does not confirm delivery to each member:
 
 - `radio-client` waits up to 2 minutes for them.
 - Past 110 seconds, Radio answers `still telling the other computers; check computer_list later`
@@ -329,8 +330,12 @@ section per app.
 - A record is kept only when the computer it names signed it and it is newer than the one held, so
   what you read for a computer is the newest thing it said that reached this computer.
 - Sections are not secret: every computer in the fleet holds them.
-- While Radio listens, a re-signed record also goes to each accepted computer, after `resign` has
-  answered; one that can't be reached gets it the next time this computer signs.
+- After `resign` answers, Radio announces the record's version and hash on the fleet topic,
+  coalescing changes to at most one announcement per ten minutes. The record itself is fetched
+  only after dialing that accepted computer or when an app asks for `computer_records`; that
+  request spends at most five seconds fetching newer announced records before listing what it holds.
+- Link minor 7 speaks gossip. A peer at minor 6 still links, but hears membership changes only
+  after upgrading or through the catch-up a later step adds.
 
 ### Sending files
 

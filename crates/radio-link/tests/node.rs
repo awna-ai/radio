@@ -157,6 +157,10 @@ fn joined() -> (Computer, Computer) {
     a.found();
     assert_eq!(b.node.join(a.code(), now()), Ok(()));
     wait(|| a.state(&b) == Some(State::Accepted));
+    wait(|| {
+        a.node.link().topic_neighbors().contains(&b.node.id())
+            && b.node.link().topic_neighbors().contains(&a.node.id())
+    });
     (a, b)
 }
 
@@ -213,7 +217,7 @@ fn remove_reaches_its_subject() {
 #[test]
 fn leave_reaches_the_others() {
     let (a, b) = joined();
-    assert_eq!(b.node.leave(now()), Ok(1));
+    assert_eq!(b.node.leave(now()), Ok(0));
     wait(|| a.state(&b) == Some(State::Left));
     assert!(b.db.lock().unwrap().fleet().unwrap().is_none());
 }
@@ -255,6 +259,18 @@ fn publish_is_applied_by_the_others() {
     let start = Instant::now();
     b.node.publish(record.clone());
     assert!(start.elapsed() < Duration::from_secs(1));
+    wait(|| {
+        a.db.lock()
+            .unwrap()
+            .announcement(&b.node.id())
+            .unwrap()
+            .is_some()
+    });
+    assert_ne!(
+        a.db.lock().unwrap().computer_record(&b.node.id()).unwrap(),
+        Some(record.clone())
+    );
+    a.node.fetch_records();
     wait(|| {
         a.db.lock()
             .unwrap()
@@ -335,7 +351,7 @@ fn an_introduction_reaches_the_other_computers() {
 }
 
 #[test]
-fn two_quick_publishes_leave_the_newest_record() {
+fn quick_publishes_share_one_announcer() {
     let (a, b) = joined();
     let resign = |section| {
         b.db.lock()
@@ -352,65 +368,286 @@ fn two_quick_publishes_leave_the_newest_record() {
             .unwrap()
     };
     let first = resign("ready");
-    let latest = resign("finished");
-    assert!(first.body.version < latest.body.version);
-    b.node.publish(first);
-    b.node.publish(latest.clone());
+    b.node.publish(first.clone());
     wait(|| {
         a.db.lock()
             .unwrap()
-            .computer_records()
+            .announcement(&b.node.id())
             .unwrap()
-            .contains(&latest)
+            .is_some()
     });
-    for _ in 0..20 {
-        assert!(
-            a.db.lock()
-                .unwrap()
-                .computer_records()
-                .unwrap()
-                .contains(&latest)
-        );
-        std::thread::sleep(Duration::from_millis(10));
+    let held =
+        a.db.lock()
+            .unwrap()
+            .announcement(&b.node.id())
+            .unwrap()
+            .unwrap();
+    assert!(held.matches(&first));
+    let latest = resign("finished");
+    b.node.publish(latest);
+    wait(|| b.node.published() == 2);
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        a.db.lock().unwrap().announcement(&b.node.id()).unwrap(),
+        Some(held)
+    );
+    assert_eq!(b.node.published(), 2);
+}
+
+fn gossip_trio() -> (Computer, Computer, Computer) {
+    let (a, b) = joined();
+    let c = Computer::new("cedar");
+    c.node.join(b.code(), now()).unwrap();
+    wait(|| a.state(&c).is_some());
+    // C stays pending at A, so the gate forbids A–C connections in either direction.
+    assert_eq!(a.state(&c), Some(State::Pending));
+    for (computer, other) in [(&a, &c), (&c, &a)] {
+        // The outer computers bootstrap only through the middle computer.
+        let db = rusqlite::Connection::open(computer.dir.0.join("fleet.db")).unwrap();
+        db.execute(
+            "UPDATE computers SET addrs = '[]', last_addr = NULL WHERE key = ?1",
+            [other.node.id().to_string()],
+        )
+        .unwrap();
     }
+    let a = a.restart("garden", Arc::new(radio_link::handler::NoHandlers));
+    let c = c.restart("cedar", Arc::new(radio_link::handler::NoHandlers));
+    assert!(
+        a.db.lock()
+            .unwrap()
+            .computer(&c.node.id().to_string())
+            .unwrap()
+            .addrs
+            .is_empty()
+    );
+    assert!(
+        c.db.lock()
+            .unwrap()
+            .computer(&a.node.id().to_string())
+            .unwrap()
+            .addrs
+            .is_empty()
+    );
+    wait(|| {
+        a.node.link().topic_neighbors().contains(&b.node.id())
+            && c.node.link().topic_neighbors().contains(&b.node.id())
+    });
+    assert!(!a.node.link().connected_to(&c.node.id()));
+    assert!(!c.node.link().connected_to(&a.node.id()));
+    (a, b, c)
+}
+
+fn broadcast(computer: &Computer, message: radio_link::topic::TopicMessage) {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(bounded(computer.node.link().broadcast(&message)))
+        .unwrap();
 }
 
 #[test]
-fn quick_publishes_share_one_publisher() {
-    let (a, b) = joined();
-    let records: Vec<_> = (0..20)
-        .map(|index| {
-            b.db.lock()
-                .unwrap()
-                .resign(
-                    &b.key,
-                    "birch",
-                    &b.node.addrs(),
-                    "lantern",
-                    Some(["ready", "finished"][index % 2]),
-                    None,
-                    now(),
-                )
-                .unwrap()
-        })
-        .collect();
-    assert!(
-        records
-            .windows(2)
-            .all(|pair| pair[0].body.version < pair[1].body.version)
-    );
-    let latest = records.last().unwrap().clone();
-    for record in records {
-        b.node.publish(record);
-    }
-    wait(|| {
+fn a_removal_crosses_the_fleet_topic_without_a_stored_outer_address() {
+    let (a, b, c) = gossip_trio();
+    let d = Computer::new("aspen");
+    d.node.join(a.code(), now()).unwrap();
+    wait(|| b.state(&d).is_some() && c.state(&d).is_some());
+    a.node.remove(&d.node.id().to_string(), now()).unwrap();
+    wait(|| c.state(&d) == Some(State::Removed));
+    assert!(!a.node.link().connected_to(&c.node.id()));
+    assert!(!c.node.link().connected_to(&a.node.id()));
+}
+
+#[test]
+fn an_announcement_crosses_the_topic_and_is_fetched_only_on_demand() {
+    let (a, b, c) = gossip_trio();
+    // First prove that the middle computer can forward to the last one.
+    let d = Computer::new("aspen");
+    d.node.join(a.code(), now()).unwrap();
+    wait(|| c.state(&d).is_some());
+    let record =
         a.db.lock()
             .unwrap()
-            .computer_records()
+            .resign(
+                &a.key,
+                "garden",
+                &a.node.addrs(),
+                "lantern",
+                Some("ready"),
+                None,
+                now(),
+            )
+            .unwrap();
+    a.node.publish(record.clone());
+    wait(|| {
+        c.db.lock()
             .unwrap()
-            .contains(&latest)
+            .announcement(&a.node.id())
+            .unwrap()
+            .is_some()
     });
-    assert!((1..=3).contains(&b.node.published()));
+    let held =
+        c.db.lock()
+            .unwrap()
+            .announcement(&a.node.id())
+            .unwrap()
+            .unwrap();
+    assert!(held.matches(&record));
+    assert_ne!(
+        c.db.lock().unwrap().computer_record(&a.node.id()).unwrap(),
+        Some(record.clone())
+    );
+    b.node.fetch_records();
+    assert_eq!(
+        b.db.lock().unwrap().computer_record(&a.node.id()).unwrap(),
+        Some(record.clone())
+    );
+    c.node.fetch_records();
+    assert_eq!(
+        c.db.lock().unwrap().computer_record(&a.node.id()).unwrap(),
+        Some(record)
+    );
+    assert!(!a.node.link().connected_to(&c.node.id()));
+    assert!(!c.node.link().connected_to(&a.node.id()));
+}
+
+#[test]
+fn a_forged_topic_announcement_does_not_change_the_held_one() {
+    let (a, _b, c) = gossip_trio();
+    let d = Computer::new("aspen");
+    d.node.join(a.code(), now()).unwrap();
+    wait(|| c.state(&d).is_some());
+    let record =
+        a.db.lock()
+            .unwrap()
+            .resign(
+                &a.key,
+                "garden",
+                &a.node.addrs(),
+                "lantern",
+                Some("ready"),
+                None,
+                now(),
+            )
+            .unwrap();
+    let before = c.db.lock().unwrap().announcement(&a.node.id()).unwrap();
+    assert!(before.is_none());
+    let forged = radio_link::topic::announce(&record, &SecretKey::generate());
+    broadcast(&a, radio_link::topic::TopicMessage::Announcement(forged));
+    // The removal is a barrier through the same topic; no receive window masks the forgery.
+    a.node.remove(&d.node.id().to_string(), now()).unwrap();
+    wait(|| c.state(&d) == Some(State::Removed));
+    assert_eq!(
+        c.db.lock().unwrap().announcement(&a.node.id()).unwrap(),
+        before
+    );
+    a.node.publish(record.clone());
+    wait(|| {
+        c.db.lock()
+            .unwrap()
+            .announcement(&a.node.id())
+            .unwrap()
+            .is_some()
+    });
+    assert!(
+        c.db.lock()
+            .unwrap()
+            .announcement(&a.node.id())
+            .unwrap()
+            .unwrap()
+            .matches(&record)
+    );
+}
+
+#[test]
+fn an_on_demand_fetch_drops_a_record_that_does_not_match_its_announcement() {
+    let (a, b) = joined();
+    let actual =
+        a.db.lock()
+            .unwrap()
+            .resign(
+                &a.key,
+                "garden",
+                &a.node.addrs(),
+                "lantern",
+                Some("stored"),
+                None,
+                now(),
+            )
+            .unwrap();
+    let mut body = actual.body.clone();
+    body.apps.insert("lantern".into(), "announced".into());
+    let announced = radio_link::computer_record::sign(body, &a.key);
+    let before = b.db.lock().unwrap().computer_record(&a.node.id()).unwrap();
+    a.node.publish(announced.clone());
+    wait(|| {
+        b.db.lock()
+            .unwrap()
+            .announcement(&a.node.id())
+            .unwrap()
+            .is_some()
+    });
+    b.node.fetch_records();
+    assert_eq!(
+        b.db.lock().unwrap().computer_record(&a.node.id()).unwrap(),
+        before
+    );
+    assert!(
+        b.db.lock()
+            .unwrap()
+            .announcement(&a.node.id())
+            .unwrap()
+            .unwrap()
+            .matches(&announced)
+    );
+}
+
+#[test]
+fn dialing_a_member_fetches_its_newly_announced_record() {
+    let (a, b) = joined();
+    let record =
+        a.db.lock()
+            .unwrap()
+            .resign(
+                &a.key,
+                "garden",
+                &a.node.addrs(),
+                "lantern",
+                Some("ready"),
+                None,
+                now(),
+            )
+            .unwrap();
+    a.node.publish(record.clone());
+    wait(|| {
+        b.db.lock()
+            .unwrap()
+            .announcement(&a.node.id())
+            .unwrap()
+            .is_some()
+    });
+    // Use the daemon's runtime through a normal message, which calls Link::peer.
+    let _ = b.node.message(&a.node.id().to_string(), "lantern", "ready");
+    wait(|| b.db.lock().unwrap().computer_record(&a.node.id()).unwrap() == Some(record.clone()));
+}
+
+#[test]
+fn an_outsider_cannot_connect_to_the_fleet_topic() {
+    let (a, _b) = joined();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(bounded(async {
+        let book = common::Book::new();
+        book.set(a.node.id(), radio_link::admit::Standing::Accepted);
+        let outsider = common::raw_bind(book, Limits::default()).await;
+        let connection = outsider
+            .connect(a.node.link(), radio_link::endpoint::GOSSIP_ALPN)
+            .await;
+        common::closed(&connection, REFUSED).await;
+        outsider.close().await;
+    }));
 }
 
 #[test]

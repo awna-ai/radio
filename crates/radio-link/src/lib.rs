@@ -5,6 +5,7 @@ pub mod delivery;
 pub mod endpoint;
 pub mod fleet;
 pub mod fleet_db;
+mod fleet_topic;
 pub mod frame;
 pub mod handler;
 pub mod join;

@@ -2,6 +2,20 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-20: D29. Membership and record announcements travel on one gossip topic per fleet
+
+Each link runs one gossip actor on Radio's `radio-gossip/1` ALPN, admitted only for accepted
+members. A fleet's topic id is SHA-256 of `radio fleet topic 1\n` followed by its id's UTF-8
+bytes. An in-memory address lookup holds accepted members' stored addresses and removes members
+that are removed or blocked; gossip also learns addresses from its neighbours, behind the same gate.
+Introductions, removals and leaves are signed membership records on the topic. A removal still
+goes directly to its subject first, and a leave drains for at most two seconds before forgetting.
+A computer's own record travels only as a signed announcement of its version and hash, coalesced
+to one per ten minutes. Records are fetched on demand after dialing an accepted member or when
+an app asks for computer records, with five seconds for that whole request's fetches. Link minor 7
+speaks gossip; minor 6 still links but hears membership changes only after upgrading or through
+the catch-up a later step adds.
+
 ## 2026-11-20: D28. A deliberation's round can be stepped with the seats that posted
 
 `deliberation_step` (protocol minor 13, additive within major 1) steps an open round with the

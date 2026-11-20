@@ -4,6 +4,20 @@ use crate::membership::{self, RecordBody};
 use data_encoding::HEXLOWER;
 use std::collections::BTreeMap;
 
+#[test]
+fn fleet_topic_ids_are_stable_distinct_and_domain_separated() {
+    let fleet = "ab".repeat(32);
+    assert_eq!(topic_id(&fleet), topic_id(&fleet));
+    assert_ne!(topic_id(&fleet), topic_id(&"cd".repeat(32)));
+    let bare: [u8; 32] = Sha256::digest(fleet.as_bytes()).into();
+    assert_ne!(topic_id(&fleet), iroh_gossip::TopicId::from(bare));
+    let mut hash = Sha256::new();
+    hash.update(b"radio fleet topic 1\n");
+    hash.update(fleet.as_bytes());
+    let expected: [u8; 32] = hash.finalize().into();
+    assert_eq!(topic_id(&fleet), iroh_gossip::TopicId::from(expected));
+}
+
 fn record(node: &iroh::SecretKey, fleet: &str, version: u64) -> ComputerRecord {
     computer_record::sign(
         ComputerBody {

@@ -3,11 +3,12 @@ use std::{
     sync::Arc,
 };
 
-use iroh::endpoint::QuicTransportConfig;
+use iroh::{address_lookup::memory::MemoryLookup, endpoint::QuicTransportConfig};
 
 use crate::admit::{Gate, Hooks};
 
 pub const ALPN: &[u8] = b"radio/1";
+pub const GOSSIP_ALPN: &[u8] = b"radio-gossip/1";
 pub const JOIN_ALPN: &[u8] = b"radio-join/1";
 pub const PORT: u16 = 7341;
 pub const NO_OWN_ADDRESS: &str = "this computer has no link address";
@@ -51,14 +52,29 @@ pub async fn bind(
     addrs: &[SocketAddr],
     gate: Arc<Gate>,
 ) -> Result<iroh::Endpoint, &'static str> {
+    bind_with_lookup(key, addrs, gate, MemoryLookup::new()).await
+}
+
+pub(crate) async fn bind_with_lookup(
+    key: iroh::SecretKey,
+    addrs: &[SocketAddr],
+    gate: Arc<Gate>,
+    lookup: MemoryLookup,
+) -> Result<iroh::Endpoint, &'static str> {
     let canonical = usable(addrs)?;
     let mut builder = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
         .secret_key(key)
-        .alpns(vec![ALPN.to_vec(), JOIN_ALPN.to_vec()])
+        .alpns(vec![
+            ALPN.to_vec(),
+            JOIN_ALPN.to_vec(),
+            GOSSIP_ALPN.to_vec(),
+        ])
+        .address_lookup(lookup)
         .transport_config(
             QuicTransportConfig::builder()
                 .max_concurrent_bidi_streams(STREAMS.into())
-                .max_concurrent_uni_streams(0u32.into())
+                // Gossip opens one unidirectional stream per topic; this link has one topic.
+                .max_concurrent_uni_streams(1u32.into())
                 .datagram_receive_buffer_size(None)
                 .build(),
         )

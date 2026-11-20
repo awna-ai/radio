@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 pub const LINK_MAJOR: u32 = 1;
-pub const LINK_MINOR: u32 = 6;
+/// Minor 7 speaks gossip. Minor 6 still links, but hears membership changes only after
+/// upgrading or through the catch-up a later step adds.
+pub const LINK_MINOR: u32 = 7;
 pub const NO_HANDLER: &str = "no_handler";
 pub const CLOCK: &str = "clock";
 pub const REPLAY: &str = "replay";

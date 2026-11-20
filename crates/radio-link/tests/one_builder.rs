@@ -64,7 +64,9 @@ fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path, hostile: &Path)
                     concat!("PortmapperConfig::", "Disabled"),
                     concat!(".clear_ip_", "transports()"),
                     ".hooks(",
-                    "max_concurrent_uni_streams(0",
+                    "max_concurrent_uni_streams(1",
+                    ".address_lookup(lookup)",
+                    "GOSSIP_ALPN",
                     "JOIN_ALPN",
                     ".datagram_receive_buffer_size(None)",
                 ] {
@@ -75,7 +77,6 @@ fn scan(dir: &Path, builder: &Path, own: &Path, manifest: &Path, hostile: &Path)
                     );
                 }
                 for forbidden in [
-                    concat!("address_", "lookup("),
                     concat!("proxy", "_"),
                     concat!("key", "log("),
                     concat!("bind_addr_", "with_opts"),

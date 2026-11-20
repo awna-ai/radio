@@ -10,9 +10,12 @@ use crate::{
     fleet_db::{Applied, Computer, FleetDb, Recipient},
     frame::{self, CONTROL_CAP, RECORD_CAP},
     link::{Link, REFUSED},
-    membership::{JoinAnswer, RecordBody, SignedRecord},
+    membership::{JoinAnswer, SignedRecord},
     wire::JoinRequest,
 };
+
+/// The longest a leaving computer keeps its topic open to drain the broadcast.
+pub const LEAVE_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 const READ: &str = "fleet.db could not be read";
 const UNANSWERED: &str = "the computer did not answer";
@@ -72,7 +75,8 @@ pub async fn join(
     let answer = answer?;
     db.lock()
         .map_err(|_| READ)?
-        .joined(&link.id(), code, &answer, now)
+        .joined(&link.id(), code, &answer, now)?;
+    link.sync_topic().await
 }
 
 pub async fn answer(
@@ -119,6 +123,7 @@ pub async fn answer(
         Ok::<(), &'static str>(())
     })
     .await;
+    link.sync_topic().await?;
     Ok(introduction)
 }
 
@@ -134,23 +139,6 @@ pub async fn deliver(link: &Link, record: &SignedRecord, to: &[Recipient]) -> us
     delivered
 }
 
-pub async fn introduce(link: &Link, db: &Mutex<FleetDb>, record: &SignedRecord) -> usize {
-    let RecordBody::Introduction { newcomer, .. } = &record.body else {
-        return 0;
-    };
-    let Some(newcomer) = crate::fleet::public_key(newcomer) else {
-        return 0;
-    };
-    let recipients = match db.lock() {
-        Ok(db) => db.recipients(&newcomer),
-        Err(_) => Err(READ),
-    };
-    match recipients {
-        Ok(to) => deliver(link, record, &to).await,
-        Err(_) => 0,
-    }
-}
-
 pub fn apply(
     link: &Link,
     db: &Mutex<FleetDb>,
@@ -161,12 +149,19 @@ pub fn apply(
         .lock()
         .map_err(|_| READ)?
         .apply(&link.id(), link.name(), record, now)?;
-    match &applied {
+    effects(link, db, &applied);
+    Ok(applied)
+}
+
+pub(crate) fn effects(link: &Link, db: &Mutex<FleetDb>, applied: &Applied) {
+    match applied {
         Applied::Removed(key) => link.close_key(key),
         Applied::LeftFleet => link.close_all(),
         _ => {}
     }
-    Ok(applied)
+    if *applied != Applied::LeftFleet {
+        link.refresh_addresses(db);
+    }
 }
 
 pub fn block(link: &Link, db: &Mutex<FleetDb>, target: &str) -> Result<Computer, &'static str> {
@@ -190,18 +185,20 @@ pub async fn remove(
     } else {
         link.peer(subject, &computer.addrs).await.ok()
     };
-    let (record, to) = {
-        let mut db = db.lock().map_err(|_| READ)?;
-        let (record, _) = db.remove(key, &computer.key, now)?;
-        let to = db.recipients(&subject)?;
-        (record, to)
-    };
+    let (record, _) = db
+        .lock()
+        .map_err(|_| READ)?
+        .remove(key, &computer.key, now)?;
     let delivered = match peer {
         Some(peer) => usize::from(peer.send_record(&record).await.is_ok()),
         None => 0,
     };
     link.close_key(&subject);
-    Ok(delivered + deliver(link, &record, &to).await)
+    link.refresh_addresses(db);
+    let _ = link
+        .broadcast(&crate::topic::TopicMessage::Record(record))
+        .await;
+    Ok(delivered)
 }
 
 pub async fn leave(
@@ -210,33 +207,23 @@ pub async fn leave(
     db: &Mutex<FleetDb>,
     now: f64,
 ) -> Result<usize, &'static str> {
-    let (record, to) = db.lock().map_err(|_| READ)?.leave(key, now)?;
-    let delivered = deliver(link, &record, &to).await;
+    let (record, _) = db.lock().map_err(|_| READ)?.leave(key, now)?;
+    let _ = timeout(LEAVE_DRAIN, async {
+        let _ = link
+            .broadcast(&crate::topic::TopicMessage::Record(record))
+            .await;
+        tokio::time::sleep(LEAVE_DRAIN).await;
+    })
+    .await;
     db.lock().map_err(|_| READ)?.forget()?;
     link.close_all();
-    Ok(delivered)
-}
-
-pub async fn publish(link: &Link, db: &Mutex<FleetDb>, record: &ComputerRecord) -> usize {
-    let recipients = match db.lock() {
-        Ok(db) => db.recipients(&link.id()),
-        Err(_) => Err(READ),
-    };
-    let Ok(recipients) = recipients else { return 0 };
-    let mut delivered = 0;
-    for (key, addrs) in recipients {
-        if let Ok(peer) = link.peer(key, &addrs).await
-            && peer.send_computer(record).await.is_ok()
-        {
-            delivered += 1;
-        }
-    }
-    delivered
+    // Only direct acknowledgements count as delivered; gossip has none.
+    Ok(0)
 }
 
 /// Whether the announced record is held afterwards. If needed, tries the announcing
 /// computer, then other accepted computers, at most three in all.
-/// A later step puts gossip neighbours first.
+/// Gossip neighbours are not tried first; the source order stays the same.
 pub async fn fetch(link: &Link, db: &Mutex<FleetDb>, key: &crate::EndpointId) -> bool {
     let recipients = {
         let Ok(db) = db.lock() else { return false };
@@ -261,12 +248,16 @@ pub async fn fetch(link: &Link, db: &Mutex<FleetDb>, key: &crate::EndpointId) ->
         .filter(|(id, _)| id == key)
         .chain(recipients.iter().filter(|(id, _)| id != key));
     for (id, addrs) in sources.take(3) {
-        if let Ok(peer) = link.peer(*id, addrs).await
+        if let Ok(peer) = link.peer_without_fetch(*id, addrs).await
             && let Ok(record) = peer.fetch(key).await
-            && let Ok(mut db) = db.lock()
-            && db.apply_fetched(&link.id(), &record).is_ok()
         {
-            return true;
+            let applied = db
+                .lock()
+                .is_ok_and(|mut db| db.apply_fetched(&link.id(), &record).is_ok());
+            if applied {
+                link.refresh_addresses(db);
+                return true;
+            }
         }
     }
     false
@@ -279,5 +270,7 @@ pub fn apply_computer(
 ) -> Result<(), &'static str> {
     db.lock()
         .map_err(|_| READ)?
-        .apply_computer(&link.id(), record)
+        .apply_computer(&link.id(), record)?;
+    link.refresh_addresses(db);
+    Ok(())
 }

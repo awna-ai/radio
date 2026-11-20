@@ -84,6 +84,7 @@ async fn computer_key(name: &str, limits: Limits, key: SecretKey) -> Computer {
         .await
         .unwrap(),
     );
+    link.configure_fleet(db.clone());
     let (sender, mut events) = mpsc::channel(64);
     let server = link.serve(sender);
     let (receiver_link, receiver_db, receiver_key) = (link.clone(), db.clone(), key.clone());
@@ -98,7 +99,7 @@ async fn computer_key(name: &str, limits: Limits, key: SecretKey) -> Computer {
                         let (link, db, key) = (receiver_link.clone(), receiver_db.clone(), receiver_key.clone());
                         joins.spawn(async move {
                             if let Ok(Some(record)) = join::answer(&link, &key, &db, connection, now()).await {
-                                join::introduce(&link, &db, &record).await;
+                                let _ = link.broadcast(&radio_link::topic::TopicMessage::Record(record)).await;
                             }
                         });
                     }
@@ -183,6 +184,14 @@ async fn enter(inviter: &Computer, newcomer: &Computer) {
     ))
     .await
     .unwrap();
+    bounded(async {
+        while !inviter.link.topic_neighbors().contains(&newcomer.link.id())
+            || !newcomer.link.topic_neighbors().contains(&inviter.link.id())
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
 }
 async fn trio() -> (Computer, Computer, Computer) {
     let a = computer("garden", Limits::default()).await;
@@ -815,6 +824,19 @@ fn resign(computer: &Computer, section: &str) -> ComputerRecord {
         )
         .unwrap()
 }
+async fn push_computer(link: &Link, db: &Mutex<FleetDb>, record: &ComputerRecord) -> usize {
+    let recipients = db.lock().unwrap().recipients(&link.id()).unwrap();
+    let mut delivered = 0;
+    for (id, addrs) in recipients {
+        if let Ok(peer) = link.peer(id, &addrs).await
+            && peer.send_computer(record).await.is_ok()
+        {
+            delivered += 1;
+        }
+    }
+    delivered
+}
+
 async fn holds(computer: &Computer, record: &ComputerRecord) {
     bounded(async {
         loop {
@@ -844,12 +866,12 @@ async fn accepted_trio() -> (Computer, Computer, Computer) {
 async fn a_resigned_record_reaches_the_others() {
     let (a, b, c) = accepted_trio().await;
     let first = resign(&a, "{\"x\":1}");
-    assert_eq!(bounded(join::publish(&a.link, &a.db, &first)).await, 2);
+    assert_eq!(bounded(push_computer(&a.link, &a.db, &first)).await, 2);
     holds(&b, &first).await;
     holds(&c, &first).await;
     let second = resign(&a, "{\"x\":2}");
     assert!(second.body.version > first.body.version);
-    assert_eq!(bounded(join::publish(&a.link, &a.db, &second)).await, 2);
+    assert_eq!(bounded(push_computer(&a.link, &a.db, &second)).await, 2);
     holds(&b, &second).await;
     holds(&c, &second).await;
     stop(&[&a, &b, &c]).await;
@@ -858,11 +880,11 @@ async fn a_resigned_record_reaches_the_others() {
 async fn an_older_computer_record_changes_nothing() {
     let (a, b, c) = accepted_trio().await;
     let first = resign(&a, "first");
-    assert_eq!(bounded(join::publish(&a.link, &a.db, &first)).await, 2);
+    assert_eq!(bounded(push_computer(&a.link, &a.db, &first)).await, 2);
     holds(&b, &first).await;
     holds(&c, &first).await;
     let second = resign(&a, "second");
-    assert_eq!(bounded(join::publish(&a.link, &a.db, &second)).await, 2);
+    assert_eq!(bounded(push_computer(&a.link, &a.db, &second)).await, 2);
     holds(&b, &second).await;
     holds(&c, &second).await;
     bounded(async {
@@ -892,7 +914,7 @@ async fn an_older_computer_record_changes_nothing() {
 async fn a_forged_computer_record_is_never_served() {
     let (a, b, c) = accepted_trio().await;
     let first = resign(&a, "first");
-    assert_eq!(bounded(join::publish(&a.link, &a.db, &first)).await, 2);
+    assert_eq!(bounded(push_computer(&a.link, &a.db, &first)).await, 2);
     holds(&b, &first).await;
     let mut body = first.body.clone();
     body.version += 1;

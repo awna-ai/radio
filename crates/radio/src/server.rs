@@ -695,7 +695,11 @@ impl Server {
                 response.computers = Some(db.computers()?.into_iter().map(computer).collect());
             }
             Request::ComputerAccept { computer: target } => {
-                response.computer = Some(computer(self.fleet_db()?.accept(&target)?));
+                let row = match &self.link {
+                    Some(node) => node.accept(&target)?,
+                    None => self.fleet_db()?.accept(&target)?,
+                };
+                response.computer = Some(computer(row));
             }
             Request::ComputerBlock { computer: target } => {
                 let row = match &self.link {
@@ -741,6 +745,9 @@ impl Server {
                 self.fleet_db()?.fleet()?.ok_or("not in a fleet")?;
                 let dir = self.link_dir.as_deref().unwrap();
                 let node = radio_link::key::load_or_create(dir)?;
+                if let Some(link) = &self.link {
+                    link.fetch_records();
+                }
                 response.records = Some(listed_computer_records(
                     &*self.fleet_db()?,
                     &node.public().to_string(),

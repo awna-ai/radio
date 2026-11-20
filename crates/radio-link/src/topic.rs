@@ -19,6 +19,16 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 pub const ANNOUNCEMENT_DOMAIN: &[u8] = b"radio computer announcement 1\n";
+
+pub const TOPIC_DOMAIN: &[u8] = b"radio fleet topic 1\n";
+
+pub fn topic_id(fleet: &str) -> iroh_gossip::TopicId {
+    let mut hash = Sha256::new();
+    hash.update(TOPIC_DOMAIN);
+    hash.update(fleet.as_bytes());
+    let hash: [u8; 32] = hash.finalize().into();
+    hash.into()
+}
 /// iroh-gossip's default `max_message_size`; a larger message is dropped unread. It bounds the
 /// whole gossip frame, so what a member can send is a few dozen bytes less.
 pub const TOPIC_MESSAGE_MAX: usize = 4096;
