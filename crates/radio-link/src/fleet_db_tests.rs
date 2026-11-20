@@ -1469,6 +1469,64 @@ fn applying_only_inviter_or_founder_removes_a_known_computer() {
     );
 }
 #[test]
+fn a_blocked_founder_cannot_remove_computers_but_can_leave() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let founder = iroh::SecretKey::generate();
+    let node = iroh::SecretKey::generate();
+    let (code, answer) = answer(&founder);
+    db.joined(&node.public(), &code, &answer, 10.0).unwrap();
+    db.block(&founder.public().to_string()).unwrap();
+    let inviter = iroh::SecretKey::generate().public();
+    let peer = iroh::SecretKey::generate().public();
+    computer(&db, &inviter, "birch", State::Accepted, None, &addr());
+    computer(
+        &db,
+        &peer,
+        "cedar",
+        State::Accepted,
+        Some(&inviter),
+        &addr(),
+    );
+    let fleet = db.fleet().unwrap();
+    let computers = db.computers().unwrap();
+    let writes = db.conn.total_changes();
+    let records = count(&db, "records");
+    let tombstones = count(&db, "tombstones");
+    let held = count(&db, "held");
+    for subject in [peer, node.public(), iroh::SecretKey::generate().public()] {
+        assert_eq!(
+            db.apply(
+                &node.public(),
+                "garden",
+                &removal(&db, &founder, &subject, 1),
+                11.0
+            ),
+            Err("the signer is not accepted here")
+        );
+        assert_eq!(db.conn.total_changes(), writes);
+        assert_eq!(db.fleet().unwrap(), fleet);
+        assert_eq!(db.computers().unwrap(), computers);
+        assert_eq!(count(&db, "records"), records);
+        assert_eq!(count(&db, "tombstones"), tombstones);
+        assert_eq!(count(&db, "held"), held);
+    }
+    assert_eq!(
+        db.apply(
+            &node.public(),
+            "garden",
+            &removal(&db, &founder, &founder.public(), 1),
+            11.0
+        ),
+        Ok(Applied::Removed(founder.public()))
+    );
+    assert_eq!(
+        db.computer(&founder.public().to_string()).unwrap().state,
+        State::Left
+    );
+    assert_eq!(db.fleet().unwrap(), fleet);
+}
+#[test]
 fn applying_held_removals_and_leaves_win_only_for_their_invitee() {
     for signer_kind in 0..3 {
         let temp = Temp::new();

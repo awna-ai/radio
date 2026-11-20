@@ -398,10 +398,17 @@ fn announcer_due_handles_a_clock_that_went_backwards() {
 #[test]
 fn precheck_refuses_forged_membership_without_a_store() {
     let mut record = signed_record();
+    let accepted = HashSet::from([record.signer().parse().unwrap()]);
     let valid = TopicMessage::Record(record.clone());
     let bar = std::sync::Mutex::new(ReceiveBar::new());
     assert_eq!(
-        precheck(&valid.encode().unwrap(), &"ab".repeat(32), &bar, 1000.0),
+        precheck(
+            &valid.encode().unwrap(),
+            &"ab".repeat(32),
+            &accepted,
+            &bar,
+            1000.0
+        ),
         Ok(valid)
     );
     record.signature = "00".repeat(64);
@@ -410,6 +417,7 @@ fn precheck_refuses_forged_membership_without_a_store() {
         precheck(
             &bytes,
             &"ab".repeat(32),
+            &accepted,
             &std::sync::Mutex::new(ReceiveBar::new()),
             1000.0
         )
@@ -427,6 +435,7 @@ fn precheck_refuses_forged_announcements_without_a_store() {
         precheck(
             &bytes,
             &fleet,
+            &HashSet::from([key.public()]),
             &std::sync::Mutex::new(ReceiveBar::new()),
             1000.0
         )
@@ -443,7 +452,70 @@ fn precheck_refuses_announcements_inside_the_bar_without_a_store() {
     let mut bar = ReceiveBar::new();
     bar.kept.insert(key.public().to_string(), 1000.0);
     let bar = std::sync::Mutex::new(bar);
-    assert!(precheck(&bytes, &fleet, &bar, 1299.0).is_err());
-    assert_eq!(precheck(&bytes, &fleet, &bar, 1300.0), Ok(message));
+    let accepted = HashSet::from([key.public()]);
+    assert!(precheck(&bytes, &fleet, &accepted, &bar, 1299.0).is_err());
+    assert_eq!(
+        precheck(&bytes, &fleet, &accepted, &bar, 1300.0),
+        Ok(message)
+    );
     assert_eq!(bar.lock().unwrap().kept[&key.public().to_string()], 1000.0);
+}
+
+#[test]
+fn precheck_refuses_an_introduction_from_an_unaccepted_signer() {
+    let signer = iroh::SecretKey::generate();
+    let newcomer = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let addrs = vec!["127.0.0.1:7000".parse().unwrap()];
+    let message = TopicMessage::Record(membership::sign(
+        RecordBody::Introduction {
+            fleet: fleet.clone(),
+            inviter: signer.public().to_string(),
+            counter: 1,
+            newcomer: newcomer.public().to_string(),
+            name: "cedar".into(),
+            addrs: addrs.clone(),
+            consent: membership::consent(
+                &newcomer,
+                &fleet,
+                &signer.public().to_string(),
+                "cedar",
+                &addrs,
+            ),
+        },
+        &signer,
+    ));
+    let bytes = message.encode().unwrap();
+    let bar = std::sync::Mutex::new(ReceiveBar::new());
+    assert_eq!(
+        precheck(&bytes, &fleet, &HashSet::new(), &bar, 1000.0),
+        Err("the record's signer is not an accepted member here")
+    );
+    assert_eq!(
+        precheck(
+            &bytes,
+            &fleet,
+            &HashSet::from([signer.public()]),
+            &bar,
+            1000.0
+        ),
+        Ok(message)
+    );
+}
+
+#[test]
+fn precheck_refuses_an_announcement_from_an_unaccepted_computer() {
+    let key = iroh::SecretKey::generate();
+    let fleet = "ab".repeat(32);
+    let message = TopicMessage::Announcement(announce(&record(&key, &fleet, 5), &key));
+    let bytes = message.encode().unwrap();
+    let bar = std::sync::Mutex::new(ReceiveBar::new());
+    assert_eq!(
+        precheck(&bytes, &fleet, &HashSet::new(), &bar, 1000.0),
+        Err("the announcing computer is not an accepted member here")
+    );
+    assert_eq!(
+        precheck(&bytes, &fleet, &HashSet::from([key.public()]), &bar, 1000.0),
+        Ok(message)
+    );
 }

@@ -27,7 +27,7 @@ pub(crate) struct FleetTopic {
     pub(crate) gossip: Gossip,
     pub(crate) lookup: MemoryLookup,
     db: Mutex<Option<Arc<Mutex<FleetDb>>>>,
-    known: Mutex<HashSet<EndpointId>>,
+    known: Arc<Mutex<HashSet<EndpointId>>>,
     bar: Arc<Mutex<ReceiveBar>>,
     subscription: Mutex<Option<Subscription>>,
     subscribing: tokio::sync::Mutex<()>,
@@ -44,7 +44,7 @@ impl FleetTopic {
             gossip,
             lookup,
             db: Mutex::new(None),
-            known: Mutex::new(HashSet::new()),
+            known: Arc::new(Mutex::new(HashSet::new())),
             bar: Arc::new(Mutex::new(ReceiveBar::new())),
             subscription: Mutex::new(None),
             subscribing: tokio::sync::Mutex::new(()),
@@ -178,7 +178,7 @@ impl FleetTopic {
         {
             return Ok(());
         }
-        let (link, bar) = (link.clone(), self.bar.clone());
+        let (link, bar, known) = (link.clone(), self.bar.clone(), self.known.clone());
         let neighbors = Arc::new(Mutex::new(HashSet::new()));
         let seen_neighbors = neighbors.clone();
         let fleet_id = fleet.body.id.clone();
@@ -188,12 +188,20 @@ impl FleetTopic {
                 let message = match event {
                     Ok(iroh_gossip::api::Event::Received(message)) => message,
                     Ok(iroh_gossip::api::Event::Lagged) => {
-                        // Lost removals and leaves are covered by direct sends, and announcements by the next one.
+                        // Lost removals and leaves are covered by their direct sends and announcements by the next one; an introduction sent only on the topic is lost until catch-up.
                         continue;
                     }
                     _ => continue,
                 };
-                if topic::precheck(&message.content, &fleet_id, &bar, crate::node::now()).is_err() {
+                if topic::precheck(
+                    &message.content,
+                    &fleet_id,
+                    &known.lock().unwrap(),
+                    &bar,
+                    crate::node::now(),
+                )
+                .is_err()
+                {
                     continue;
                 }
                 let applied = {

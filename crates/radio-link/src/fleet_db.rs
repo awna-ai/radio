@@ -1645,7 +1645,9 @@ fn apply_removal(
     if tombstoned(tx, subject)? {
         return Err("the computer was already removed");
     }
-    let founder_ok = signer == founder && !tombstoned(tx, founder)?;
+    let founder_ok = signer == founder
+        && !tombstoned(tx, founder)?
+        && !find_computer(tx, founder)?.is_some_and(|c| c.state == State::Blocked);
     let leaving = signer == subject;
     if !leaving
         && !founder_ok

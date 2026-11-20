@@ -169,6 +169,7 @@ pub fn block(link: &Link, db: &Mutex<FleetDb>, target: &str) -> Result<Computer,
     let computer = db.lock().map_err(|_| READ)?.block(target)?;
     let key = crate::fleet::public_key(&computer.key).ok_or(READ)?;
     link.close_key(&key);
+    link.refresh_addresses(db);
     Ok(computer)
 }
 

@@ -16,7 +16,7 @@ use crate::{
 use data_encoding::HEXLOWER;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub const ANNOUNCEMENT_DOMAIN: &[u8] = b"radio computer announcement 1\n";
 
@@ -271,13 +271,30 @@ impl TopicMessage {
 pub(crate) fn precheck(
     bytes: &[u8],
     fleet: &str,
+    accepted: &HashSet<iroh::EndpointId>,
     bar: &std::sync::Mutex<ReceiveBar>,
     now: f64,
 ) -> Result<TopicMessage, &'static str> {
     let message = TopicMessage::decode(bytes)?;
     match &message {
-        TopicMessage::Record(record) => record.verify()?,
+        TopicMessage::Record(record) => {
+            if !record
+                .signer()
+                .parse::<iroh::EndpointId>()
+                .is_ok_and(|key| accepted.contains(&key))
+            {
+                return Err("the record's signer is not an accepted member here");
+            }
+            record.verify()?;
+        }
         TopicMessage::Announcement(announcement) => {
+            if !announcement
+                .key
+                .parse::<iroh::EndpointId>()
+                .is_ok_and(|key| accepted.contains(&key))
+            {
+                return Err("the announcing computer is not an accepted member here");
+            }
             if !now.is_finite() {
                 return Err("the clock is not a finite number");
             }

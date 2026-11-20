@@ -241,6 +241,23 @@ fn block_closes_the_keys_connections() {
 }
 
 #[test]
+fn blocking_a_computer_closes_its_topic_connection() {
+    let (a, b) = joined();
+    b.node.block(&a.node.id().to_string()).unwrap();
+    wait(|| {
+        !a.node.link().topic_neighbors().contains(&b.node.id())
+            && !b.node.link().topic_neighbors().contains(&a.node.id())
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _ = runtime.block_on(bounded(a.node.link().sync_topic()));
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(!b.node.link().topic_neighbors().contains(&a.node.id()));
+}
+
+#[test]
 fn publish_is_applied_by_the_others() {
     let (a, b) = joined();
     let record =

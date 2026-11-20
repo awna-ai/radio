@@ -123,7 +123,9 @@ impl Link {
         self.topic.sync(self).await
     }
 
-    pub(crate) fn refresh_addresses(&self, db: &std::sync::Mutex<crate::fleet_db::FleetDb>) {
+    /// Refreshes accepted members and their addresses from the fleet store.
+    #[doc(hidden)]
+    pub fn refresh_addresses(&self, db: &std::sync::Mutex<crate::fleet_db::FleetDb>) {
         let _ = self.topic.refresh(db, self.id());
     }
 
