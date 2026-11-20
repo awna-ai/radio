@@ -2,6 +2,29 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-20: D31. One fixed port per direct endpoint (amends D22)
+
+An ordinary computer's personal endpoint, and a shared computer's first personal one, keep UDP 7341
+on the computer's configured link addresses, as D22 says. Every other endpoint is relay only by
+default: it binds loopback UDP only and reaches its peers through its network's relays, so they
+never learn this computer's addresses. The person may allow direct connections, on their own
+computer, for a private membership (an internal network, or a shared computer's later personal
+one). That endpoint then binds the configured link addresses on a fixed port of its own, which the
+person sets for that membership: never 7341 and never a port another endpoint holds. An external
+membership is never direct. A fixed port per endpoint keeps D22's reason, that every computer of a
+network listens in a known place, without two endpoints sharing a socket.
+
+## 2026-11-20: D30. One identity per computer per membership (amends D7)
+
+A computer may be in one personal network and up to 8 others; a shared computer, one with no person
+at it, may be in several personal networks too. Each membership is its own identity. An ordinary
+computer's personal network keeps `node.key`; every other membership, and a shared computer's
+second and later personal ones, has its own Ed25519 key under `node.key`'s rules, and its own
+endpoint and UDP socket, since the transport's endpoint has exactly one id. So no network can link
+this computer by its key, and none learns of its other networks. Radio still owns every key and
+every endpoint, so nothing is built twice. The existing fleet ops keep working for the personal
+network through major 1; a network's own ops are added beside them.
+
 ## 2026-11-20: D29. Membership and record announcements travel on one gossip topic per fleet
 
 Each link runs one gossip actor on Radio's `radio-gossip/1` ALPN, admitted only for accepted
@@ -116,6 +139,9 @@ is one transaction, and a second settings file would add a format and a dependen
 values. Leaving a fleet keeps them. A join code carries exactly these addresses; a code made
 before any is set carries none, and the new computer's dial then fails at once with a plain
 sentence instead of waiting.
+
+Amended by D31 (2026-11-20): 7341 is the personal endpoint's port; another endpoint allowed direct
+takes a fixed port of its own.
 
 ## 2026-11-13: D21. The link's decoders are tried with generated inputs on every land, and fuzzed outside it
 
@@ -365,6 +391,8 @@ tables with the generic kind check.
 
 One identity per computer, held by Radio, and the link to other computers is built here from now
 on, so nothing is built twice.
+
+Amended by D30 (2026-11-20): one identity per computer per membership.
 
 ## 2026-11-10: D6. The daemon installs itself
 
