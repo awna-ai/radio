@@ -1,6 +1,6 @@
 mod common;
 
-use common::{SHA, bounded};
+use common::{SHA, WAIT, bounded};
 use radio_link::{
     SecretKey,
     admit::Limits,
@@ -113,16 +113,24 @@ fn now() -> f64 {
         .as_secs_f64()
 }
 
-fn wait(mut ready: impl FnMut() -> bool) {
+fn wait_within(limit: Duration, mut ready: impl FnMut() -> bool) {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(bounded(async {
-            while !ready() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        }));
+        .block_on(async {
+            tokio::time::timeout(limit, async {
+                while !ready() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("the operation timed out")
+        });
+}
+
+fn wait(ready: impl FnMut() -> bool) {
+    wait_within(WAIT, ready);
 }
 
 fn joined() -> (Computer, Computer) {
@@ -470,7 +478,10 @@ fn a_held_body_makes_the_next_delivery_busy() {
         release.send(()).unwrap();
         thread.join().unwrap();
     });
-    wait(|| fs::read_dir(&inbox).unwrap().count() == 0);
+    // The partial file goes a few seconds after the reset; give it room under load.
+    wait_within(Duration::from_secs(15), || {
+        fs::read_dir(&inbox).unwrap().count() == 0
+    });
     no_arrivals(&a);
 }
 
