@@ -15,7 +15,8 @@ A silent seat carries its earlier block for distance but never fresh agreement; 
 never posted has no block and maximum distance, as in a step when a time box expires.
 The deliberation stays open unless the step gives an agreed or deadlock outcome.
 A caller must be a member and a seat; a plain room, a closed or expired deliberation, 50 rounds,
-or an open round with no post is refused without changing the record.
+or an open round with no post is refused, and the step changes nothing, except that a box that has
+run out is ended and saved first, as by any op that reads the deliberation.
 
 ## 2026-11-20: D27. A deliberation's time box can be set once while it is open
 

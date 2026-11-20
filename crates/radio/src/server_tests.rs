@@ -3593,15 +3593,15 @@ fn a_time_box_that_runs_out_ends_the_deliberation_open_with_its_result() {
 }
 
 #[test]
-fn a_turn_or_a_result_first_after_the_box_runs_out_ends_it_and_keeps_that() {
+fn a_turn_a_step_or_a_result_first_after_the_box_runs_out_ends_it_and_keeps_that() {
     let fixture = Fixture::new();
-    let worker = start(fixture.bind(), 6);
+    let worker = start(fixture.bind(), 10);
     let socket = fixture.socket();
     let sam = serde_json::json!({"kind":"human","name":"sam"});
     let ada = serde_json::json!({"kind":"human","name":"ada"});
     let mut store = fixture.reader();
     // Each room is convened, sam posts, and its convening moves fifteen minutes back.
-    for room in ["turned", "resulted"] {
+    for room in ["turned", "stepped", "resulted"] {
         assert_eq!(
             call(
                 &socket,
@@ -3638,6 +3638,26 @@ fn a_turn_or_a_result_first_after_the_box_runs_out_ends_it_and_keeps_that() {
         serde_json::json!({"ok":false,"error":"the deliberation is closed"})
     );
     assert_eq!(expired(&store, "turned"), serde_json::json!(true));
+    // A step is the first op: it is refused, and the end is kept after stepping once.
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_step","room":"stepped","author":ada}),
+        ),
+        serde_json::json!({"ok":false,"error":"the deliberation is closed"})
+    );
+    assert_eq!(expired(&store, "stepped"), serde_json::json!(true));
+    let result = call(
+        &socket,
+        serde_json::json!({"v":1,"op":"deliberation_result","room":"stepped"}),
+    );
+    assert_eq!(
+        (
+            &result["result"]["outcome"],
+            &result["result"]["trajectory"]["rounds"]
+        ),
+        (&serde_json::json!("open"), &serde_json::json!(1))
+    );
     // A result is the first op: the round steps with sam's post, and the end is kept.
     let result = call(
         &socket,
