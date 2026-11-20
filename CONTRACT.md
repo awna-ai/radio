@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 12
+Protocol minor: 13
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -111,6 +111,7 @@ them against these lines. They are independent of the repo's semver tags.
 | `deliberation_state` | `room` | `deliberation: {kind, n?, seats, round, posted, outcome, time_box?, expired?}` | The deliberation's kind, `n` for a list, its seats, the number of rounds stepped, the seats that have posted in the open round, `outcome`: `open`, `agreed` or `deadlock`, the `time_box` asked at convene or set later, when one was, and `expired: true` once that box ran out while the deliberation was open. A room that is not a deliberation answers `not a deliberation` |
 | `deliberation_result` | `room` | `result`, `markdown` | The proposal after the newest round: `result` is `{label, outcome, kind, answer, groups: [{members, weight, answer}], dissent: [{member, holdout, objections}], trajectory: {D, rounds}}`, and `markdown` the same as a document with every answer and objection fenced. Before the first round it answers `no round has finished yet` |
 | `deliberation_time_box` | `room`, `author: member`, `time_box` | `deliberation` | Sets the time box once on an open deliberation convened without one, counted from now. Checks in order: `author` must be a member (`not a member`); `time_box` must be `15m`, `1h` or `deadlock` (`a time box is 15m, 1h or deadlock`); the room must exist (`no such room`) and be a deliberation (`not a deliberation`); it must have no outcome and not be expired (`the deliberation is closed`); it must have no box yet (`the deliberation already has a time box`), including one asked as `deadlock`. Answers the same view as `deliberation_state`, with the new box. Posts no room message |
+| `deliberation_step` | `room`, `author: member` | `deliberation` | Steps the open round with the seats that have posted. Checks in order: `author` must be a member (`not a member`); the room must exist (`no such room`) and be a deliberation (`not a deliberation`); `author` must be one of its seats (`not a seat`); it must have no outcome and not be expired (`the deliberation is closed`); it must be under 50 rounds (`the deliberation has had its 50 rounds`); at least one seat must have posted in the open round (`no seat has posted in this round`). Answers the same view as `deliberation_state`, after the step; it stays open unless the step gives an outcome. A silent seat carries its earlier block, if any, for distance but never fresh agreement; a seat that never posted has no block and maximum distance. Posts no room message |
 
 Files: a file goes to one app on one computer of the fleet, up to 64 MiB, only when
 that computer answers now. Nothing is kept to resend. It lands in the folder that app
@@ -136,8 +137,9 @@ id being `<seat name>.r<round>` of an earlier round's draft, and for a `text` on
 `objections: "<at most 600 characters>"`. Radio cleans the body as it cleans any post (controls and
 invisible characters become spaces) before it reads the block, so the block it counts is the one
 the room shows.
-Values are JSON. Only the last complete block counts. When every seat has posted, Radio steps the
-round: the deliberation is `agreed` when, in that round, every seat but the holdouts (seats that
+Values are JSON. Only the last complete block counts. The last seat's turn steps the round,
+or `deliberation_step`, which steps it with the seats that have posted.
+The deliberation is `agreed` when, in that round, every seat but the holdouts (seats that
 stopped moving while the others moved closer) agreed on one answer (for a `list`, the same `n`
 items; for a `text`, the same draft) and those seats are more than half of all seats, and
 `deadlock` after four rounds in a row in which the seats did not move closer. The

@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 12);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 13);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1497,4 +1497,18 @@ fn setting_a_deliberations_time_box_requires_both_flags() {
         incomplete.drain(missing);
         assert!(parse(&args(&incomplete)).is_err());
     }
+}
+
+#[test]
+fn stepping_a_deliberation_requires_an_author() {
+    let words = ["deliberation", "step", "council", "--as", "human:moss"];
+    let parsed = parse(&args(&words));
+    assert!(parsed.is_ok(), "{parsed:?}");
+    let command = parsed.unwrap();
+    assert_eq!(
+        serde_json::to_value(command.request).unwrap(),
+        serde_json::json!({"op":"deliberation_step","room":"council","author":{"kind":"human","name":"moss"}})
+    );
+    assert_eq!(command.body, None);
+    assert!(parse(&args(&words[..3])).is_err());
 }

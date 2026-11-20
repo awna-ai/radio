@@ -19,6 +19,7 @@ pub(crate) const ROUND_LIMIT: &str = "the deliberation has had its 50 rounds";
 pub(crate) const NO_ROUND: &str = "no round has finished yet";
 pub(crate) const TIME_BOX: &str = "a time box is 15m, 1h or deadlock";
 const ALREADY_BOXED: &str = "the deliberation already has a time box";
+const NO_POST: &str = "no seat has posted in this round";
 const NOT_KIND: &str = "not a deliberation kind";
 const LIST_N: &str = "a list deliberation needs n from 1 to 12";
 const TEXT_N: &str = "a text deliberation takes no n";
@@ -202,6 +203,33 @@ impl Record {
         next.last = Some(report);
         *self = next;
         Ok(true)
+    }
+
+    /// Steps with the seats that posted; a silent seat carries its earlier block, if any.
+    /// Nothing changes on an error.
+    pub(crate) fn step(&mut self, author: &Author) -> Result<(), String> {
+        let seat = Seat {
+            kind: author.kind.clone(),
+            name: author.name.clone(),
+        };
+        if !self.seats.contains(&seat) {
+            return Err(NOT_SEAT.into());
+        }
+        if self.state.closed.is_some() || self.expired {
+            return Err(CLOSED.into());
+        }
+        if self.state.round_no >= ROUNDS_MAX {
+            return Err(ROUND_LIMIT.into());
+        }
+        if self.pending.is_empty() {
+            return Err(NO_POST.into());
+        }
+        let mut next = self.clone();
+        let blocks = std::mem::take(&mut next.pending);
+        let report = step_round(&mut next.state, &blocks).map_err(|_| CLOSED)?;
+        next.last = Some(report);
+        *self = next;
+        Ok(())
     }
 
     pub(crate) fn view(&self) -> Deliberation {

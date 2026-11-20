@@ -418,6 +418,7 @@ Radio keeps the outcome.
 | **`deliberation_state`** | Shows which seats have posted in the open round, and `expired: true` once a time box has run out. |
 | **`deliberation_result`** | The proposal, its agreement groups, the dissent and how far apart the seats were each round, as fields and as markdown that fences every answer and objection. |
 | **`deliberation_time_box`** | Sets a `time_box` of `15m`, `1h` or `deadlock`, counted from now, on an open deliberation convened without one. Any member may set it, once, with `room`, `author` and `time_box`. |
+| **`deliberation_step`** | Moves the open round on with the seats that have posted, using `room` and a seat's `author`. A seat that stayed quiet carries its earlier block, if any, without counting as fresh agreement. It posts no room message. |
 
 A turn for a `list` ends in a block like this one:
 
@@ -434,7 +435,8 @@ For a `text`, the block holds a `draft` (or, to agree, `agree_with` naming an ea
 
 - **Radio runs no app.** Your app posts the turns of the seats it registered, so it asks its agent
   for a turn when `deliberation_state` shows that seat hasn't posted in the open round.
-- **Rounds.** Once every seat has posted, Radio steps the round; it ends `agreed` or `deadlock`, or
+- **Rounds.** Once every seat has posted, Radio steps the round; a seat's app can also move it on
+  with the seats that have posted, without the ones that stayed quiet. It ends `agreed` or `deadlock`, or
   stays `open` and takes no more turns after 50 rounds.
 - **Time box.** When the time is up, Radio steps the open round with the seats that have posted,
   the deliberation takes no more turns, and `deliberation_state` shows `expired: true`, usually
@@ -581,6 +583,7 @@ UTF-8, and Radio applies its own 4 KiB limit.
 | `radio deliberation turn <room> --as <kind>:<name> --body <text>`, or `--body-file <path>` (`-` reads stdin) | `deliberation_turn` |
 | `radio deliberation state <room>` | `deliberation_state` |
 | `radio deliberation time-box <room> --as <kind>:<name> --time-box 15m\|1h\|deadlock` | `deliberation_time_box` |
+| `radio deliberation step <room> --as <kind>:<name>` | `deliberation_step` |
 | `radio deliberation result <room>` | `deliberation_result` |
 
 </details>

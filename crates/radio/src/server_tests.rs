@@ -543,7 +543,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":12},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":13},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -3746,6 +3746,88 @@ fn a_member_can_set_an_unboxed_deliberations_time_box_once() {
             serde_json::json!({"v":1,"op":"read","room":"council"})
         )["messages"],
         serde_json::json!([])
+    );
+    worker.join().unwrap();
+}
+
+#[test]
+fn a_seat_can_step_a_partial_round_with_membership_checked_first() {
+    let fixture = Fixture::new();
+    let worker = start(fixture.bind(), 11);
+    let socket = fixture.socket();
+    let member = serde_json::json!({"kind":"human","name":"moss"});
+    let a = serde_json::json!({"kind":"human","name":"juniper"});
+    let b = serde_json::json!({"kind":"human","name":"fern"});
+    let step = |room: &str, author: serde_json::Value| {
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_step","room":room,"author":author}),
+        )
+    };
+    assert_eq!(
+        step(
+            "missing",
+            serde_json::json!({"kind":"scribe","name":"wren"})
+        ),
+        serde_json::json!({"ok":false,"error":"not a member","refused":true})
+    );
+    assert_eq!(
+        step("missing", member.clone()),
+        serde_json::json!({"ok":false,"error":"no such room"})
+    );
+    fixture.create();
+    assert_eq!(
+        step("garden", member.clone()),
+        serde_json::json!({"ok":false,"error":"not a deliberation"})
+    );
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_convene","room":"council","title":"Council","author":member,"kind":"list","n":1,"seats":[a,b]})
+        ),
+        serde_json::json!({"ok":true})
+    );
+    let before = fixture.reader().deliberation("council").unwrap().unwrap();
+    assert_eq!(
+        step("council", member),
+        serde_json::json!({"ok":false,"error":"not a seat","refused":true})
+    );
+    assert_eq!(
+        step("council", b.clone()),
+        serde_json::json!({"ok":false,"error":"no seat has posted in this round"})
+    );
+    assert_eq!(
+        fixture.reader().deliberation("council").unwrap().unwrap(),
+        before
+    );
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_turn","room":"council","author":a,"body":"```deliberation\nposition: propose\nitems: [\"seed\"]\n```"})
+        )["ok"],
+        true
+    );
+    let answer = step("council", b);
+    assert_eq!(
+        answer,
+        serde_json::json!({"ok":true,"deliberation":{"kind":"list","n":1,"seats":[a,{"kind":"human","name":"fern"}],"round":1,"posted":[],"outcome":"open"}})
+    );
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"deliberation_state","room":"council"})
+        ),
+        answer
+    );
+    assert_eq!(
+        call(
+            &socket,
+            serde_json::json!({"v":1,"op":"read","room":"council"})
+        )["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
     );
     worker.join().unwrap();
 }

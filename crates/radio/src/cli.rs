@@ -56,6 +56,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         ["deliberation", "time-box", rest @ ..] => {
             ("deliberation_time_box", 1, rest, &["--as", "--time-box"])
         }
+        ["deliberation", "step", rest @ ..] => ("deliberation_step", 1, rest, &["--as"]),
         ["deliberation", "result", rest @ ..] => ("deliberation_result", 1, rest, &[]),
         ["message", rest @ ..] => ("message", 1, rest, &["--app"]),
         ["keep", rest @ ..] => {
@@ -158,6 +159,10 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
             room: positionals[0].into(),
             author: author()?,
             time_box: required("--time-box")?.into(),
+        },
+        "deliberation_step" => Request::DeliberationStep {
+            room: positionals[0].into(),
+            author: author()?,
         },
         "deliberation_result" => Request::DeliberationResult {
             room: positionals[0].into(),

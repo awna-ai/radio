@@ -1,0 +1,16 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_step",
+    "room": "council-later",
+    "author": {
+      "kind": "helper",
+      "name": "fern"
+    }
+  },
+  "response": {
+    "ok": false,
+    "error": "no seat has posted in this round"
+  },
+  "exact": true
+}

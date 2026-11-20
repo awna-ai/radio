@@ -501,3 +501,112 @@ fn an_open_deliberation_at_the_round_limit_can_take_deadlock_once() {
         Err("the deliberation already has a time box".into())
     );
 }
+
+#[test]
+fn partial_step_matches_the_reference_with_a_silent_seat() {
+    let mut record = Record::convene("list", Some(1), seats(&["a", "b"])).unwrap();
+    record
+        .turn(
+            &seat("a"),
+            &post(&serde_json::json!({"position":"propose","items":["seed"]})),
+        )
+        .unwrap();
+    let mut state =
+        DeliberationState::new(Kind::List, Some(1), vec!["a".into(), "b".into()]).unwrap();
+    let report = step_round(&mut state, &record.pending).unwrap();
+    let expected = build_result(&state, &report).unwrap();
+    assert_eq!(record.step(&seat("b")), Ok(()));
+    assert_eq!(
+        serde_json::to_value(record.result().unwrap().0).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+    assert_eq!(record.view().round, 1);
+    assert!(record.pending.is_empty());
+    assert!(record.view().posted.is_empty());
+}
+
+#[test]
+fn partial_step_carries_earlier_blocks_as_the_reference_does() {
+    let mut record = Record::convene("list", Some(1), seats(&["a", "b", "c"])).unwrap();
+    for name in ["a", "b", "c"] {
+        record
+            .turn(
+                &seat(name),
+                &post(&serde_json::json!({"position":"propose","items":[name]})),
+            )
+            .unwrap();
+    }
+    assert_eq!(record.view().round, 1);
+    record
+        .turn(
+            &seat("a"),
+            &post(&serde_json::json!({"position":"propose","items":["b"]})),
+        )
+        .unwrap();
+    let mut state = record.state.clone();
+    let report = step_round(&mut state, &record.pending).unwrap();
+    let expected = build_result(&state, &report).unwrap();
+    assert_eq!(record.step(&seat("b")), Ok(()));
+    assert_eq!(record.view().round, 2);
+    assert_eq!(
+        serde_json::to_value(record.result().unwrap().0).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+}
+
+#[test]
+fn partial_step_without_posts_changes_nothing() {
+    let mut record = Record::convene("list", Some(1), seats(&["a", "b"])).unwrap();
+    let before = record.to_json().unwrap();
+    assert_eq!(
+        record.step(&seat("b")),
+        Err("no seat has posted in this round".into())
+    );
+    assert_eq!(record.to_json().unwrap(), before);
+}
+
+#[test]
+fn partial_step_of_an_agreed_deliberation_changes_nothing() {
+    let mut record = Record::convene("list", Some(1), seats(&["a", "b"])).unwrap();
+    for name in ["a", "b"] {
+        record
+            .turn(
+                &seat(name),
+                &post(&serde_json::json!({"position":"agree","items":["seed"]})),
+            )
+            .unwrap();
+    }
+    assert_eq!(record.view().outcome, "agreed");
+    let before = record.to_json().unwrap();
+    assert_eq!(record.step(&seat("b")), Err(CLOSED.into()));
+    assert_eq!(record.to_json().unwrap(), before);
+}
+
+#[test]
+fn partial_step_of_an_expired_deliberation_changes_nothing() {
+    let mut record = Record::convene("list", Some(1), seats(&["a", "b"]))
+        .unwrap()
+        .time_boxed(Some("15m"), 0.0)
+        .unwrap();
+    assert!(record.expire(900.0));
+    let before = record.to_json().unwrap();
+    assert_eq!(record.step(&seat("b")), Err(CLOSED.into()));
+    assert_eq!(record.to_json().unwrap(), before);
+}
+
+#[test]
+fn partial_step_at_the_round_limit_changes_nothing() {
+    let mut record = Record::convene("list", Some(1), seats(&["a", "b"])).unwrap();
+    record.state.round_no = 50;
+    let before = record.to_json().unwrap();
+    assert_eq!(record.step(&seat("b")), Err(ROUND_LIMIT.into()));
+    assert_eq!(record.to_json().unwrap(), before);
+}
+
+#[test]
+fn partial_step_by_an_unseated_member_changes_nothing() {
+    let mut record = Record::convene("list", Some(1), seats(&["a", "b"])).unwrap();
+    let before = record.to_json().unwrap();
+    assert_eq!(record.step(&seat("c")), Err(NOT_SEAT.into()));
+    assert_eq!(record.to_json().unwrap(), before);
+}

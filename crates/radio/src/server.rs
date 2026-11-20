@@ -946,6 +946,13 @@ impl Server {
                 self.store.replace_deliberation(&room, &record.to_json()?)?;
                 response.deliberation = Some(record.view());
             }
+            Request::DeliberationStep { room, author } => {
+                let author = self.seat(author)?;
+                let mut record = self.deliberation(&room, now)?;
+                record.step(&author)?;
+                self.store.replace_deliberation(&room, &record.to_json()?)?;
+                response.deliberation = Some(record.view());
+            }
             Request::StatusClear { room, key, author } => {
                 let author = self.member(author)?;
                 let seq = self

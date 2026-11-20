@@ -1,0 +1,32 @@
+{
+  "request": {
+    "v": 1,
+    "op": "deliberation_step",
+    "room": "council-later",
+    "author": {
+      "kind": "helper",
+      "name": "fern"
+    }
+  },
+  "response": {
+    "ok": true,
+    "deliberation": {
+      "kind": "text",
+      "seats": [
+        {
+          "kind": "helper",
+          "name": "juniper"
+        },
+        {
+          "kind": "helper",
+          "name": "fern"
+        }
+      ],
+      "round": 1,
+      "posted": [],
+      "outcome": "open",
+      "time_box": "15m"
+    }
+  },
+  "exact": true
+}

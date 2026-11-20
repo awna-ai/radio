@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 12;
+pub const PROTOCOL_MINOR: u32 = 13;
 
-/// The ops major 1, minor 12 serves, in this order.
+/// The ops major 1, minor 13 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -52,6 +52,7 @@ pub const OPS: &[&str] = &[
     "deliberation_state",
     "deliberation_result",
     "deliberation_time_box",
+    "deliberation_step",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -229,6 +230,8 @@ pub enum Request {
         author: Member,
         time_box: String,
     },
+    /// Steps an open deliberation's round with the seats that have posted; a seat that has not is silent.
+    DeliberationStep { room: String, author: Member },
 }
 
 /// A member identified by a kind and a name.
@@ -350,8 +353,8 @@ pub struct Response {
     /// This app's kept computers, in the order requested with duplicates removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept: Option<Vec<KeptPeer>>,
-    /// A deliberation's state, answered by `deliberation_state`, `deliberation_turn` and
-    /// `deliberation_time_box`.
+    /// A deliberation's state, answered by `deliberation_state`, `deliberation_turn`,
+    /// `deliberation_time_box` and `deliberation_step`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deliberation: Option<Deliberation>,
     /// A deliberation's result, answered by `deliberation_result`.
@@ -588,7 +591,7 @@ mod tests {
 
     #[test]
     fn kept_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 12);
+        assert_eq!(PROTOCOL_MINOR, 13);
         assert_eq!(&OPS[31..33], &["keep", "kept"]);
         for value in [
             serde_json::json!({"op":"keep","app":"notes","computers":["birch","cedar"]}),
@@ -625,7 +628,7 @@ mod tests {
 
     #[test]
     fn message_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 12);
+        assert_eq!(PROTOCOL_MINOR, 13);
         assert_eq!(OPS[30], "message");
         let value =
             serde_json::json!({"op":"message","app":"notes","computer":"birch","body":"hello"});
@@ -653,7 +656,7 @@ mod tests {
 
     #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 12);
+        assert_eq!(PROTOCOL_MINOR, 13);
         assert_eq!(
             &OPS[20..23],
             &[

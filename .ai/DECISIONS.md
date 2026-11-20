@@ -2,6 +2,18 @@
 
 The decisions this repo was founded on (2026-11-10). Newer decisions go above them.
 
+## 2026-11-20: D28. A deliberation's round can be stepped with the seats that posted
+
+`deliberation_step` (protocol minor 13, additive within major 1) steps an open round with the
+seats that have posted, answers its state and posts no room message.
+Any seat may call it, even one that has not posted: Radio keeps no convener, and apps post as
+their seats, so a seat is the narrowest caller there is.
+A silent seat carries its earlier block for distance but never fresh agreement; a seat that
+never posted has no block and maximum distance, as in a step when a time box expires.
+The deliberation stays open unless the step gives an agreed or deadlock outcome.
+A caller must be a member and a seat; a plain room, a closed or expired deliberation, 50 rounds,
+or an open round with no post is refused without changing the record.
+
 ## 2026-11-20: D27. A deliberation's time box can be set once while it is open
 
 Any member may set a time box on an open deliberation convened without one, even if that member
