@@ -1314,7 +1314,23 @@ fn twin_answer(
     let mut network = if leaving {
         before.ok_or("no such network")?
     } else {
-        after.or(before).ok_or("no such network")?
+        after
+            .or(before)
+            .or_else(|| {
+                response
+                    .fleet
+                    .as_ref()
+                    .map(|fleet| radio_client::NetworkInfo {
+                        id: fleet.id.clone(),
+                        name: fleet.name.clone(),
+                        scope: "personal".into(),
+                        state: "member".into(),
+                        work_together: false,
+                        version: None,
+                        founder: None,
+                    })
+            })
+            .ok_or("no such network")?
     };
     if let Some(fleet) = response.fleet.take() {
         network.version = Some(fleet.version);

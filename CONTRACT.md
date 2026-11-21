@@ -80,11 +80,10 @@ include the record's `version` and `founder`. Its id is 64 lowercase hex charact
 `personal` for this computer's own network, which is fixed; `internal` is the default mark for any
 other network; `external` marks a network the person does not trust. `state` is `member` today; a
 client treats an unknown state as not a member, since a later minor may add one. `work_together` says
-whether every member of a private network other than personal has turned *Work together* on, which
-lets that network carry `send`, `message`, `keep` and apps' sections. It is false until a later minor
-adds the switch, and always false for the personal network and an external one. It never governs
-the personal network: `send`, `message` and `keep` reach this computer's own other computers as they
-always have. Today only the personal network exists: every op taking
+whether every member of a private network other than personal has turned *Work together* on. A later
+minor will add the switch and use it for that network's `send`, `message`, `keep` and apps' sections.
+It is false until then, and always false for the personal network and an external one. It never
+governs the personal network. Today only the personal network exists: every op taking
 `network` refuses any value other than its id with `no such network`.
 
 The `network_*` twins keep their old ops' behavior and other answer shapes, replacing `fleet` with

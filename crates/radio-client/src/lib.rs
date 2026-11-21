@@ -585,8 +585,9 @@ pub struct NetworkInfo {
     /// `member` today; clients treat an unknown state as not a member.
     pub state: String,
     /// Whether every member of a private network other than personal turned Work together on.
-    /// False until a later minor adds the switch; always false for personal and external networks.
-    /// The personal network's app operations do not depend on this flag.
+    /// A later minor will add the switch and use it for that network's send, message, keep and
+    /// apps' sections. False until then; always false for personal and external networks.
+    /// It never governs the personal network.
     pub work_together: bool,
     /// The signed record's version, present only for init and join.
     #[serde(default, skip_serializing_if = "Option::is_none")]

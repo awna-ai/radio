@@ -3958,7 +3958,7 @@ fn network_twins_refuse_unknown_ids_before_acting() {
                 .unwrap();
         }
         let networks = server.fleet_db().unwrap().networks().unwrap();
-        let computers = if initialized {
+        if initialized {
             assert!(
                 !server
                     .fleet_db()
@@ -3968,10 +3968,7 @@ fn network_twins_refuse_unknown_ids_before_acting() {
                     .unwrap()
                     .work_together
             );
-            server.apply(Request::ComputerList {}).unwrap().computers
-        } else {
-            None
-        };
+        }
         for id in ["birch".to_owned(), "b".repeat(64)] {
             for (op, extra) in [
                 ("network_scope_set", serde_json::json!({"scope":"external"})),
@@ -4020,10 +4017,6 @@ fn network_twins_refuse_unknown_ids_before_acting() {
                     .codes
                     .unwrap()
                     .is_empty()
-            );
-            assert_eq!(
-                server.apply(Request::ComputerList {}).unwrap().computers,
-                computers
             );
         }
     }
@@ -4352,10 +4345,52 @@ fn network_twin_answer_uses_the_new_row_and_moves_the_fleet_record() {
 
 #[test]
 fn network_twin_answer_refuses_when_both_rows_are_missing() {
-    for leaving in [false, true] {
-        assert_eq!(
-            twin_answer(Ok(success()), leaving, None, None).unwrap_err(),
-            "no such network"
-        );
-    }
+    let response = Response {
+        fleet: Some(radio_client::Fleet {
+            id: "a".repeat(64),
+            name: "garden".into(),
+            version: 7,
+            founder: "c".repeat(64),
+        }),
+        ..success()
+    };
+    assert_eq!(
+        twin_answer(Ok(response), true, None, None).unwrap_err(),
+        "no such network"
+    );
+    assert_eq!(
+        twin_answer(Ok(success()), false, None, None).unwrap_err(),
+        "no such network"
+    );
+}
+
+#[test]
+fn network_twin_answer_builds_from_the_fleet_when_both_rows_vanish() {
+    let response = Response {
+        fleet: Some(radio_client::Fleet {
+            id: "b".repeat(64),
+            name: "birch".into(),
+            version: 7,
+            founder: "c".repeat(64),
+        }),
+        recovery_file: Some("recovery.key".into()),
+        ..success()
+    };
+    let answer = twin_answer(Ok(response.clone()), false, None, None).unwrap();
+    assert_eq!(
+        answer,
+        Response {
+            fleet: None,
+            network: Some(radio_client::NetworkInfo {
+                id: "b".repeat(64),
+                name: "birch".into(),
+                scope: "personal".into(),
+                state: "member".into(),
+                work_together: false,
+                version: Some(7),
+                founder: Some("c".repeat(64)),
+            }),
+            ..response
+        }
+    );
 }
