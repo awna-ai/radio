@@ -124,15 +124,15 @@ rows below (§ *Trust boundaries* and the gaps) keep holding for the personal ne
   or this computer's personal key, except a quote the person brought in (N6, a gap below).
 - **N3. Peers act only inside their own network.** A computer of network A reaches only A's rooms on
   this computer, and rooms A shares through a link. It never reaches another network's rooms,
-  records, computer list or apps, and never this computer's `send`, `message` or `keep`, unless A is the
-  personal network (the fleet rows) or a private network other than personal that works together
+  records, computer list or apps, and never this computer's `send`, `message` or `keep`, unless A is an
+  ordinary computer's personal network (the fleet rows) or a private network other than personal that works together
   (N11). A network endpoint accepts only
-  ALPN `radio-net/1`; the personal endpoint never accepts it, and a network endpoint never accepts
+  ALPN `radio-net/1` and the network's own join ALPN; the personal endpoint never accepts it, and a network endpoint never accepts
   `radio/1`, `radio-join/1` or `radio-gossip/1`. A key that is not yet a member passes only for the
   join, on a join ALPN of the network's own, never on `radio-net/1`, and only while an unused,
   unexpired join code of that network exists, under the rules of today's join row (the inviter keeps
-  only the code's hash, a code has an expiry and a count of uses left); a relay admits a newcomer
-  only for that join. Test: each wrong ALPN on each endpoint is refused at the handshake; an unknown
+  only the code's hash, a code has an expiry and a count of uses left); how a relay admits a newcomer
+  only for that join is the relay step's to design. Test: each wrong ALPN on each endpoint is refused at the handshake; an unknown
   key on `radio-net/1`, or on the join ALPN with no open code, is refused; a `radio-net/1` peer asking for another network's record, computer list or an app's
   section is refused, and so is its `message`, `send` or `keep` on a network that doesn't work
   together.
@@ -197,16 +197,18 @@ rows below (§ *Trust boundaries* and the gaps) keep holding for the personal ne
   into them is held, and re-marking opens or closes them again.
 - **N8. A shared computer never bridges.** Each of its memberships has its own key, store and
   endpoint, and it never passes a message, record, file or app operation from one membership to
-  another. It holds no rooms of its own, has no `human` member and runs no agent, so it refuses
+  another. It holds no rooms of its own, has no `human` member and runs no agent in its personal
+  memberships, so it refuses
   the room-side person-only steps (approving or declining a held post, a quote agents may read, a
   `human` post); its owner sets its marks (scope, relays, connection, working together) at its own
-  command line, through N15's prompt there. Its personal memberships carry rooms, status
+  command line, through N15's prompt there once N15 is built (until then, the gap on N15 below). Its personal memberships carry rooms, status
   lines and deliberations only, never `send`, `message`, `keep` or apps' sections: app operations
   reach it only through one private network other than personal that works together (N11), and the
   runner on it that takes them serves that network alone. Test: a hostile member of one of its
   networks can't reach anything of another; a `send`, `message`, `keep` or section on one of its
-  personal memberships is refused; it has no room, no `human` member and no agent; each room-side
-  person-only step is refused, and a mark changes only through the prompt at its command line.
+  personal memberships is refused; it has no room, no `human` member and no agent in its personal memberships; each
+  room-side person-only step is refused; once N15 is built, a mark changes only through the prompt
+  at its command line.
 - **N9. Relay only, except the personal network.** Every endpoint but an ordinary computer's personal
   one (and a shared computer's first personal one) binds loopback UDP only, with the transport's
   default sockets cleared first so none stays beside it, and reaches its peers only through the
@@ -308,6 +310,7 @@ rows below (§ *Trust boundaries* and the gaps) keep holding for the personal ne
 | Membership keys | an Ed25519 key for each membership but the personal one (D30) | `~/.config/radio/networks/<network id>.key` (under `$XDG_CONFIG_HOME` on Linux), held to `node.key`'s rules: 0600, `O_EXCL`, no links, left out of Time Machine (on Linux, the person's own backup must leave them out: no mechanism yet) | anyone holding one speaks as this computer in that network, and only there | until the computer leaves that network and the person forgets it |
 | Recovery-key secrets | the secret half of each network this computer founded | a file of its own per network beside its membership key, written once, under the same rules, never the personal network's recovery-key path | anyone holding one rewrites that network's record | until the person moves it off the computer |
 | Relay admit tokens | what a network's record gives its relays to admit its members | `fleet.db`, per network, 0600 like the store | a holder may reach that network's relays, and make a member's endpoint do a handshake before admission refuses it | until the founder's next record replaces them; removing a member replaces them |
+| What relays hold | each network's member set (or admit tokens) that this computer's networks send their relays | on each relay, outside this computer | the relay's operator learns each network's members' keys | until the network's next record replaces it |
 | Network join codes | each open code's hash, expiry and uses left, and the relays it names | `fleet.db`, per network | a leaked multi-use code lets strangers ask to join until it expires, runs out or is revoked; an admitter still lets each one in | until used up, expired or revoked |
 | Network records | each network's signed record (id, name, founder, the recovery key's public half, relays, admitters, moderators, founder-signed links), its member list, vouches, moderation records, and this computer's own display name there | `fleet.db`, per network (a store of its own for each membership on a shared computer) | who is in each network, and where its relays are; one network's record never names another membership of this computer | until the computer leaves the network |
 | The person's marks and blocks | each network's scope, whether it may connect directly, which relays are the person's own (with their keys), working-together choices, blocked participants | `fleet.db`, this computer's own rows, never sent | which networks the person trusts, and whom they blocked | until the person changes them |
@@ -330,7 +333,7 @@ members already hold.
 | The lowest-scope rule for an agent's turn and the leak check are enforced by the app that runs the turn; Radio sees only bound members, held posts and the app's mark of where a draft came from | the app holds the turn's brief, which Radio never reads; Radio holds anything sent into a public network by a member not bound there, so a wrong scope in an app still waits for the person's review, which no process can give through the socket once N15 is built, unless the app bound the member to that network (the gap on `register` below), or a same-user process goes around the socket (the next gap) | several-networks design, 2026-11-20 | when apps are told apart on the socket |
 | A same-user process can read every membership key and speak as this computer in any network with a client of its own, edit marks, bindings and held posts in Radio's stores directly, or drive Radio's own prompt, so neither the hold nor N15 stops it | the same-user boundary, as for the link key (the row below); N15 and the hold stop what reaches Radio through the socket | several-networks design, 2026-11-20 | if Radio can hold its keys and stores where only Radio reaches them |
 | Until N15 is built, any same-user process can post as `human` under any name, approve or decline a held post, bring in a quote agents may read, and change every mark, so the hold stops an honest app's mistake, not a prompt-injected agent with shell access | the socket can't tell which app is calling (the same-user rows below); N15 is designed with the hold, and none of these steps can reach another network before the network steps are built | several-networks design, 2026-11-20 | when the hold is built, with N15 |
-| N15 covers only the four steps the design names: joining or creating a network and the scope picked at join, admitting and vouching, linking, naming agents for a network and binding a member stay socket ops after N15 | the design named those four; the others need a person at the command line or the screen today, and the hold's step may add them when it designs N15 | several-networks design, 2026-11-20 | when the hold is built, with N15 |
+| N15 covers only the four steps the design names: joining or creating a network and the scope picked at join, admitting and vouching, linking, naming agents for a network and binding a member stay socket ops after N15 | the design named those four; the others are socket ops today, as in the fleet (`join`, `code_create`, `computer_accept`), so a same-user process can admit a waiting stranger; the hold's step may add them when it designs N15 | several-networks design, 2026-11-20 | when the hold is built, with N15 |
 | Any same-user process can `register` a member bound to an external network, and a bound member's posts there are not held, so a prompt-injected agent with shell access can post private text into that network through such a member, after N15 too | the socket can't tell which app is calling; binding a member is an app's own setup, not one of the person's own steps N15 covers; the binding is shown with the member | several-networks design, 2026-11-20 | when apps are told apart on the socket |
 | Two unlinked networks of one kind exchange nothing, but Radio can't see that an agent's text came from the other; the hold into a lower private network rests on the app's mark; and an agent that reads the shared rooms of two links of its network (A with B, B with C) can post what it read in one into the other unheld, a link passing through in practice | Radio never reads a turn's brief; a bound member (N5) is the part Radio sees | several-networks design, 2026-11-20 | when apps are told apart on the socket |
 | `read` names the member reading, so serving a quote only with the tick (N6), and serving N4's chosen poster only the approved text and that room, trust the reader's own claim | the same-user boundary: a process that can read as `human` can already read every room | several-networks design, 2026-11-20 | when apps are told apart on the socket |
@@ -346,6 +349,7 @@ members already hold.
 | On a shared computer with several user accounts, a loopback-bound endpoint takes QUIC from any local account and presents its key before admission refuses it, so another account can list every membership key | the transport presents its key at every handshake; keys are public halves, and admission still refuses | several-networks design, 2026-11-20 | when the transport can refuse before presenting its key |
 | A quote brought into a private network tells that network's members which network it came from and who wrote it there, so it shows that this computer is in that network | the person brings each quote in by hand and sees its label first | several-networks design, 2026-11-20 | never, by design |
 | Fencing other networks' text, other than quotes, is the app's (by `CONTRACT.md`), and an agent bound to an external network that has a shell or tools on this computer is the path from that text to acting here | agents are closed by default and named per network by the person; an external turn sees only its room and the agent's public description, which the app enforces | several-networks design, 2026-11-20 | when apps are told apart on the socket |
+| On Linux, nothing leaves membership keys out of the person's backups | Linux has no common backup exclusion like Time Machine's; the keys keep `node.key`'s other rules | several-networks design, 2026-11-20 | when Radio on Linux is built |
 | A new network is internal until marked, so N4's hold doesn't cover it until the person marks it external | the person's ruling; the join asks for the scope before any room syncs | several-networks design, 2026-11-20 | if people join external networks and leave them unmarked |
 | A scope is the person's mark on their own computer, so two members may treat one network differently; text an agent read under the old mark is not taken back when it changes | trust is each person's own judgement; a re-mark is checked against links (N7) and working together stops on a network marked external; the mark is the person's own step (N15) | several-networks design, 2026-11-20 | never, by design |
 
@@ -591,4 +595,4 @@ missing objects, and reads ref names.
 - 2026-11-20: a deliberation's time box can be set once while open (protocol minor 12, D27): the boundary row takes the set, and the same-user gap names it.
 - 2026-11-20: `deliberation_step` (protocol minor 13, D28) joins `deliberation_time_box` in the boundary and same-user gap: any seat's app can end rounds without the other seats' turns and can bring a deliberation with no time box to `deadlock` alone, which is no wider than posting as every seat, already accepted.
 - 2026-11-20: one fleet gossip topic on `radio-gossip/1` (D29, link minor 7), direct removals and leaves kept beside broadcasts, conditional leave drain, topic re-join from 1 to 60 seconds, signature checks before the store lock, one kept announcement per sender key per five minutes, background record fetches with per-computer deduplication and a 60-second failure back-off; the gossip address-lookup and endpoint-wide unidirectional-stream gaps are accepted, and the older-peer gap is recorded.
-- 2026-11-20: a computer in several networks is designed (D30, D31): § *Several networks* with fifteen controls (N15, the person's own steps confirmed outside the socket, not yet designed), eight boundary rows, eleven data classes and twenty-one gaps, all not built; the worst outcomes take two more; six gaps' revisit cells, the relay row, *External integrations*, the identity line, the endpoint row and § *Where secrets live* now point at it.
+- 2026-11-20: a computer in several networks is designed (D30, D31): § *Several networks* with fifteen controls (N15, the person's own steps confirmed outside the socket, not yet designed), eight boundary rows, twelve data classes and twenty-two gaps, all not built; the worst outcomes take two more; six gaps' revisit cells, the relay row, *External integrations*, the identity line, the endpoint row and § *Where secrets live* now point at it.
