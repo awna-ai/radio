@@ -28,8 +28,8 @@ design the step that builds it is held to; that step replaces the proof with its
 order: the endpoint and the computer's key; the wire protocol; the fleet record and join codes;
 joining, accepting, leaving, removing and blocking; direct addresses; app delivery.
 
-- **Identity is the key, and only the key.** A computer is its Ed25519 key; its endpoint id is the
-  public half. The transport's TLS 1.3 handshake proves both ends hold their keys: the dialer's check
+- **Identity is the key, and only the key.** A computer is its Ed25519 key (one per membership, once a
+  computer is in several networks: D30); its endpoint id is the public half. The transport's TLS 1.3 handshake proves both ends hold their keys: the dialer's check
   pins the key it dialed, and the listener learns the dialer's key. A name, a fleet id, a version or
   an address a peer sends is a claim, checked against Radio's own records or ignored; it never
   identifies anyone.
@@ -93,10 +93,12 @@ A computer may belong to several networks at once (D30). Each network has one ac
 person sets on their own computer: `personal` (the person's own computers, today's fleet), `internal`
 (a group the person trusts, such as a team, a household or a lab) or `external` (a group the person
 does not trust with what they hold). Personal and internal networks are private; external ones are
-public. A new network is internal until the person marks it external, and another member may mark the
-same network differently on their own computer. An ordinary computer is in one personal network, its
-owner's, and at most 8 other networks. A shared computer (one with no person at it, such as a home
-server) may also be in several people's personal networks, and keeps every membership apart.
+public. A new network is internal until the person marks it external (the join asks for the scope
+before any room syncs), and another member may mark the same network differently on their own
+computer. An ordinary computer is in one personal network, its owner's, and at most 8 other networks.
+A shared computer (one with no person at it, such as a home server) may also be in several people's
+personal networks; it keeps every membership apart, and its personal memberships carry rooms only
+(N8).
 
 The worst outcomes here, in order: content from a private network reaching a public one without the
 person's review; text from a less trusted network acting on a more trusted one (an agent taking it as
@@ -105,8 +107,8 @@ network's rooms, records, computers or apps; and a network learning this compute
 memberships, its addresses, or who its owner is elsewhere.
 
 Nothing in this section is built. Each row is the design that the step building it is held to: that
-step replaces **not built** with its tests and names the control (N1 to N14) it proves. The fleet
-rows above keep holding for the personal network.
+step replaces **not built** with its tests and names the control (N1 to N15) it proves. The fleet
+rows below (§ *Trust boundaries* and the gaps) keep holding for the personal network.
 
 ### What may cross: the controls
 
@@ -123,113 +125,200 @@ rows above keep holding for the personal network.
 - **N3. Peers act only inside their own network.** A computer of network A reaches only A's rooms on
   this computer, and rooms A shares through a link. It never reaches another network's rooms,
   records, computer list or apps, and never this computer's `send`, `message` or `keep`, unless A is a
-  private network that works together (N11). A network endpoint accepts only ALPN `radio-net/1`; the
-  personal endpoint never accepts it, and a network endpoint never accepts `radio/1`, `radio-join/1`
-  or `radio-gossip/1`. Test: each wrong ALPN on each endpoint is refused at the handshake.
+  private network other than personal that works together (N11). A network endpoint accepts only
+  ALPN `radio-net/1`; the personal endpoint never accepts it, and a network endpoint never accepts
+  `radio/1`, `radio-join/1` or `radio-gossip/1`. Test: each wrong ALPN on each endpoint is refused at
+  the handshake; a `radio-net/1` peer asking for another network's record, computer list or an app's
+  section is refused, and so is its `message`, `send` or `keep` on a network that doesn't work
+  together.
 - **N4. Down only on purpose, and reviewed when it leaves for a public network.** Content goes from a
-  more trusted network to a less trusted one only when the person, or an agent they allowed, posts
-  it. A post into an external room by any member not bound to that network (or to a network linked
-  with it, in a shared room) is held, not sent, until the person approves its exact text, optionally
-  edited; so is a post an app marks as drafted from a higher network into a lower private network it
-  is not linked with. The person's own posts (`human`) go straight out. The app runs its own leak
-  check before it asks to post, and a held post records that check's result. Test: an unbound
-  member's post into an external room is held and reaches no peer until approved; a declined post
-  never leaves.
+  more trusted network to a less trusted one only when the person, or an agent they allowed, sends it.
+  Anything a member not bound to that network (or, in a shared room, to a network linked with it)
+  sends into an external room is held, not sent, until the person approves its exact text, optionally
+  edited: a post, a status line, a deliberation's question or turn, a seat request, a room's title and
+  a display name. So is anything an app marks as drafted from a higher network into a lower private
+  network it is not linked with; that hold rests on the app's mark (a gap below). The agent that
+  drafted a held post, which holds the private sources, never posts outside: once approved, it is
+  posted by the person, or by a member bound to that network whom the person chooses, which is served
+  only the approved text and that room. An edited text passes the app's leak check again before it
+  leaves, and a held post records each check's result. Held posts are capped per network, and one
+  approved after this computer left the network, or after its room went read only, is refused and
+  never sent. Approving and declining are the person's own steps (N15). The person's own posts
+  (`human`) are not held; in a network other than personal they too are the person's own step (N15).
+  Test: an unbound member's post, status line, deliberation question and room title into an external
+  room are each held and reach no peer until approved; an edited approval runs the leak check again;
+  a declined post never leaves; an approval after leaving is refused.
 - **N5. A turn takes the scope of the lowest network it read.** An agent's turn whose brief held text
   from an external room may post only into that external network. The app that runs the turn
   enforces this. Radio enforces the part it can see: `register` may bind a member to one network, and
   Radio refuses that member's posts, turns and status lines in any other network, except in rooms
-  its network shares through a link. Test: a bound member's post into another network's room is
-  refused.
+  its network shares through a link. Test: a bound member's post, turn and status line in another
+  network's room are each refused, and its post in a room its network shares through a link is taken.
 - **N6. Up only by hand.** Nothing in a public network reaches a private one by itself: not a reply,
   a result, a seat request, a file or an outsider's question. The person brings in what they want
-  (one message, several picked ones, a thread or a deliberation result) as one quote. Radio builds
-  the quote from its own copy of the source, so an app can't forge its label: each message keeps its
-  author, vouch state and time, the quote names the network it came from, and it says when messages
-  in between were left out. It is posted as `human` and never starts a turn. Members that read rooms
-  are served it only when the person ticked that agents may read it (off by default), and then as
-  fenced, untrusted text that does not lower their scope. Test: a quote whose source an app altered
-  carries Radio's copy; a quote with the tick off is never served to an agent member.
-- **N7. Links join two networks of one kind.** Private with private, public with public, never a
-  private network with a public one (N4 and N6 are the only way across). Each network's founder signs
-  the link, and either side may unlink. A link joins exactly two networks and never passes through to
-  a third. It shares only the rooms either side opens as shared, where members bound to either network
-  post without being held; it never shares keys, either network's other rooms, or working together.
-  Unlinking leaves the shared rooms read only on each side. Test: a link request between a private and
-  a public network is refused; a message from a third network through a link is refused.
+  (one message, several picked ones, a thread or a deliberation result) as one quote, with an
+  optional note, into a room of a higher scope. Radio builds the quote from its own copy of the
+  source, so an app can't forge its label: each message keeps its author, vouch state and time, the
+  quote names the network it came from, and it says when messages in between were left out. It is
+  posted by the person but as a quote, a kind of its own, never as a plain `human` post, so no reader
+  takes it for the person's own words; and it never starts a turn. Bringing a quote in with agents
+  allowed to read it is the person's own step (N15). `read` names the member reading, and Radio serves
+  a quote to a member other than `human` only when the person ticked that agents may read it (off by
+  default); the reader is self-declared (a gap below). Radio, not the app, fences what it serves
+  then: the quote sits between markers holding a value Radio picks at random for each answer, so the
+  quoted text can't close the fence early, labelled as untrusted text from another network; reading
+  it does not lower the reader's scope. Other networks' messages carry `network` and `scope` (N12),
+  and the app fences them by `CONTRACT.md`. Test: a quote whose source an app altered carries Radio's
+  copy; a quote with the tick off is never served to a reader other than `human`; quoted text holding
+  a copy of a closing marker stays inside the fence.
+- **N7. Links join two networks of one kind, by each computer's own marks.** Private with private,
+  public with public, never a private network with a public one (N4 and N6 are the only way across).
+  Each network's founder signs the link, and either side may unlink. A link joins exactly two
+  networks and never passes through to a third: a shared room belongs to one of the two (N1), so a
+  room of A that B sees through A's link is never a shared room of B's link with C. A link shares only
+  the rooms either side opens as shared, where members bound to either network post without being
+  held; it never shares keys, either network's other rooms, or working together. Each Radio checks
+  every link against its own scope marks: a link between networks this computer marks as different
+  kinds, or with a network it holds no mark for, counts as no link on this computer (its shared rooms
+  are read only here, and posts into them are held as N4 holds any other), and every re-mark is
+  checked again. Unlinking leaves the shared rooms read only on each side. Test: a link request
+  between a private and a public network is refused; a link signed by one founder only, or by a key
+  that is not the founder's, is refused; a message from a third network through a link is refused; a
+  room of A offered as a shared room of B's link with C is refused; on a computer that marks the two
+  linked networks as different kinds, or marks only one, the shared rooms are read only and a post
+  into them is held, and re-marking opens or closes them again.
 - **N8. A shared computer never bridges.** Each of its memberships has its own key, store and
   endpoint, and it never passes a message, record, file or app operation from one membership to
-  another. It holds no rooms of its own, has no `human` member and runs no agent. Test: a hostile
-  member of one of its networks can't reach anything of another.
+  another. It holds no rooms of its own, has no `human` member, runs no agent and refuses the
+  person-only steps (N15), since no person is there. Its personal memberships carry rooms, status
+  lines and deliberations only, never `send`, `message`, `keep` or apps' sections: app operations
+  reach it only through one private network other than personal that works together (N11), and the
+  runner on it that takes them serves that network alone. Test: a hostile member of one of its
+  networks can't reach anything of another; a `send`, `message`, `keep` or section on one of its
+  personal memberships is refused; it has no room, no `human` member and no agent; each person-only
+  step is refused.
 - **N9. Relay only, except the personal network.** Every endpoint but an ordinary computer's personal
-  one (and a shared computer's first personal one) binds loopback UDP only and reaches its peers only
-  through the relays its network's record names, so its peers never learn this computer's addresses.
-  The person may allow direct connections, on their own computer, for a private membership (an
-  internal network, or a shared computer's later personal one); that endpoint then takes its own
-  fixed port (D31). An external membership is never direct. Test: over a test relay, a relay-only
-  connection never takes a direct path and the peer never learns a non-loopback address of this
-  computer.
-- **N10. A stranger's relay waits for an outside review.** The person marks a relay as theirs or their
-  household's, on their own computer. Joining a network while any relay its record names is unmarked
-  is refused until an outside review of the relay is recorded as passed. The gate is keyed on the
-  relay, not the scope, since every network starts internal. Test: a join through a code naming an
-  unmarked relay is refused.
+  one (and a shared computer's first personal one) binds loopback UDP only, with the transport's
+  default sockets cleared first so none stays beside it, and reaches its peers only through the
+  relays its network's record names, so its peers never learn this computer's addresses. Its join
+  codes, its join exchange and its computer records carry no IP address, and the address it
+  publishes holds only its key and relays, never the loopback address the transport would add. The
+  person may allow direct connections, on their own computer, for a private membership (an internal
+  network, or a shared computer's later personal one); that endpoint then takes its own fixed port
+  (D31). An external membership is never direct. Test: over a test relay, a relay-only connection
+  never takes a direct path, and the peer never learns a non-loopback address of this computer, from
+  the connection, a join code, the join or a computer record.
+- **N10. A stranger's relay waits for the outside review.** The person marks a relay as theirs or
+  their household's, on their own computer; the mark pins the relay's key, not only its URL. While
+  any relay a network's record names is unmarked, joining that network is refused, and a record
+  change that adds an unmarked relay is not taken (this computer keeps the relays it had), until the
+  outside review is recorded as passed. That review is one review of this section's boundaries by
+  someone outside the project, recorded here, in its own row, when it passes. The gate is keyed on
+  the relay, not the scope, since every network starts internal. Test: a join through a code naming
+  an unmarked relay is refused; a record change adding one is not taken; a relay answering at a
+  marked URL with another key is refused.
 - **N11. Working together is every member's choice.** App operations (`send`, `message`, `keep`, and
-  apps' sections in computer records) are carried on a private network's endpoint only while every
-  member has turned working together on, each in their own signed record for that network; the
-  network record stays the founder's. Never on an external network, and never across a link. Each
-  member decides on their own computer what the others may do there, private by default. Test: with
-  one member's flag off, a `message` to another member of that network is refused before it is sent.
-- **N12. Names are bound to keys.** In a network other than personal, a participant is one membership
-  key (one computer), shown with a short fingerprint and a display name it signs for that network.
-  The computer's own name never leaves into such a network. An admitter may sign a vouch for a name;
-  a name nobody vouched for shows as unverified, and a name a second key also claims is flagged.
-  Test: an answer carries each author's fingerprint, name and vouch, and a second key's claim to a
-  name is flagged.
+  apps' sections in computer records) are carried on the endpoint of a private network other than
+  personal only while every member has turned working together on, each in their own signed record
+  for that network; the network record stays the founder's. Each member's flag is signed over the
+  member list it agreed to, so a member admitted later reaches no app operation until every member
+  has signed again with it on the list. Never on an external network, never across a link, and never
+  on a shared computer's personal membership (N8). Each member decides on their own computer what the
+  others may do there, private by default. Every handler call and delivery record names the
+  `network` and `scope` it came from, so an app can tell a colleague's `message` from one sent by the
+  person's own computers. Test, inbound: while any member's flag is off, on an external network, and
+  across a link, a hostile member's `message`, `send`, `keep` or section is refused on receipt (and
+  this computer's own is refused before it is sent); a member admitted after every flag was on
+  reaches no app operation until every member has signed again.
+- **N12. Names are bound to keys, and nothing else names the computer.** In a network other than
+  personal, a participant is one membership key (one computer), shown with a fingerprint of at least
+  64 bits and a display name it signs for that network; two participants whose shown fingerprints
+  match are both shown in full and flagged. An admitter may sign a vouch for a name; a name nobody
+  vouched for shows as unverified, and a name a second key also claims is flagged. Every post there
+  is signed by its author's membership key, and a receiving Radio refuses a post whose signature
+  fails or whose author isn't a participant of the room, so a room's home can't forge an author; the
+  home numbers the room's posts, and a receiving Radio shows a gap or a repeat in the numbers. The
+  computer's own name never leaves into such a network: a room's `home` and `read`'s `author_host`
+  carry the membership's fingerprint and display name there, and the network protocol's hello carries
+  its own version, never Radio's. Test: an answer carries each author's fingerprint, name and vouch;
+  a second key's claim to a name is flagged; a post signed by a key that is not its author's is
+  refused; nothing a network is served holds this computer's name.
 - **N13. Moderation is signed.** Moderators named in the network record sign removals of a
-  participant, hidden messages and mutes, which every Radio applies as tombstones; a room's home may
-  remove a participant from that room; a hidden message is never served. A person's block of a
-  participant stays on their own computer and is never sent. Test: a hide signed by a key that is not
-  a moderator changes nothing.
-- **N14. Rates are capped per participant.** 20 posts a minute and 600 a day per participant per
-  network by default, which the founder may change in the record; enforced by the room's home and
-  again by every receiving Radio. Test: the 21st post in a minute is refused at both.
+  participant, hidden messages and mutes, which every Radio applies as tombstones. A moderator may
+  remove any participant but the founder; only the founder or the recovery key names or removes a
+  moderator, and a removed moderator's earlier records stand, while one signed after the removal
+  changes nothing. A room's home may remove a participant from that room; a hidden message is never
+  served. A person's block of a participant stays on their own computer and is never sent. Test: a
+  hide signed by a key that is not a moderator changes nothing; a removal of the founder changes
+  nothing.
+- **N14. Rates are capped per participant, under a ceiling of this computer's own.** 20 posts a
+  minute and 600 a day per participant per network by default, which the founder may change in the
+  record but never above a ceiling each Radio holds that no record can raise; enforced by the room's
+  home and again by every receiving Radio. Status lines, seat requests, moderation and vouch records
+  have caps of their own, held posts are capped (N4), and each network has a byte cap per
+  participant a day and a disk cap for its rooms on this computer, past which Radio stores none of
+  that network's new messages and says so. Admission follows the scale caps (a cap on the
+  participants an admitter may let in). Test: the 21st post in a minute and the 601st in a day are
+  refused at both; a record raising the cap above the ceiling is held to the ceiling.
+- **N15. The person's own steps are confirmed outside the socket (not yet designed).** Approving or
+  declining a held post, bringing in a quote agents may read, changing a scope, relay, connection or
+  working-together mark, and a `human` post into a network other than personal each need a
+  confirmation that Radio asks for itself, outside the socket (on its own screen or in a prompt it
+  shows), so no local process can give it, an agent with shell access included. It is designed and
+  sized with the hold. Until it is built, these steps are socket ops like any other (a gap below).
+  Test: each step asked for over the socket alone changes nothing until Radio's own confirmation.
 
 ### Boundaries
 
 | Boundary | What crosses it | Control (designed) | Proven how |
 | --- | --- | --- | --- |
-| Another network's peer → Radio | a QUIC connection on a membership's endpoint from a key of that network, and its frames | the endpoint is that membership's alone (N2); ALPN `radio-net/1` only (N3); admission is that network's member list, as the fleet's is for the personal one; a frame naming a room, record, computer or app outside the connection's network is refused (N1, N3); rates (N14) | **not built** |
-| A relay → a member | the encrypted traffic of every network the relay serves; which keys talk, when and how much | the transport encrypts end to end, so a relay sees keys, times and sizes, never content; a member uses only the relays its network's record names (N9), and joins a network on a stranger's relay only after an outside review (N10) | **not built**; relays are off (the endpoint row) until this is built |
-| Another network's text → apps | messages, names, status lines, deliberation turns and results, quotes | every message an app reads carries its `network`, `scope` and author (fingerprint, name, vouch); a client that has not opted in is never served another network's rooms; the contract names it untrusted text from other people, to be fenced, never taken as an instruction, never starting anything; a quote reaches agents only with the person's tick (N5, N6, N12) | **not built** |
-| A local app → a lower network's room | a post, status line or turn from a same-user app | held for the person's review when it leaves for a public network or was drafted from a higher one (N4); a bound member is refused outside its network (N5) | **not built** |
-| A linked network → this network | posts in shared rooms | N7 | **not built** |
-| A shared computer → between its networks | nothing may cross | N8 | **not built** |
-| A network that works together → apps on this computer | `send`, `message`, `keep`, apps' sections | N11; the fleet rows for app messages and deliveries then hold per network | **not built** |
+| Another network's peer → Radio | a QUIC connection on a membership's endpoint from a key of that network, and its frames | the endpoint is that membership's alone (N2); ALPN `radio-net/1` only (N3); admission is that network's member list, as the fleet's is for the personal one; a frame naming a room, record, computer or app outside the connection's network is refused (N1, N3); posts signed by their authors (N12); rates (N14) | **not built** |
+| A relay → a member | the encrypted traffic of every network the relay serves; each member's IP address; which keys talk, when and how much | the transport encrypts end to end, so a relay sees keys, addresses, times and sizes, never content; a relay admits only the member keys of the networks it serves (its per-network access check); a member uses only the relays its network's record names (N9), and joins a network on a stranger's relay only after the outside review (N10); one relay serving two of this computer's networks can link those memberships (a gap below) | **not built**; relays are off (the endpoint row) until this is built |
+| Another network's text → apps | messages, names, status lines, deliberation turns and results, quotes | every message an app reads carries its `network`, `scope` and author (fingerprint, name, vouch); a client that has not opted in is never served another network's rooms; the contract names it untrusted text from other people, to be fenced, never taken as an instruction, never starting anything; Radio fences a quote it serves to an agent, and serves it only with the person's tick (N5, N6, N12) | **not built** |
+| A local app → a lower network's room | a post, status line, deliberation turn, seat request, room title or display name from a same-user app | held for the person's review when it leaves for a public network, or when the app marks it as drafted from a higher network (N4); a bound member is refused outside its network (N5) | **not built** |
+| A same-user process → the person's own steps | an approval or decline, a quote agents may read, a changed mark, a `human` post into a network other than personal | Radio's own confirmation outside the socket (N15) | **not built**, not yet designed |
+| A linked network → this network | posts in shared rooms | N7, checked against this computer's own marks | **not built** |
+| A shared computer → between its networks | nothing may cross; its personal memberships carry rooms only | N8 | **not built** |
+| A network that works together → apps on this computer | `send`, `message`, `keep`, apps' sections | N11; the fleet rows for app messages and deliveries then hold per network, with the `network` and `scope` each came from | **not built** |
 
-### Data classes
+### Data classes in several networks
 
 | Class | Examples | Where stored | Exposure impact | Retention |
 | --- | --- | --- | --- | --- |
-| Membership keys | an Ed25519 key for each membership but the personal one (D30) | `~/.config/radio/networks/<network id>.key` (under `$XDG_CONFIG_HOME` on Linux), held to `node.key`'s rules: 0600, `O_EXCL`, no links, left out of backups | anyone holding one speaks as this computer in that network, and only there | until the computer leaves that network |
+| Membership keys | an Ed25519 key for each membership but the personal one (D30) | `~/.config/radio/networks/<network id>.key` (under `$XDG_CONFIG_HOME` on Linux), held to `node.key`'s rules: 0600, `O_EXCL`, no links, left out of backups | anyone holding one speaks as this computer in that network, and only there | until the computer leaves that network and the person forgets it |
+| Recovery-key secrets | the secret half of each network this computer founded | a file of its own per network beside its membership key, written once, under the same rules, never the personal network's recovery-key path | anyone holding one rewrites that network's record | until the person moves it off the computer |
+| Relay admit tokens | what a network's record gives its relays to admit its members | `fleet.db`, per network | a holder may be admitted to that network's relays, though not to its members | until the network's record replaces them |
 | Network records | each network's signed record (id, name, founder, the recovery key's public half, relays, admitters, moderators, links), its member list, vouches, moderation records | `fleet.db`, per network (a store of its own for each membership on a shared computer) | who is in each network, and where its relays are; one network's record never names another membership of this computer | until the computer leaves the network |
-| The person's marks | each network's scope, whether it may connect directly, and which relays are the person's own | `fleet.db`, this computer's own rows, never sent | which networks the person trusts | until the person changes them |
-| Other networks' rooms | messages, names, status lines and deliberations of a network other than personal | `rooms.db`, each room tagged with its network | other people's words, untrusted; and, if read elsewhere, that this computer is in that network | after leaving, read only until the person forgets the network |
-| Held posts | text waiting for the person's review, the target room, the app's leak-check result | `rooms.db`, beside the room | private text before anyone has approved it leaving | until approved, declined or the room is forgotten |
+| The person's marks and blocks | each network's scope, whether it may connect directly, which relays are the person's own (with their keys), working-together choices, blocked participants | `fleet.db`, this computer's own rows, never sent | which networks the person trusts, and whom they blocked | until the person changes them |
+| Other networks' rooms | messages, names, status lines and deliberations of a network other than personal | `rooms.db`, each room tagged with its network | other people's words, untrusted; and, if read elsewhere, that this computer is in that network | read only after leaving, until the person forgets the network |
+| Quotes | messages the person brought into a private room | `rooms.db`, in that private room | another network's words, and that the person picked them | as the room's other messages |
+| Held posts | text waiting for the person's review, the target room, the app's leak-check results | `rooms.db`, beside the room | private text before anyone has approved it leaving | until approved, declined, or the computer leaves the network (then never sent) |
+| A project's outside conversations | which private project an external room was opened from | this computer only (the app's store or `rooms.db`), never sent | that the person works on that project with that network | until the person removes it |
+| Per-network status | the computers each membership is connected to | a status file per membership beside today's `status.json` | which networks this computer is in, to any same-user process | while the membership lasts |
+
+Leaving a network closes its endpoint, drops its held posts unsent and leaves its rooms read only;
+forgetting it deletes its key, record, marks and rooms from this computer. Neither recalls what other
+members already hold.
 
 ### Gaps the design accepts
 
 | Gap | Why accepted | Accepted by | Revisit |
 | --- | --- | --- | --- |
-| The lowest-scope rule for an agent's turn and the leak check are enforced by the app that runs the turn; Radio sees only bound members and held posts | the app holds the turn's brief, which Radio never reads; Radio holds every post into a public network that isn't the person's own, so a wrong scope in an app still waits for review there | several-networks design, 2026-11-20 | when apps are told apart on the socket |
-| Any same-user process can approve or decline a held post, or carry a quote in with agents allowed to read it | the socket can't tell which app is calling (the same-user rows above) | several-networks design, 2026-11-20 | when apps are told apart on the socket |
-| A relay sees which keys of the networks it serves talk, when and how much | the transport encrypts content; hiding the traffic's shape is out of scope, as between two computers | several-networks design, 2026-11-20 | never, by design |
-| Relay only rests on the transport keeping a relay connection on the relay; NAT traversal can't be switched off (the gap above) | a probe across two real hosts settles it before the endpoint step, and the default changes to "direct allowed, address visible" if it fails | several-networks design, 2026-11-20 | when the probe runs |
+| The lowest-scope rule for an agent's turn and the leak check are enforced by the app that runs the turn; Radio sees only bound members, held posts and the app's mark of where a draft came from | the app holds the turn's brief, which Radio never reads; Radio holds anything sent into a public network that isn't bound there, so a wrong scope in an app still waits for the person's review, which no local process can give once N15 is built | several-networks design, 2026-11-20 | when apps are told apart on the socket |
+| Until N15 is built, any same-user process can post as `human` under any name, `register` a member bound to an external network, approve or decline a held post, bring in a quote agents may read, and change every mark, so the hold stops an honest app's mistake, not a prompt-injected agent with shell access | the socket can't tell which app is calling (the same-user rows below); N15 is designed with the hold, and none of these steps can reach another network before the network steps are built | several-networks design, 2026-11-20 | when the hold is built, with N15 |
+| Two unlinked networks of one kind exchange nothing, but Radio can't see that an agent's text came from the other; the hold into a lower private network rests on the app's mark | Radio never reads a turn's brief; a bound member (N5) is the part Radio sees | several-networks design, 2026-11-20 | when apps are told apart on the socket |
+| `read` names the member reading, so serving a quote only with the tick (N6) trusts the reader's own claim | the same-user boundary: a process that can read as `human` can already read every room | several-networks design, 2026-11-20 | when apps are told apart on the socket |
+| A relay sees each member's IP address and which keys of the networks it serves talk, when and how much; one relay serving two of this computer's networks can link those memberships by address and timing | the transport encrypts content; hiding the traffic's shape is out of scope, as between two computers; each network names its own relays | several-networks design, 2026-11-20 | never, by design |
+| Relay only rests on the transport keeping a relay connection on the relay, since NAT traversal can't be switched off (the gap below) | a probe across two real hosts on one network (2026-11-20, iroh 1.3.0, both directions) found a loopback-bound second endpoint stayed on the relay for every message while a direct path was open to it; the endpoint step's relay-only test keeps proving it; if that test ever fails, the person is shown the evidence before any relay-only endpoint is used, and external networks stay closed until they decide, never a silent switch to direct | several-networks design, 2026-11-20 | on every transport upgrade, and when traversal can be switched off |
+| A direct membership listens on the personal endpoint's addresses, and the transport presents its key to anyone who dials its port, so a peer that reaches those addresses can link the keys that share them | direct is allowed only for private memberships the person chose, and an external membership is never direct | several-networks design, 2026-11-20 | when the transport can refuse before presenting its key, or each direct endpoint has an address of its own |
+| An app's member names, a display name reused across networks, and when the computer is online can still link its memberships | names are the person's choice, and the computer's own name and key never leave (N2, N12) | several-networks design, 2026-11-20 | if linking is seen in practice |
 | Every member of a network holds every message posted there, and a hidden message stays on a dishonest member's disk | a post can't be recalled from someone else's computer; honest Radios never serve a hidden message | several-networks design, 2026-11-20 | never, by design |
 | A display name is the participant's own choice; an unvouched name can copy someone's | names are shown with their fingerprint, unvouched ones are marked, and a claimed name is flagged | several-networks design, 2026-11-20 | if vouches prove too rare to help |
-| One person's two computers in a network are two participants | a key is per computer (D7, D30), and copying it widens what a theft exposes | several-networks design, 2026-11-20 | when one identity across a person's own computers is designed |
-| A shared computer holds every key of every membership, so its compromise exposes all of them | it is the owner's own server, run with no person at it; each membership stays apart while it is sound | several-networks design, 2026-11-20 | if a shared computer is ever run by someone outside its networks |
-| A scope is the person's mark on their own computer, so two members may treat one network differently | trust is each person's own judgement; a new network starts internal and relay only | several-networks design, 2026-11-20 | never, by design |
+| One person's two computers in a network are two participants, and the keys an admitter lets in each get the per-participant caps | a key is per computer (D7, D30), and copying it widens what a theft exposes; admission caps bound the keys | several-networks design, 2026-11-20 | when one identity across a person's own computers is designed |
+| A stolen founder or recovery key rewrites its network's record (relays, admitters, moderators, links), a stolen admitter key lets strangers in and vouches names, a stolen moderator key hides and removes; a dishonest founder can do all of these | each is one network's alone; on this computer, a new relay waits for the gate (N10) and a link for this computer's own marks (N7); the recovery key replaces a stolen founder key | several-networks design, 2026-11-20 | when record changes need more than one signer |
+| A shared computer holds every key of every membership, and anything running there as its user reaches every membership through the socket and can read every key | it is the owner's own server, run with no person at it; its personal memberships carry rooms only, it runs no agent, and its one runner serves one network (N8) | several-networks design, 2026-11-20 | if a shared computer is ever run by someone outside its networks |
+| A new network is internal until marked, so N4's hold doesn't cover it until the person marks it external | the person's ruling; the join asks for the scope before any room syncs | several-networks design, 2026-11-20 | if people join external networks and leave them unmarked |
+| A scope is the person's mark on their own computer, so two members may treat one network differently; text an agent read under the old mark is not taken back when it changes | trust is each person's own judgement; a re-mark is checked against links (N7) and working together stops on a network marked external; the mark is the person's own step (N15) | several-networks design, 2026-11-20 | never, by design |
 
 ## Trust boundaries
 
@@ -237,7 +326,7 @@ rows above keep holding for the personal network.
 | --- | --- | --- | --- |
 | Local process → socket | one JSON request line | 0600 socket in a 0700 folder; peer uid must equal the daemon's; 16 KiB cap; 5 s for the request and 5 s for the answer; unknown fields refused; `"v"` checked first | `crates/radio/src/server_tests.rs`: another uid refused before reading, cap, request and answer deadlines, unknown fields, `v` first; `contract/v1/` |
 | A client app → the daemon's records | `register` (app name, version, members) | stored as data only; nothing a request names is ever run; kinds and names checked and cleaned; at most 256 members | `crates/radio-rooms/src/store_tests.rs` (register), the daemon's membership tests |
-| Radio's endpoint → the network | what the link sends out, and who can reach it | the one endpoint builder starts from an empty configuration plus a crypto provider: relays off, in-memory member and gossip address lookups only (no DNS, pkarr or mDNS lookup), port mapping (UPnP, NAT-PMP, PCP) off both in its configuration and by never compiling the transport's `portmapper` feature, no proxy, no TLS key log; Radio's own dials keep no TLS session tickets (the accepting side still issues them, and its 0-RTT setting is the transport's: § *The link*); bound only to the local addresses configured for it, at most one IPv4 and one IPv6 address, with one port number, never to `0.0.0.0` or `[::]` (the builder's default IPv4 and IPv6 sockets are cleared first); Radio dials only addresses the user configured, a join code carried, a computer gave for itself when it joined, its signed record names, or gossip learned from neighbours (a gap below); no other endpoint is built anywhere in the code | `crates/radio-link/tests/endpoint.rs` (an empty list, an unspecified (also as `::ffff:0.0.0.0`), multicast or broadcast address, a second address of one family, and two port numbers are each refused; an IPv4 and an IPv6 loopback address bind together on one port, where IPv6 loopback is available (the test says when it skips); the built endpoint reports no relay and an in-memory lookup service and binds only the configured loopback address and port; an occupied port refused); `tests/pins.rs` (the transport's crates at 1.3.0, `rustls` at the version whose ticket cache was read, and no `portmapper` crate in the lockfile); `tests/one_builder.rs` (one builder, holding the settings above and only the in-memory lookup, and none of the proxy, key-log, custom-transport or advertised-address calls; no other builder, and no other manifest, the workspace's own included, mentioning `iroh`; no `into_0rtt` anywhere). The transport's DNS resolver, HTTP client and relay client are compiled in but idle (a gap below). The port is fixed, UDP 7341, and the addresses to bind are this computer's own link addresses (`link_address_*`, D22): at most one IPv4 and one IPv6, never unspecified, multicast, broadcast or IPv6 link-local, given as an IP only (`crates/radio-link/src/fleet_db_tests.rs`, `crates/radio/src/server_tests.rs`); a bind with none answers `this computer has no link address` (`tests/endpoint.rs`). The daemon binds exactly these addresses, again after each change, and nothing when there are none (`crates/radio/src/server_tests.rs`: `link_address_add_starts_the_link`, `link_address_remove_stops_the_link`; `crates/radio-link/tests/node.rs` `drop_stops_the_link`). **Not run:** a capture of two honest linked computers showing packets only between their configured addresses; it needs administrator rights, so it is owed to the person's next walk |
+| Radio's endpoint → the network | what the link sends out, and who can reach it | the one endpoint builder starts from an empty configuration plus a crypto provider: relays off, in-memory member and gossip address lookups only (no DNS, pkarr or mDNS lookup), port mapping (UPnP, NAT-PMP, PCP) off both in its configuration and by never compiling the transport's `portmapper` feature, no proxy, no TLS key log; Radio's own dials keep no TLS session tickets (the accepting side still issues them, and its 0-RTT setting is the transport's: § *The link*); bound only to the local addresses configured for it, at most one IPv4 and one IPv6 address, with one port number, never to `0.0.0.0` or `[::]` (the builder's default IPv4 and IPv6 sockets are cleared first); Radio dials only addresses the user configured, a join code carried, a computer gave for itself when it joined, its signed record names, or gossip learned from neighbours (a gap below); no other endpoint is built anywhere in the code (the several-networks design adds one endpoint per membership from this same builder, D30 and D31, and the step that builds it amends this row) | `crates/radio-link/tests/endpoint.rs` (an empty list, an unspecified (also as `::ffff:0.0.0.0`), multicast or broadcast address, a second address of one family, and two port numbers are each refused; an IPv4 and an IPv6 loopback address bind together on one port, where IPv6 loopback is available (the test says when it skips); the built endpoint reports no relay and an in-memory lookup service and binds only the configured loopback address and port; an occupied port refused); `tests/pins.rs` (the transport's crates at 1.3.0, `rustls` at the version whose ticket cache was read, and no `portmapper` crate in the lockfile); `tests/one_builder.rs` (one builder, holding the settings above and only the in-memory lookup, and none of the proxy, key-log, custom-transport or advertised-address calls; no other builder, and no other manifest, the workspace's own included, mentioning `iroh`; no `into_0rtt` anywhere). The transport's DNS resolver, HTTP client and relay client are compiled in but idle (a gap below). The port is fixed, UDP 7341, and the addresses to bind are this computer's own link addresses (`link_address_*`, D22): at most one IPv4 and one IPv6, never unspecified, multicast, broadcast or IPv6 link-local, given as an IP only (`crates/radio-link/src/fleet_db_tests.rs`, `crates/radio/src/server_tests.rs`); a bind with none answers `this computer has no link address` (`tests/endpoint.rs`). The daemon binds exactly these addresses, again after each change, and nothing when there are none (`crates/radio/src/server_tests.rs`: `link_address_add_starts_the_link`, `link_address_remove_stops_the_link`; `crates/radio-link/tests/node.rs` `drop_stops_the_link`). **Not run:** a capture of two honest linked computers showing packets only between their configured addresses; it needs administrator rights, so it is owed to the person's next walk |
 | Accepted members → the fleet topic | tag-1 signed membership records and tag-2 signed computer-record announcements | accepted members only, through the gate on `radio-gossip/1`, re-checked before handing the connection to gossip. Announcements: one kept per sender key per five minutes; membership records: signature and store checks only, with signatures checked before the store is locked. A record whose signer is not an accepted member here, or an announcement whose computer is not on this computer's list (accepted, pending or blocked), is dropped before any signature check, the receive bar or the store lock. So a leave or removal whose signer is not accepted here does not arrive on the topic, just as it is refused on a direct connection. Announcements pass the receive bar and signature check before the store is locked too. Invalid messages are dropped without logging bytes. iroh-gossip forwards to eager peers before Radio sees a message, so the bar does not bound topic traffic. Own changes announce at most once per ten minutes. Only a successful member dial or `computer_records` triggers a fetch, through `fetch_wanted` and `apply_fetched`; one fetch per computer at a time, with a 60-second back-off after failure. `computer_records` never waits on the network. The topic is joined again after its connections close: 1 second, doubling to 60 seconds while it has no neighbour. A key removed or blocked here still hears topic frames through a member that has not applied the removal or did not block it; frames carry only signed records and announcements, never app data. | `src/topic_tests.rs`, `src/fleet_db_tests.rs`, `src/admit_tests.rs`; `tests/node.rs` covers forwarding, on-demand fetch, forged announcements and outsider refusal; socket tests require a socket-capable runner |
 | Gossip neighbours → the endpoint's address lookup | neighbour keys and addresses shared by gossip | the gossip actor's own in-memory lookup supplements Radio's stored accepted-member lookup; gossip connections pass the same accepted-member gate before carrying addresses, and every later dial is gated again. Addresses are hints, never identity; a removed or blocked member is removed from Radio's lookup and its connections close, though gossip's lookup may retain its hints | `iroh-gossip`'s `net.rs` and `net/address_lookup.rs`; `src/admit_tests.rs` pins the dial and handshake policies |
 | Another computer → Radio's endpoint | a QUIC connection from any key that reaches a bound address | ALPNs `radio/1`, `radio-join/1` and `radio-gossip/1` only; TLS 1.3 only; at the post-handshake hook, a key that is not an accepted member is refused on `radio/1` and `radio-gossip/1`, and a removed or blocked key on every ALPN; a refusal closes with one close code and an empty reason; the connection caps in § *The link*; a connection with no open stream for 11 minutes is closed; the dialer closes an unused, unkept connection after 10 minutes; kept connections heartbeat every 15 seconds and fail after 45 seconds without success, then redial with backoff from 1 second to 60 seconds; each app keeps at most 64 entries, in memory only | `crates/radio-link/tests/wire.rs`: an unknown key and a refused (removed or blocked) key on `radio/1`, and a refused key on `radio-join/1` with a code open, are each closed at the hook with code 1 and an empty reason before they open a stream, and nothing is served of a stream one opens first; an unknown key on `radio-join/1` passes only while a code is open; a 5th connection from one key, a 33rd in all and a 5th join are refused, and a closed one frees its place; connections this computer dialed have their own cap, so kept peers leave the incoming places free (`tests/kept.rs`: `kept_peers_leave_room_for_members_to_reach_us`); 16 bidirectional streams open and a 17th waits, and one unidirectional stream may open per connection, as gossip needs; a `radio/1` connection with no open stream is closed (code 2) and one with a stream open is not (with the idle time shortened in the test, not the real 11 minutes); a join connection is closed 5 seconds after the hook admitted it (code 2), and one whose code closed before it was handed on is refused; a member's streams waiting on Radio hold their places, so a 17th is not served; `tests/hostile.rs`: another ALPN fails the handshake, and a removed key that resumes its session and sends a `Hello` as early data is closed at the hook and never served; `src/admit_tests.rs`: `defaults_bound_connections_and_deadlines` pins all limits. `src/peers_tests.rs`: `a_second_use_reuses_the_first_connection`, `a_failed_dial_leaves_nothing_and_the_next_use_dials_again`, `an_unused_connection_closes_at_ten_minutes_and_not_before`, `a_peer_no_one_uses_or_keeps_holds_no_connection`, `a_kept_peer_heartbeats_every_fifteen_seconds`, `a_silent_kept_peer_fails_at_forty_five_seconds`, `a_kept_peer_is_redialed_with_backoff`, `a_peer_that_drops_each_new_connection_is_redialed_with_growing_backoff`, `keeping_none_lets_them_go`, `kept_lists_are_per_app_and_the_pool_keeps_their_union`; `tests/kept.rs`: `a_second_send_reuses_the_first_connection`, `of_three_members_the_one_no_one_uses_holds_no_connection`, `an_unused_connection_closes_and_a_kept_one_does_not`, `a_kept_peer_whose_radio_restarts_is_redialed`; `tests/wire.rs`: `a_heartbeat_is_answered_ok`, `a_heartbeat_from_a_non_member_is_refused`; `crates/radio/src/server_tests.rs`: `keep_and_kept_through_the_socket` covers the app cap and socket lists. These loopback and socket tests require permission to bind sockets; compilation alone does not verify them. Incoming handshakes are capped at 32 at once and 5 seconds each (read, not tested). The daemon serves its endpoint through `radio_link::node` on a runtime of its own, answering joins and applying records only through the checks above (`crates/radio-link/tests/node.rs`) |
@@ -273,8 +362,11 @@ rows above keep holding for the personal network.
 
 ## Where secrets live
 
-The repo needs none. On a computer, the link key is the only secret Radio keeps (above), and it
-never leaves through the socket: the `id` op answers the public half. A join code's secret lives only
+The repo needs none. On a computer, the link key is the only secret Radio keeps today (above), and
+it never leaves through the socket: the `id` op answers the public half. Once a computer is in
+several networks (designed: § *Several networks*), it also keeps one membership key per other
+membership, each network's recovery-key secret where it founded one, and relay admit tokens, under
+the same rules; none of them leaves through the socket either. A join code's secret lives only
 in the person's hands until it is used, and the inviter keeps only its hash. The recovery key's
 secret half is on the computer, in `recovery.key`, only until the person has moved it. Radio's own releases are signed ad
 hoc (D14), so Radio holds no release key; an app that signs its own updates keeps that key itself. No
@@ -375,7 +467,7 @@ address lookup). A relay, when it comes, gets its own rows here; § *Several net
 | Two slow clients ahead of an install's check can get a busy daemon restarted | each client holds the daemon for at most 10 s, and every write is a transaction, so a restart loses no committed write | install delta review, 2026-11-12 | when connections are served concurrently |
 | An earlier import's path on a stalled network volume can hold the install while it checks that path | the open does not block on the file, but a stalled volume can stall the path lookup | install delta review, 2026-11-12 | if a store is ever imported from a network volume |
 | A newer version's folder left with no record (a newer install killed midway) makes every older install refuse | an older copy can't tell a half-installed newer Radio from a working one whose record was lost, and replacing it could leave Radio down | install delta review, 2026-11-12 | if an older app is ever stuck: the newer app's install repairs it |
-| An op command prints the answer line as it arrived, so it is safe for a terminal only where the daemon cleans a free-text field (control and invisible characters become spaces) and JSON escapes the rest; an app's section in a computer's record is not cleaned (Radio never reads it), and JSON escapes only C0 controls, quotes and backslashes, so a section can carry bidi, zero-width, C1 or DEL characters to a terminal | the daemon is the only writer of what it answers; a section comes from a same-user app on this computer, the boundary above, or in a record from one of the fleet's other computers, which are the person's own; the worst is a confusing display | command-line review, 2026-11-12; computer records step, 2026-11-13 | sections reach computers that aren't the person's own only in a private network that works together, where every member turned it on (§ *Several networks*, N11); revisit when that is built |
+| An op command prints the answer line as it arrived, so it is safe for a terminal only where the daemon cleans a free-text field (control and invisible characters become spaces) and JSON escapes the rest; an app's section in a computer's record is not cleaned (Radio never reads it), and JSON escapes only C0 controls, quotes and backslashes, so a section can carry bidi, zero-width, C1 or DEL characters to a terminal | the daemon is the only writer of what it answers; a section comes from a same-user app on this computer, the boundary above, or in a record from one of the fleet's other computers, which are the person's own; the worst is a confusing display | command-line review, 2026-11-12; computer records step, 2026-11-13 | a section printed here can come from a computer that isn't the person's own only once a private network that works together carries sections, where every member turned it on (§ *Several networks*, N11); revisit when that is built |
 | `--body-file -` can read up to 8 KiB of stdin past the bound before refusing an over-long body (the standard input buffer), so a caller sharing stdin loses those bytes | it happens only on that refusal, and the bytes kept in memory are still capped | command-line review, 2026-11-12 | if a caller ever needs stdin intact after a refused body |
 | A FIFO, a terminal or a stalled network file named by `--body-file` blocks the command, with no deadline | the path is the user's own argument, and the body is read before connecting, so the daemon is never held | command-line review, 2026-11-12 | if a script ever needs a deadline on its body |
 | A misspelled flag (`--expire-at`) is taken as a positional, so `radio line set <room> --expire-at <t> --as <member>` sets a line under a junk key that never expires | positionals are taken verbatim so a room or key may start with `--`; only the op's own flag names are refused there; the daemon answers every other value | command-line review, 2026-11-12 | if a caller is caught by it: refuse any `--` positional unless it follows `--` |
@@ -384,11 +476,11 @@ address lookup). A relay, when it comes, gets its own rows here; § *Several net
 | Release binaries are signed ad hoc, not notarised, so a copy downloaded in a browser is quarantined, and macOS should refuse it (not run: it opens a dialog) | Radio ships inside apps, which re-sign it with their own Developer ID for their notarisation; notarising it alone needs a Developer ID the repo doesn't have | release step, 2026-11-12 | when the repo has a Developer ID |
 | The release scan finds a build path, account name or term only as plain bytes, not compressed or split across a binary's sections; terms under five letters only as whole words, only in the binary's printable runs of four or more bytes (tab, CR and LF count), and only in the regions listed as holding text (the header and load commands, the string and data sections, the symbol strings, the bind streams, the chained fixups, and the bytes between regions), not in the code and tables listed as skipped (other instruction sections, the unwind and exception tables, pointer tables, rebase, the export trie, function starts, data in code, the symbol entries, the indirect symbols, the code signature), with a crate hash dropped before a crate of the build; in its machine code (`__TEXT,__text`) tab, CR and LF break runs instead; a region on neither list refuses the release, as does a read section carrying instructions or relocations, or a load command otool can't name | the binary holds no compressed strings of its own, and the paths come from rustc's panic locations and the debug map, which the remap and the strip cover; every exported name is also whole in the symbol table; the skipped regions hold encodings, addresses, hashes and name fragments, not source text; machine code holds chance runs of letters joined by a tab, which refused a real build, and short literals built in place (x86_64), which are read only when a term sits whole in one instruction, in a printable run of four or more bytes, with no letter beside it, not when it is split across two, in a shorter run, or joined to a letter in an operand byte; a short term in fewer than four printable bytes is still caught in source, history and messages by the term check | release step, 2026-11-12; release scan, 2026-11-15; its regions, 2026-11-16 | if a release ever embeds compressed data, or a region moves to the skipped list |
 | Cargo's config files, a `RUSTUP_TOOLCHAIN` override and gh's own config can still change the release build or the account gh uses, and a moment remains between the last tag check and publishing | they are the maintainer's own settings on their own Mac; the scans still refuse a binary holding a path, the account's name or a term, and the tag is checked again just before the draft is published | release delta review, 2026-11-12 | if a release is ever built on a shared or automated machine |
-| The transport compiles in a DNS resolver (`n0-dns-resolver`, built at every bind from the system's settings), an HTTP client (`reqwest`, `hyper`) and its relay client, though with no relay and only in-memory address lookups configured none of them is used | iroh 1.3.0 can't be built without them; the builder test proves no relay and only in-memory lookups are configured, and a capture of two linked computers (owed: see the endpoint row) is to prove no packet goes anywhere else | link key step, 2026-11-12 | when the transport makes them optional, or if a capture ever shows a DNS or HTTP request from Radio |
+| The transport compiles in a DNS resolver (`n0-dns-resolver`, built at every bind from the system's settings), an HTTP client (`reqwest`, `hyper`) and its relay client, though with no relay and only in-memory address lookups configured none of them is used | iroh 1.3.0 can't be built without them; the builder test proves no relay and only in-memory lookups are configured, and a capture of two linked computers (owed: see the endpoint row) is to prove no packet goes anywhere else | link key step, 2026-11-12 | when the transport makes them optional, if a capture ever shows a DNS or HTTP request from Radio, or when relays are used (§ *Several networks*), since the relay client then runs and the relay rows there hold |
 | The link key is a file that any process of the same user can read | the same-user boundary above, as for any per-user key such as an SSH key; the file's own checks keep out other users and links | link design, 2026-11-12 | if the daemon can hold it in the login keychain with an access list that names only Radio |
 | A newcomer believes the fleet record and member list its inviter hands it | joining through a member is joining that member's view; the record is signed by the founding member, so an inviter can withhold members but not forge the record | link design, 2026-11-12 | when the later membership catch-up is built; the topic carries changes, not a full history |
-| Anyone who reaches a bound address can make Radio do a handshake's work before admission refuses the key | the cost is one TLS handshake, capped by the connection limits; Radio binds only the local addresses the user configured (a VPN's or a home network's), so a network the computer joins later can't reach it unless the user bound that network's address; this leans on macOS dropping packets that arrive on an interface the address doesn't belong to (`net.inet.ip.check_interface` and `net.inet6.ip6.check_interface`, both 1 on macOS 27.2, where this was checked; whether that is the default was not) | link design, 2026-11-12 | when a relay or a public address makes the port reachable from anywhere |
-| The transport's NAT traversal can't be switched off: once a connection is up, even one the hook is about to refuse, this computer's bound addresses may be sent to the peer, and the computer probes up to 32 addresses a connected peer names, 9 tries each | iroh 1.3.0 ignores a limit below 8 and has no switch; an unknown key must first reach a bound address, and the hook closes it at once; probes carry no data from Radio | link design, 2026-11-12 | when the transport lets traversal be switched off, or a relay makes the port reachable from anywhere |
+| Anyone who reaches a bound address can make Radio do a handshake's work before admission refuses the key | the cost is one TLS handshake, capped by the connection limits; Radio binds only the local addresses the user configured (a VPN's or a home network's), so a network the computer joins later can't reach it unless the user bound that network's address; this leans on macOS dropping packets that arrive on an interface the address doesn't belong to (`net.inet.ip.check_interface` and `net.inet6.ip6.check_interface`, both 1 on macOS 27.2, where this was checked; whether that is the default was not) | link design, 2026-11-12 | when a relay or a public address makes the port reachable from anywhere (§ *Several networks*: a relay-only endpoint is reached through its relays, by the keys they admit) |
+| The transport's NAT traversal can't be switched off: once a connection is up, even one the hook is about to refuse, this computer's bound addresses may be sent to the peer, and the computer probes up to 32 addresses a connected peer names, 9 tries each | iroh 1.3.0 ignores a limit below 8 and has no switch; an unknown key must first reach a bound address, and the hook closes it at once; probes carry no data from Radio | link design, 2026-11-12 | when the transport lets traversal be switched off, or a relay makes the port reachable from anywhere (§ *Several networks*, the relay-only gap) |
 | A restored backup or Migration Assistant can copy `node.key`, or the recovery key's file before it is moved, to another computer, so two computers share one identity | Time Machine is told to leave `node.key` out; Migration Assistant copies whole homes and can't be told; the person removes the old computer when they move | link design, 2026-11-12 | if a shared identity is ever seen: detect a key used from two places at once |
 | An unused join code admits whoever redeems it first | it is single use, short-lived and revocable, it reaches only the inviter's own addresses, and every member sees the newcomer's name; the person carries it themselves | link design, 2026-11-12 | if codes are ever sent through a channel the person doesn't control |
 | Any same-user process can register an app's delivery folder, or send any file the user can read to a member | the same-user boundary above: such a process can already read those files and write that folder; the peer must still be an accepted member | link design, 2026-11-12 | when apps are told apart on the socket |
@@ -470,6 +562,4 @@ missing objects, and reads ref names.
 - 2026-11-20: a deliberation's time box can be set once while open (protocol minor 12, D27): the boundary row takes the set, and the same-user gap names it.
 - 2026-11-20: `deliberation_step` (protocol minor 13, D28) joins `deliberation_time_box` in the boundary and same-user gap: any seat's app can end rounds without the other seats' turns and can bring a deliberation with no time box to `deadlock` alone, which is no wider than posting as every seat, already accepted.
 - 2026-11-20: one fleet gossip topic on `radio-gossip/1` (D29, link minor 7), direct removals and leaves kept beside broadcasts, conditional leave drain, topic re-join from 1 to 60 seconds, signature checks before the store lock, one kept announcement per sender key per five minutes, background record fetches with per-computer deduplication and a 60-second failure back-off; the gossip address-lookup and endpoint-wide unidirectional-stream gaps are accepted, and the older-peer gap is recorded.
-- 2026-11-20: a computer in several networks is designed (D30, D31): § *Several networks* with its
-  fourteen controls, seven boundary rows, five data classes and nine gaps, all not built; the
-  worst outcomes take two more; three gaps' revisit cells now point at it.
+- 2026-11-20: a computer in several networks is designed (D30, D31): § *Several networks* with fifteen controls (N15, the person's own steps confirmed outside the socket, not yet designed), eight boundary rows, ten data classes and fifteen gaps, all not built; the worst outcomes take two more; six gaps' revisit cells, the relay row, *External integrations*, the identity line, the endpoint row and § *Where secrets live* now point at it.
