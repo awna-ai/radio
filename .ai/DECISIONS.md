@@ -19,10 +19,10 @@ membership's code and record carry no address and no port.
 ## 2026-11-20: D30. One identity per computer per membership (amends D7)
 
 A computer may be in one personal network and up to 8 others; a shared computer, one with no person
-at it, may be in several personal networks too, and its 8 count only its memberships other than
-personal ones. A shared computer's personal memberships carry rooms, status lines and deliberations
-only, never app operations, which reach it only through a private network that works together. Each
-membership is its own identity. An ordinary
+at it, may be in several personal networks too. Its 8 count only its memberships other than
+personal ones; its personal memberships are not capped, since its owner adds each one at its command
+line. They carry rooms, status lines and deliberations only, never app operations, which reach it
+only through a private network that works together. Each membership is its own identity. An ordinary
 computer's personal network keeps `node.key`; every other membership, and a shared computer's
 second and later personal ones, has its own Ed25519 key under `node.key`'s rules, and its own
 endpoint and UDP socket, since the transport's endpoint has exactly one id. So no network can link
