@@ -145,3 +145,22 @@ fn messages_wait_sixty_seconds_for_the_daemon() {
     .unwrap();
     assert_eq!(answer_wait(&request), Duration::from_secs(60));
 }
+
+#[test]
+fn scoped_network_ops_wait_for_deliveries() {
+    for value in [
+        json!({"op":"network_join","code":"rj1.nope"}),
+        json!({"op":"network_computer_remove","network":"garden","computer":"birch"}),
+        json!({"op":"network_leave","network":"garden"}),
+    ] {
+        let request: Request = serde_json::from_value(value).unwrap();
+        assert_eq!(answer_wait(&request), Duration::from_secs(120));
+    }
+    for value in [
+        json!({"op":"network_list"}),
+        json!({"op":"network_computer_block","network":"garden","computer":"birch"}),
+    ] {
+        let request: Request = serde_json::from_value(value).unwrap();
+        assert_eq!(answer_wait(&request), Duration::from_secs(5));
+    }
+}

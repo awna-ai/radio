@@ -17,7 +17,7 @@ use std::{
 #[path = "support/contract_match.rs"]
 mod contract_match;
 
-const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio id\n       radio fleet init <name>\n       radio code create [--name <name>] [--ttl <n>m|<n>h]\n       radio code list\n       radio code revoke <id>\n       radio computer list\n       radio computer accept <computer>\n       radio computer block <computer>\n       radio computer trust <computer>\n       radio join (reads the code on standard input)\n       radio computer remove <computer>\n       radio leave\n       radio message <computer> --app <app> (reads the body on standard input)\n       radio keep [<computer>]... --app <app>\n       radio kept --app <app>\n       radio send <computer> <file> --app <app> [--name <name>]\n       radio delivery folder set <folder> --app <app>\n       radio delivery folder clear --app <app>\n       radio deliveries --app <app> [--after <id>] [--limit <n>]\n       radio resign --app <app> [--section <text> | --section-file <path|->] [--roles <role>,...]\n       radio computer records --app <app>\n       radio link address add <address>\n       radio link address list\n       radio link address remove <address>\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>\n       radio deliberation convene <room> --title <title> --as <kind>:<name> --kind list|text [--n <n>] --seat <kind>:<name>... [--time-box 15m|1h|deadlock]\n       radio deliberation turn <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio deliberation state <room>\n       radio deliberation time-box <room> --as <kind>:<name> --time-box 15m|1h|deadlock\n       radio deliberation step <room> --as <kind>:<name>\n       radio deliberation result <room>\n";
+const USAGE: &str = "usage: radio serve [--name <name>]\n       radio install --app <name> --app-version <version> --handler <path> [--rooms <path>]\n       radio uninstall --app <name>\n       radio status\n       radio hello\n       radio id\n       radio network list\n       radio network scope <network> <internal|external>\n       radio network init <name>\n       radio network code create <network> [--name <name>] [--ttl <seconds>|<n>m|<n>h]\n       radio network code list <network>\n       radio network code revoke <network> <id>\n       radio network computer list <network>\n       radio network computer accept <network> <computer>\n       radio network computer block <network> <computer>\n       radio network computer trust <network> <computer>\n       radio network join (reads the code on standard input)\n       radio network computer remove <network> <computer>\n       radio network leave <network>\n       radio message <computer> --app <app> (reads the body on standard input)\n       radio keep [<computer>]... --app <app>\n       radio kept --app <app>\n       radio send <computer> <file> --app <app> [--name <name>]\n       radio delivery folder set <folder> --app <app>\n       radio delivery folder clear --app <app>\n       radio deliveries --app <app> [--after <id>] [--limit <n>]\n       radio resign --app <app> [--section <text> | --section-file <path|->] [--roles <role>,...]\n       radio computer records --app <app>\n       radio link address add <address>\n       radio link address list\n       radio link address remove <address>\n       radio register --app <app> --app-version <version> [--member <kind>:<name>]...\n       radio room create <room> --title <title>\n       radio rooms [--after <room>] [--limit <n>]\n       radio post <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio read <room> [--since <seq>] [--limit <n>]\n       radio line list <room>\n       radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]\n       radio line clear <room> <key> --as <kind>:<name>\n       radio deliberation convene <room> --title <title> --as <kind>:<name> --kind list|text [--n <n>] --seat <kind>:<name>... [--time-box 15m|1h|deadlock]\n       radio deliberation turn <room> --as <kind>:<name> (--body <text> | --body-file <path|->)\n       radio deliberation state <room>\n       radio deliberation time-box <room> --as <kind>:<name> --time-box 15m|1h|deadlock\n       radio deliberation step <room> --as <kind>:<name>\n       radio deliberation result <room>\n";
 
 #[test]
 fn invalid_arguments_and_names_print_only_usage() {
@@ -644,6 +644,84 @@ fn commands_replay_the_contract_against_a_real_daemon() {
                 "{args:?}: {} not in {actual}",
                 recorded["response"]
             );
+        }
+    }
+}
+
+fn network_fixture_commands() -> Vec<(usize, Vec<&'static str>)> {
+    vec![
+        (62, vec!["network", "list"]),
+        (63, vec!["network", "init", "garden"]),
+        (64, vec!["network", "scope", "unknown", "external"]),
+        (65, vec!["network", "code", "create", "unknown"]),
+        (66, vec!["network", "code", "list", "unknown"]),
+        (67, vec!["network", "code", "revoke", "unknown", "unknown"]),
+        (68, vec!["network", "join"]),
+        (69, vec!["network", "leave", "<network>"]),
+        (70, vec!["network", "computer", "list", "unknown"]),
+        (
+            71,
+            vec!["network", "computer", "accept", "unknown", "birch"],
+        ),
+        (72, vec!["network", "computer", "block", "unknown", "birch"]),
+        (73, vec!["network", "computer", "trust", "unknown", "birch"]),
+        (
+            74,
+            vec!["network", "computer", "remove", "<network>", "birch"],
+        ),
+    ]
+}
+
+#[test]
+fn network_commands_send_the_exact_contract_requests() {
+    let server = StandIn::start(r#"{"ok":true}"#);
+    for (number, args) in network_fixture_commands() {
+        let output = if number == 68 {
+            server.home.input(&args, b"rj1.nope\n")
+        } else {
+            server.home.run(&args)
+        };
+        assert_eq!(output.status.code(), Some(0), "{args:?}: {output:?}");
+        assert_eq!(server.request(), fixture(number)["request"], "{args:?}");
+    }
+}
+
+#[test]
+fn network_commands_replay_the_contract_against_a_real_daemon() {
+    let daemon = Daemon::start();
+    let mut network = String::new();
+    for (number, words) in network_fixture_commands() {
+        let args: Vec<_> = words
+            .iter()
+            .map(|word| {
+                if *word == "<network>" {
+                    network.as_str()
+                } else {
+                    *word
+                }
+            })
+            .collect();
+        let recorded = fixture(number);
+        let output = if number == 68 {
+            daemon.home.input(&args, b"rj1.nope\n")
+        } else {
+            daemon.home.run(&args)
+        };
+        let code = if number <= 63 { 0 } else { 1 };
+        assert_eq!(output.status.code(), Some(code), "{args:?}: {output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if recorded["exact"] == true {
+            assert_eq!(recorded["response"], actual, "{args:?}");
+        } else {
+            assert!(
+                contract_match::contained(&recorded["response"], &actual, ""),
+                "{args:?}: {} not in {actual}",
+                recorded["response"]
+            );
+        }
+        if number == 63 {
+            network = actual["network"]["id"].as_str().unwrap().into();
         }
     }
 }

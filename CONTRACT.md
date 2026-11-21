@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 13
+Protocol minor: 14
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -71,6 +71,26 @@ them against these lines. They are independent of the repo's semver tags.
 
 ## Ops in major 1
 
+`fleet_init`, `join`, `leave`, `code_create`, `code_list`, `code_revoke`, `computer_list`, `computer_accept`,
+`computer_block`, `computer_trust` and `computer_remove` are deprecated: they act on the personal network with the
+`fleet` words, and stay unchanged through major 1; use the `network_*` ops.
+
+A `network` object is `{id, name, scope, state, work_together}`. `network_init` and `network_join` also
+include the record's `version` and `founder`. Its id is 64 lowercase hex characters. `scope` is
+`personal` for this computer's own network, which is fixed; `internal` is the default mark for any
+other network; `external` marks a network the person does not trust. `state` is `member` today; a
+client treats an unknown state as not a member, since a later minor may add one. `work_together` is
+false until a later minor adds the switch. Today only the personal network exists: every op taking
+`network` refuses any value other than its id with `no such network`.
+
+The `network_*` twins keep their old ops' behavior and other answer shapes, replacing `fleet` with
+`network` for init and join and adding `network` to the other answers.
+Their errors replace `already in a fleet` with `already in a personal network`, `not in a fleet`
+with `no such network`, `not a fleet name` with `not a network name`, `the fleet store is busy` with
+`the network store is busy`, and `the fleet folder is not usable` with `the network folder is not usable`.
+Their background answer says `still telling the other computers; check network_computer_list later`.
+Other phrases and refusal markings stay the same.
+
 | Op | Request fields | Answer fields | What it does |
 | --- | --- | --- | --- |
 | `hello` | none | `radio`, `protocol`, `majors`, `ops` | Names the daemon's version, protocol and ops (above) |
@@ -99,6 +119,19 @@ them against these lines. They are independent of the repo's semver tags.
 | `join` | `code` | `fleet: {id, name, version, founder}` | Joins the fleet of the computer that made `code` (`code_create` there): Radio dials the addresses the code carries, pinned to that computer's key, and answers once the inviter has let this computer in. Pass the code through the socket or `radio join`'s standard input, never a command line. `not a join code`, `already in a fleet`, and `the join code has no address to dial` (a code made before its computer had a link address) answer at once; `the computer could not be reached` (nothing answered, or a different key did), `the join was refused` and `the computer did not answer` come from the other computer. Needs a link address here |
 | `computer_remove` | `computer` | `delivered` | Removes another computer from the fleet for everyone. Radio signs the removal (only the computer's inviter or the founding member may) and sends it to the removed computer (when it is accepted here and has an address) and to every accepted computer it has an address for; `delivered` counts those it reached. One that was off misses it. Past 110 seconds it answers `still telling the other computers; check computer_list later` and finishes in the background, unless the daemon stops or a link address changes first. Needs a link address here. It is also broadcast on the fleet topic. |
 | `leave` | none | `delivered` | Takes this computer out of its fleet: Radio signs the leave, sends it to every accepted computer it has an address for (`delivered` counts those it reached), then forgets the fleet. Past 110 seconds it answers `still telling the other computers; check computer_list later` and finishes in the background, unless the daemon stops or a link address changes first (a leave cut short that way has told some computers and may still hold the fleet here). Needs a link address here. It is also broadcast on the fleet topic. |
+| `network_list` | none | `networks: [network]` | Lists this computer's networks, personal first, then by name and id |
+| `network_scope_set` | `network`, `scope` | `network` | Marks a network `internal` or `external`. `personal` answers `a network's scope is internal or external`; another word answers `not a scope`. The personal network's scope is fixed |
+| `network_init` | `name` | `network` (also `version`, `founder`), `recovery_file` | Starts this computer's personal network, following `fleet_init`'s name and recovery-file rules |
+| `network_code_create` | `network`, optional `name`, optional `ttl` (60 to 86400 seconds, 1800 by default) | `network`, `code`, `code_id`, `expires_at` | Makes a one-time join code, with `code_create`'s shape and limits |
+| `network_code_list` | `network` | `network`, `codes` | Lists open codes, with `code_list`'s shape and order |
+| `network_code_revoke` | `network`, `id` | `network`, `removed` | Closes an open code |
+| `network_join` | `code` | `network` (also `version`, `founder`) | Joins as this computer's personal network, following `join`'s rules. Pass the code through the socket or `radio network join`'s standard input, never a command line |
+| `network_leave` | `network` | `network`, `delivered` | Leaves the personal network, following `leave`'s rules. Answers the network object as it was before leaving, including when work continues in the background |
+| `network_computer_list` | `network` | `network`, `computers` | Lists computers, with `computer_list`'s shape and order |
+| `network_computer_accept` | `network`, `computer` | `network`, `computer` | Lets a pending or blocked computer connect, as `computer_accept` does |
+| `network_computer_block` | `network`, `computer` | `network`, `computer` | Refuses a computer here only, as `computer_block` does |
+| `network_computer_trust` | `network`, `computer` | `network`, `computer` | Trusts an accepted computer's invitations, as `computer_trust` does |
+| `network_computer_remove` | `network`, `computer` | `network`, `delivered` | Removes a computer, following `computer_remove`'s rules |
 | `send` | `app`, `computer`, `name`, `file` | `size` | Sends one file to this app on one computer of the fleet, named by its name or id. The app must be registered (`the app is not registered`) and the link directory must be set (`the link is not set up`). Starts the link first; needs a link address here (`this computer has no link address`) and a valid daemon name (`this computer's name breaks the computer-name rule; restart Radio with --name`). `file` must be absolute (`the file must be an absolute path`), and `name` must be 1 to 128 bytes, each in `A-Z a-z 0-9 . _ -`, not starting with a dot (`not a file name`). A final link or a file that cannot be opened answers `the file could not be opened`; a non-regular file answers `not a regular file`; over 64 MiB answers `the file is larger than 64 MiB`. The computer lookup answers `not in a fleet`, `not a computer`, `no such computer` or `the computer was removed`; a computer not accepted here answers `the computer is not let in`, and one without addresses answers `no address is known for that computer`. A dial that fails answers `the computer could not be reached`; a missing or invalid answer answers `the computer did not answer`. A refusal answers `that app takes no files on that computer`, `a file with that name is already there`, `that computer is busy; try again`, `that app's folder on that computer is not usable`, `that computer could not write the file`, `that app's folder on that computer is full` or `that computer has no room for the file`. A source that grows, shrinks or becomes unreadable answers `the file changed while it was sent`. A stopped link answers `the link stopped`; the outer wait answers `the send did not finish in time`. Rare local faults answer `the fleet store is busy`, `fleet.db could not be read` or `not a computer key`. The answer comes within 135 seconds, served beside other clients; at most 4 sends wait at once, and a fifth answers `too many sends at once; try again`. If its answer thread cannot start, it answers `the send could not be started`, and nothing was sent. The client waits 150 seconds. A send in flight when Radio stops gets no answer. The other computer answers only after it has written the file, so a send that got no answer, or answered `the send did not finish in time`, `the computer did not answer` or `the link stopped` after the whole file went out, may still have landed. `size` is the number of bytes sent |
 | `delivery_folder_set` | `app`, `folder` | none | Radio makes a dedicated folder, mode 0700, for this app to take files in on this computer, with or without a fleet; leaving a fleet keeps it. The app must be registered (`the app is not registered`) and installed (`the app is not installed`), and the link directory must be set (`the link is not set up`). `folder` must be absolute (`the folder must be an absolute path`) with a normal last component (`not a folder name`), after trailing slashes are stripped. The path must not exist (`the folder already exists; name a new one`); setting the same path again is fine only while it is still the folder Radio made for this app, recorded by device and inode. A path held by another app answers `that folder is another app's`; a folder Radio cannot make or open answers `the folder could not be made`; a folder it made but cannot record answers `fleet.db could not be written`, and the new, empty folder is removed. A registered app whose name is not 1 to 64 of `a-z 0-9 . _ -`, starting with a letter or digit, answers `the app is not installed`. Changing the path makes a new folder and leaves the old folder and its files as they are |
 | `delivery_folder_clear` | `app` | `removed` | Clears only this app's delivery-folder row, leaving the folder and its files; `removed` says whether one was set. The app must be registered (`the app is not registered`) and the link directory must be set (`the link is not set up`). Works with or without a fleet |

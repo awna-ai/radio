@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 13;
+pub const PROTOCOL_MINOR: u32 = 14;
 
-/// The ops major 1, minor 13 serves, in this order.
+/// The ops major 1, minor 14 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -53,6 +53,19 @@ pub const OPS: &[&str] = &[
     "deliberation_result",
     "deliberation_time_box",
     "deliberation_step",
+    "network_list",
+    "network_scope_set",
+    "network_init",
+    "network_code_create",
+    "network_code_list",
+    "network_code_revoke",
+    "network_join",
+    "network_leave",
+    "network_computer_list",
+    "network_computer_accept",
+    "network_computer_block",
+    "network_computer_trust",
+    "network_computer_remove",
 ];
 /// The maximum request line size, in bytes including its newline.
 pub const REQUEST_MAX_BYTES: usize = 16 * 1024;
@@ -232,6 +245,38 @@ pub enum Request {
     },
     /// Steps an open deliberation's round with the seats that have posted; a seat that has not is silent.
     DeliberationStep { room: String, author: Member },
+    /// Lists the networks this computer belongs to.
+    NetworkList {},
+    /// Marks a non-personal network internal or external.
+    NetworkScopeSet { network: String, scope: String },
+    /// Makes this computer's personal network.
+    NetworkInit { name: String },
+    /// Makes a one-time code for the named network.
+    NetworkCodeCreate {
+        network: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ttl: Option<u64>,
+    },
+    /// Lists a network's open join codes without secrets.
+    NetworkCodeList { network: String },
+    /// Closes a network's join code by identifier.
+    NetworkCodeRevoke { network: String, id: String },
+    /// Joins a personal network through a one-time code.
+    NetworkJoin { code: String },
+    /// Leaves the named personal network.
+    NetworkLeave { network: String },
+    /// Lists this computer's view of a network's other computers.
+    NetworkComputerList { network: String },
+    /// Lets a pending or blocked computer connect in the named network.
+    NetworkComputerAccept { network: String, computer: String },
+    /// Refuses a computer locally in the named network.
+    NetworkComputerBlock { network: String, computer: String },
+    /// Trusts an accepted computer's invitations in the named network.
+    NetworkComputerTrust { network: String, computer: String },
+    /// Removes a computer from the named network.
+    NetworkComputerRemove { network: String, computer: String },
 }
 
 /// A member identified by a kind and a name.
@@ -300,6 +345,12 @@ pub struct Response {
     /// The fleet made on this computer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fleet: Option<Fleet>,
+    /// The network named by the operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<NetworkInfo>,
+    /// This computer's networks, personal first, then by name and id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub networks: Option<Vec<NetworkInfo>>,
     /// The file holding the recovery key to move off this computer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_file: Option<String>,
@@ -524,6 +575,25 @@ pub struct Fleet {
     pub founder: String,
 }
 
+/// A network returned by the daemon.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkInfo {
+    pub id: String,
+    pub name: String,
+    /// `personal`, `internal` or `external`.
+    pub scope: String,
+    /// `member` today; clients treat an unknown state as not a member.
+    pub state: String,
+    /// False until a later protocol minor adds the switch.
+    pub work_together: bool,
+    /// The signed record's version, present only for init and join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u64>,
+    /// The founding computer's public link id, present only for init and join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub founder: Option<String>,
+}
+
 /// An open join code returned without its secret.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JoinCodeInfo {
@@ -590,8 +660,79 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scoped_network_ops_are_appended_in_protocol_order() {
+        assert_eq!(PROTOCOL_MINOR, 14);
+        assert_eq!(
+            &OPS[39..],
+            &[
+                "network_list",
+                "network_scope_set",
+                "network_init",
+                "network_code_create",
+                "network_code_list",
+                "network_code_revoke",
+                "network_join",
+                "network_leave",
+                "network_computer_list",
+                "network_computer_accept",
+                "network_computer_block",
+                "network_computer_trust",
+                "network_computer_remove"
+            ]
+        );
+    }
+
+    #[test]
+    fn scoped_network_requests_round_trip_and_refuse_unknown_fields() {
+        for value in [
+            serde_json::json!({"op":"network_list"}),
+            serde_json::json!({"op":"network_scope_set","network":"garden","scope":"external"}),
+            serde_json::json!({"op":"network_init","name":"garden"}),
+            serde_json::json!({"op":"network_code_create","network":"garden"}),
+            serde_json::json!({"op":"network_code_create","network":"garden","name":"birch","ttl":60}),
+            serde_json::json!({"op":"network_code_list","network":"garden"}),
+            serde_json::json!({"op":"network_code_revoke","network":"garden","id":"code"}),
+            serde_json::json!({"op":"network_join","code":"rj1.nope"}),
+            serde_json::json!({"op":"network_leave","network":"garden"}),
+            serde_json::json!({"op":"network_computer_list","network":"garden"}),
+            serde_json::json!({"op":"network_computer_accept","network":"garden","computer":"birch"}),
+            serde_json::json!({"op":"network_computer_block","network":"garden","computer":"birch"}),
+            serde_json::json!({"op":"network_computer_trust","network":"garden","computer":"birch"}),
+            serde_json::json!({"op":"network_computer_remove","network":"garden","computer":"birch"}),
+        ] {
+            let request: Request = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(request).unwrap(), value);
+            let mut unknown = value;
+            unknown["extra"] = true.into();
+            assert!(serde_json::from_value::<Request>(unknown).is_err());
+        }
+    }
+
+    #[test]
+    fn scoped_network_answers_preserve_fields_and_omit_absent_fleet_details() {
+        for details in [false, true] {
+            let mut network = serde_json::json!({
+                "id":"garden", "name":"garden", "scope":"personal", "state":"member",
+                "work_together":false
+            });
+            if details {
+                network["version"] = 1.into();
+                network["founder"] = "birch".into();
+            }
+            let value = serde_json::json!({"ok":true,"network":network});
+            let response: Response = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(response).unwrap(), value);
+        }
+        let value = serde_json::json!({"ok":true,"networks":[{
+            "id":"garden", "name":"garden", "scope":"personal", "state":"member", "work_together":false
+        }]});
+        let response: Response = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(response).unwrap(), value);
+    }
+
+    #[test]
     fn kept_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 13);
+        assert_eq!(PROTOCOL_MINOR, 14);
         assert_eq!(&OPS[31..33], &["keep", "kept"]);
         for value in [
             serde_json::json!({"op":"keep","app":"notes","computers":["birch","cedar"]}),
@@ -628,7 +769,7 @@ mod tests {
 
     #[test]
     fn message_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 13);
+        assert_eq!(PROTOCOL_MINOR, 14);
         assert_eq!(OPS[30], "message");
         let value =
             serde_json::json!({"op":"message","app":"notes","computer":"birch","body":"hello"});
@@ -656,7 +797,7 @@ mod tests {
 
     #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 13);
+        assert_eq!(PROTOCOL_MINOR, 14);
         assert_eq!(
             &OPS[20..23],
             &[

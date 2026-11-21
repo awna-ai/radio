@@ -70,6 +70,21 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
             ("delivery_folder_clear", 0, rest, &["--app"])
         }
         ["deliveries", rest @ ..] => ("deliveries", 0, rest, &["--app", "--after", "--limit"]),
+        ["network", "list", rest @ ..] => ("network_list", 0, rest, &[]),
+        ["network", "scope", rest @ ..] => ("network_scope_set", 2, rest, &[]),
+        ["network", "init", rest @ ..] => ("network_init", 1, rest, &[]),
+        ["network", "join", rest @ ..] => ("network_join", 0, rest, &[]),
+        ["network", "leave", rest @ ..] => ("network_leave", 1, rest, &[]),
+        ["network", "code", "create", rest @ ..] => {
+            ("network_code_create", 1, rest, &["--name", "--ttl"])
+        }
+        ["network", "code", "list", rest @ ..] => ("network_code_list", 1, rest, &[]),
+        ["network", "code", "revoke", rest @ ..] => ("network_code_revoke", 2, rest, &[]),
+        ["network", "computer", "list", rest @ ..] => ("network_computer_list", 1, rest, &[]),
+        ["network", "computer", "accept", rest @ ..] => ("network_computer_accept", 2, rest, &[]),
+        ["network", "computer", "block", rest @ ..] => ("network_computer_block", 2, rest, &[]),
+        ["network", "computer", "trust", rest @ ..] => ("network_computer_trust", 2, rest, &[]),
+        ["network", "computer", "remove", rest @ ..] => ("network_computer_remove", 2, rest, &[]),
         ["hello", rest @ ..] => ("hello", 0, rest, &[]),
         ["join", rest @ ..] => ("join", 0, rest, &[]),
         ["leave", rest @ ..] => ("leave", 0, rest, &[]),
@@ -208,6 +223,57 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
             app: required("--app")?.into(),
             after: seen.get("--after").map(|value| digits(value)).transpose()?,
             limit: limit()?,
+        },
+        "network_list" => Request::NetworkList {},
+        "network_scope_set" => Request::NetworkScopeSet {
+            network: positionals[0].into(),
+            scope: positionals[1].into(),
+        },
+        "network_init" => Request::NetworkInit {
+            name: positionals[0].into(),
+        },
+        "network_code_create" => Request::NetworkCodeCreate {
+            network: positionals[0].into(),
+            name: seen.get("--name").map(|value| (*value).into()),
+            ttl: seen
+                .get("--ttl")
+                .map(|value| digits(value).or_else(|()| lifetime(value)))
+                .transpose()?,
+        },
+        "network_code_list" => Request::NetworkCodeList {
+            network: positionals[0].into(),
+        },
+        "network_code_revoke" => Request::NetworkCodeRevoke {
+            network: positionals[0].into(),
+            id: positionals[1].into(),
+        },
+        "network_join" => {
+            body = Some(BodySource::File("-".into()));
+            Request::NetworkJoin {
+                code: String::new(),
+            }
+        }
+        "network_leave" => Request::NetworkLeave {
+            network: positionals[0].into(),
+        },
+        "network_computer_list" => Request::NetworkComputerList {
+            network: positionals[0].into(),
+        },
+        "network_computer_accept" => Request::NetworkComputerAccept {
+            network: positionals[0].into(),
+            computer: positionals[1].into(),
+        },
+        "network_computer_block" => Request::NetworkComputerBlock {
+            network: positionals[0].into(),
+            computer: positionals[1].into(),
+        },
+        "network_computer_trust" => Request::NetworkComputerTrust {
+            network: positionals[0].into(),
+            computer: positionals[1].into(),
+        },
+        "network_computer_remove" => Request::NetworkComputerRemove {
+            network: positionals[0].into(),
+            computer: positionals[1].into(),
         },
         "hello" => Request::Hello {},
         "id" => Request::Id {},
@@ -399,7 +465,7 @@ impl Command {
                     body: destination, ..
                 } => *destination = body,
                 Request::Resign { section, .. } => *section = Some(body),
-                Request::Join { code } => {
+                Request::Join { code } | Request::NetworkJoin { code } => {
                     let body = body
                         .strip_suffix("\r\n")
                         .or_else(|| body.strip_suffix('\n'))

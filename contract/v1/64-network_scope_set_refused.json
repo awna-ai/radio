@@ -1,0 +1,13 @@
+{
+  "request": {
+    "v": 1,
+    "op": "network_scope_set",
+    "network": "unknown",
+    "scope": "external"
+  },
+  "response": {
+    "ok": false,
+    "error": "no such network"
+  },
+  "exact": true
+}

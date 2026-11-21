@@ -1,0 +1,13 @@
+{
+  "request": {
+    "v": 1,
+    "op": "network_computer_block",
+    "network": "unknown",
+    "computer": "birch"
+  },
+  "response": {
+    "ok": false,
+    "error": "no such network"
+  },
+  "exact": true
+}

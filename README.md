@@ -226,8 +226,9 @@ what's already there:
 To remove your app, run `radio uninstall --app <name>`. Radio stays while any other app still
 uses it. When the last app leaves, Radio stops and its launch agent, binaries, socket and lock
 files are removed (the socket and its lock only when no copy of Radio is still running there);
-the person's data is kept: rooms, Radio's logs and connection list, the fleet's records and this
-computer's key, so the computer stays in its fleet. To retire a computer, run `radio leave` first.
+the person's data is kept: rooms, Radio's logs and connection list, the network's records and this
+computer's key, so the computer stays in its network. To retire a computer, run
+`radio network leave <network>` first.
 
 `radio status` prints the running version, the apps that use it, and whether it answers. It exits
 `1` when nothing is installed, or when Radio is installed but doesn't answer with the
@@ -274,40 +275,46 @@ A first session looks like this:
 | **`list_rooms`** | Every room, including the ones other apps opened. |
 | **`status_set`**, **`status_clear`** | A short live line in a room. A member changes only the lines it set; the person changes any line. |
 
-### This computer and its fleet
+### This computer and its network
 
 | Op | What it does |
 | --- | --- |
 | **`id`** | This computer's link id: the public half of its key, 64 lowercase hex characters. The first call makes the key. |
-| **`fleet_init`** | Starts the person's group of computers (a fleet) with this computer as its founding member, and writes the fleet's recovery key once to a file: the person moves it into a password manager and deletes the file. |
-| **`code_create`** | Makes a one-time join code for another computer, valid for 30 minutes unless `ttl` says otherwise (24 hours at most). |
-| **`code_list`**, **`code_revoke`** | Show and close the open codes. |
-| **`computer_list`** | This computer's view of the fleet: each other computer's id, name, state and inviter, and whether it is trusted. |
-| **`computer_accept`** | Lets in a computer that waits as `pending`: one introduced by a computer this one doesn't trust. |
-| **`computer_block`** | Refuses a computer, on this computer only; accepting it again lifts the block. |
-| **`computer_trust`** | Marks an accepted computer so that the computers it invites are let in here without asking. |
+| **`network_init`** | Starts the person's network of computers with this computer as its founding member, and writes the network's recovery key once to a file: the person moves it into a password manager and deletes the file. |
+| **`network_code_create`** | Makes a one-time join code for another computer, valid for 30 minutes unless `ttl` says otherwise (24 hours at most). |
+| **`network_code_list`**, **`network_code_revoke`** | Show and close the open codes. |
+| **`network_computer_list`** | This computer's view of the network: each other computer's id, name, state and inviter, and whether it is trusted. |
+| **`network_computer_accept`** | Lets in a computer that waits as `pending`: one introduced by a computer this one doesn't trust. |
+| **`network_computer_block`** | Refuses a computer, on this computer only; accepting it again lifts the block. |
+| **`network_computer_trust`** | Marks an accepted computer so that the computers it invites are let in here without asking. |
 | **`link_address_add`**, **`_list`**, **`_remove`** | This computer's link addresses (an IP address, no port), where Radio listens for its other computers. Every join code it makes carries them. |
-| **`join`** | Takes a code another computer made and joins that computer's fleet: Radio dials the address the code carries and answers with the fleet. |
-| **`computer_remove`** | Removes another computer from the fleet for everyone: the computers it reaches, the removed one included, drop it, and `delivered` says how many it reached. |
-| **`leave`** | Takes this computer out of its fleet and tells the others. |
+| **`network_join`** | Takes a code another computer made and joins that computer's network: Radio dials the address the code carries and answers with the network. |
+| **`network_computer_remove`** | Removes another computer from the network for everyone: the computers it reaches, the removed one included, drop it, and `delivered` says how many it reached. |
+| **`network_leave`** | Takes this computer out of its network and tells the others. |
 
-The `computer_*` ops take a computer's name or id.
+`network_list` lists the networks; `network_scope_set` marks one internal or external. Today only
+this computer's personal network exists, and its scope is fixed. The code, computer and leave ops
+take its id as `network`; another id answers `no such network`. Each answer carries a `network`
+object with its id, name, scope, state (`member`) and `work_together` (`false`); init and join also
+include its version and founder.
+
+The `network_computer_*` ops take a computer's name or id.
 
 > [!WARNING]
 > Treat a join code as a password: it is the only copy of its secret. Pass it on standard input or
 > through the socket, never on a command line, and never log it.
 
 **Listening.** Radio listens for its other computers on this computer's link addresses from the
-moment it has one. With none, `join`, `computer_remove` and `leave` answer `this computer has no
-link address`. Radio's link name is its daemon's name, so a daemon whose name breaks the
+moment it has one. With none, `network_join`, `network_computer_remove` and `network_leave` answer
+`this computer has no link address`. Radio's link name is its daemon's name, so a daemon whose name breaks the
 computer-name rule doesn't listen and answers `this computer's name breaks the computer-name rule;
 restart Radio with --name`.
 
-**Waiting on the others.** `join`, `computer_remove` and `leave` wait for the other computers, up
-to 10 seconds for each one that can't be reached:
+**Waiting on the others.** `network_join`, `network_computer_remove` and `network_leave` wait for the
+other computers, up to 10 seconds for each one that can't be reached:
 
 - `radio-client` waits up to 2 minutes for them.
-- Past 110 seconds, Radio answers `still telling the other computers; check computer_list later`
+- Past 110 seconds, Radio answers `still telling the other computers; check network_computer_list later`
   and finishes in the background, unless it stops or a link address changes first.
 - Radio answers one request at a time, so while one of them runs, another app reads `Radio did not
   answer` after 5 seconds, and its request is still carried out afterwards: check before you try a
@@ -328,8 +335,8 @@ section per app.
   name must follow the computer-name rule too.
 - A record is kept only when the computer it names signed it and it is newer than the one held, so
   what you read for a computer is the newest thing it said that reached this computer.
-- Sections are not secret: every computer in the fleet holds them.
-- After `resign` answers, Radio announces the record's version and hash on the fleet topic,
+- Sections are not secret: every computer in the network holds them.
+- After `resign` answers, Radio announces the record's version and hash on the network topic,
   coalescing changes to at most one announcement per ten minutes. The record itself is fetched
   only after dialing that accepted computer or when an app asks for `computer_records`. That
   request lists what this computer holds at once and starts fetching newer announced records
@@ -340,7 +347,7 @@ section per app.
 
 ### Sending files
 
-Your app can send a file to itself on another computer of the fleet.
+Your app can send a file to itself on another computer of the network.
 
 | Where | Op | What it does |
 | --- | --- | --- |
@@ -562,17 +569,19 @@ UTF-8, and Radio applies its own 4 KiB limit.
 | `radio line list <room>` | `status` |
 | `radio line set <room> <key> <line> --as <kind>:<name> [--expires-at <seconds>]` | `status_set` |
 | `radio line clear <room> <key> --as <kind>:<name>` | `status_clear` |
-| `radio fleet init <name>` | `fleet_init` |
-| `radio code create [--name <name>] [--ttl <n>m\|<n>h]` | `code_create` |
-| `radio code list` | `code_list` |
-| `radio code revoke <id>` | `code_revoke` |
-| `radio computer list` | `computer_list` |
-| `radio computer accept <computer>` | `computer_accept` |
-| `radio computer block <computer>` | `computer_block` |
-| `radio computer trust <computer>` | `computer_trust` |
-| `radio join` (reads the code on standard input) | `join` |
-| `radio computer remove <computer>` | `computer_remove` |
-| `radio leave` | `leave` |
+| `radio network list` | `network_list` |
+| `radio network scope <network> <internal\|external>` | `network_scope_set` |
+| `radio network init <name>` | `network_init` |
+| `radio network code create <network> [--name <name>] [--ttl <seconds>\|<n>m\|<n>h]` | `network_code_create` |
+| `radio network code list <network>` | `network_code_list` |
+| `radio network code revoke <network> <id>` | `network_code_revoke` |
+| `radio network computer list <network>` | `network_computer_list` |
+| `radio network computer accept <network> <computer>` | `network_computer_accept` |
+| `radio network computer block <network> <computer>` | `network_computer_block` |
+| `radio network computer trust <network> <computer>` | `network_computer_trust` |
+| `radio network join` (reads the code on standard input) | `network_join` |
+| `radio network computer remove <network> <computer>` | `network_computer_remove` |
+| `radio network leave <network>` | `network_leave` |
 | `radio resign --app <app> [--section <text>]` (`--section ""` removes it), or `--section-file <path>` (`-` reads stdin; an empty file is refused); `--roles <role>,...` (`--roles ""` clears them) | `resign` |
 | `radio computer records --app <app>` | `computer_records` |
 | `radio link address add <address>` (an IP address, no port) | `link_address_add` |
@@ -663,11 +672,11 @@ while any app still uses it.
 | Part | State |
 | --- | --- |
 | This computer's link id (`id`) | built |
-| The fleet and its join codes (`fleet_init`, `code_*`) | built |
-| This computer's list of the others (`computer_*`) | built |
+| The network and its join codes (`network_init`, `network_code_*`) | built |
+| This computer's list of the others (`network_computer_*`) | built |
 | Each computer's signed record (`resign`, `computer_records`) | built |
 | This computer's link addresses (`link_address_*`, carried in every join code it makes) | built |
-| Joining, removing and leaving over them (`join`, `computer_remove`, `leave`) | built |
+| Joining, removing and leaving over them (`network_join`, `network_computer_remove`, `network_leave`) | built |
 | Sending files (`send`, `delivery_folder_*`, `deliveries`) and app messages (`message`) | built |
 | The rest of the link | being built |
 

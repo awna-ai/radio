@@ -42,6 +42,18 @@ fn link_replay_major_one_contract() {
             value
         })
         .collect();
+    let (network, legacy): (Vec<_>, Vec<_>) =
+        fixtures.into_iter().zip(paths).partition(|(fixture, _)| {
+            fixture["request"]["op"]
+                .as_str()
+                .unwrap()
+                .starts_with("network_")
+        });
+    replay_contract(legacy);
+    replay_contract(network);
+}
+
+fn replay_contract(fixtures: Vec<(Value, PathBuf)>) {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let temp = Temp(PathBuf::from(format!(
         "/tmp/rd-contract-{}-{}",
@@ -60,16 +72,26 @@ fn link_replay_major_one_contract() {
             server.serve_one(stream);
         }
     });
-    for (fixture, path) in fixtures.iter().zip(paths) {
+    let mut network_id = None;
+    for (fixture, path) in fixtures {
+        let mut request = fixture["request"].clone();
+        // The personal network has a random id, captured from its creation answer.
+        if request["network"] == "<network>" {
+            request["network"] =
+                Value::String(network_id.clone().expect("network_init must run first"));
+        }
         let mut stream = UnixStream::connect(&socket).unwrap();
         read_timeout(&stream, Duration::from_secs(5));
         // The recorded request, sent compact.
-        serde_json::to_writer(&mut stream, &fixture["request"]).unwrap();
+        serde_json::to_writer(&mut stream, &request).unwrap();
         stream.write_all(b"\n").unwrap();
         half_close(&stream);
         let mut line = String::new();
         BufReader::new(stream).read_line(&mut line).unwrap();
         let actual: Value = serde_json::from_str(&line).unwrap();
+        if request["op"] == "network_init" && actual["ok"] == true {
+            network_id = Some(actual["network"]["id"].as_str().unwrap().to_owned());
+        }
         if fixture["exact"] == true {
             assert_eq!(fixture["response"], actual, "{}", path.display());
         } else {

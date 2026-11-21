@@ -1,0 +1,11 @@
+{
+  "request": {
+    "v": 1,
+    "op": "network_list"
+  },
+  "response": {
+    "ok": true,
+    "networks": []
+  },
+  "exact": false
+}

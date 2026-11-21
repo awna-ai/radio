@@ -39,9 +39,12 @@ fn answer_wait(request: &Request) -> Duration {
         // The daemon answers a send within 135 s.
         Request::Send { .. } => Duration::from_secs(150),
         Request::Message { .. } => Duration::from_secs(60),
-        Request::Join { .. } | Request::ComputerRemove { .. } | Request::Leave {} => {
-            Duration::from_secs(120)
-        }
+        Request::Join { .. }
+        | Request::ComputerRemove { .. }
+        | Request::Leave {}
+        | Request::NetworkJoin { .. }
+        | Request::NetworkComputerRemove { .. }
+        | Request::NetworkLeave { .. } => Duration::from_secs(120),
         _ => TIMEOUT,
     }
 }

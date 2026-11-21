@@ -543,7 +543,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":13},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":14},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -3850,4 +3850,382 @@ fn a_seat_can_step_a_partial_round_with_membership_checked_first() {
         1
     );
     worker.join().unwrap();
+}
+
+#[test]
+fn network_list_init_and_scope_keep_the_personal_network_fixed() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    assert_eq!(
+        serde_json::to_value(
+            server
+                .dispatch(serde_json::json!({"v":1,"op":"network_list"}))
+                .unwrap()
+        )
+        .unwrap(),
+        serde_json::json!({"ok":true,"networks":[]})
+    );
+    assert_eq!(
+        server
+            .dispatch(serde_json::json!({"v":1,"op":"network_init","name":"Garden"}))
+            .unwrap_err(),
+        "not a network name"
+    );
+    let found = serde_json::to_value(
+        server
+            .dispatch(serde_json::json!({"v":1,"op":"network_init","name":"garden"}))
+            .unwrap(),
+    )
+    .unwrap();
+    let network = &found["network"];
+    assert_eq!(network["name"], "garden");
+    assert_eq!(network["scope"], "personal");
+    assert_eq!(network["state"], "member");
+    assert_eq!(network["work_together"], false);
+    assert_eq!(network["version"], 1);
+    assert!(network["founder"].is_string());
+    assert!(found["fleet"].is_null());
+    assert!(found["recovery_file"].is_string());
+    let id = network["id"].clone();
+    let mut listed = network.clone();
+    listed.as_object_mut().unwrap().remove("version");
+    listed.as_object_mut().unwrap().remove("founder");
+    assert_eq!(
+        serde_json::to_value(
+            server
+                .dispatch(serde_json::json!({"v":1,"op":"network_list"}))
+                .unwrap()
+        )
+        .unwrap(),
+        serde_json::json!({"ok":true,"networks":[listed]})
+    );
+    for (scope, phrase) in [
+        ("internal", "the personal network's scope is fixed"),
+        ("external", "the personal network's scope is fixed"),
+        ("personal", "a network's scope is internal or external"),
+        ("other", "not a scope"),
+    ] {
+        assert_eq!(
+            server
+                .dispatch(
+                    serde_json::json!({"v":1,"op":"network_scope_set","network":id,"scope":scope})
+                )
+                .unwrap_err(),
+            phrase
+        );
+    }
+    assert_eq!(
+        server
+            .dispatch(serde_json::json!({"v":1,"op":"network_init","name":"orchard"}))
+            .unwrap_err(),
+        "already in a personal network"
+    );
+    assert_eq!(
+        server
+            .dispatch(serde_json::json!({"v":1,"op":"fleet_init","name":"orchard"}))
+            .unwrap_err(),
+        "already in a fleet"
+    );
+}
+
+#[test]
+fn network_twins_refuse_unknown_ids_before_acting() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    for initialized in [false, true] {
+        if initialized {
+            server
+                .apply(Request::FleetInit {
+                    name: "garden".into(),
+                })
+                .unwrap();
+        }
+        if initialized {
+            server
+                .fleet_db()
+                .unwrap()
+                .add_network(
+                    &"b".repeat(64),
+                    "birch",
+                    radio_link::fleet_db::Scope::Internal,
+                )
+                .unwrap();
+        }
+        for id in ["birch".to_owned(), "b".repeat(64)] {
+            for (op, extra) in [
+                ("network_scope_set", serde_json::json!({"scope":"external"})),
+                ("network_scope_set", serde_json::json!({"scope":"personal"})),
+                ("network_scope_set", serde_json::json!({"scope":"unknown"})),
+                ("network_code_create", serde_json::json!({})),
+                ("network_code_list", serde_json::json!({})),
+                ("network_code_revoke", serde_json::json!({"id":"bad"})),
+                ("network_leave", serde_json::json!({})),
+                ("network_computer_list", serde_json::json!({})),
+                (
+                    "network_computer_accept",
+                    serde_json::json!({"computer":"birch"}),
+                ),
+                (
+                    "network_computer_block",
+                    serde_json::json!({"computer":"birch"}),
+                ),
+                (
+                    "network_computer_trust",
+                    serde_json::json!({"computer":"birch"}),
+                ),
+                (
+                    "network_computer_remove",
+                    serde_json::json!({"computer":"birch"}),
+                ),
+            ] {
+                let mut request = serde_json::json!({"v":1,"op":op,"network":id});
+                request
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(extra.as_object().unwrap().clone());
+                assert_eq!(
+                    server.dispatch(request).unwrap_err(),
+                    "no such network",
+                    "{op}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn network_join_and_delivery_keep_the_old_no_address_errors() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    for (code, phrase) in [
+        ("rj1.nope".to_owned(), "not a join code"),
+        (joining_code(false), "the join code has no address to dial"),
+        (joining_code(true), "this computer has no link address"),
+    ] {
+        assert_eq!(
+            server
+                .dispatch(serde_json::json!({"v":1,"op":"network_join","code":code}))
+                .unwrap_err(),
+            phrase
+        );
+    }
+    let found = server
+        .apply(Request::FleetInit {
+            name: "garden".into(),
+        })
+        .unwrap();
+    let id = found.fleet.unwrap().id;
+    for op in ["network_leave", "network_computer_remove"] {
+        let mut value = serde_json::json!({"v":1,"op":op,"network":id});
+        if op == "network_computer_remove" {
+            value["computer"] = "birch".into();
+        }
+        assert_eq!(
+            server.dispatch(value).unwrap_err(),
+            "this computer has no link address"
+        );
+    }
+}
+
+#[test]
+fn network_code_and_computer_twins_share_the_legacy_actions() {
+    use radio_link::{SecretKey, membership};
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    let found = server
+        .apply(Request::FleetInit {
+            name: "garden".into(),
+        })
+        .unwrap();
+    let id = found.fleet.unwrap().id;
+    let created = serde_json::to_value(server.dispatch(serde_json::json!({"v":1,"op":"network_code_create","network":id,"name":"birch","ttl":1800})).unwrap()).unwrap();
+    assert_eq!(
+        created["network"],
+        serde_json::json!({"id":id,"name":"garden","scope":"personal","state":"member","work_together":false})
+    );
+    assert!(created["code_id"].is_string());
+    assert!(created["expires_at"].is_number());
+    let code = radio_link::code::JoinCode::parse(created["code"].as_str().unwrap()).unwrap();
+    assert_eq!(code.fleet, id);
+    let legacy = server.apply(Request::CodeList {}).unwrap();
+    let twin = server
+        .dispatch(serde_json::json!({"v":1,"op":"network_code_list","network":id}))
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(legacy.codes).unwrap(),
+        serde_json::to_value(twin.codes).unwrap()
+    );
+    let node = radio_link::key::load_or_create(&link).unwrap();
+    let birch = SecretKey::from_bytes(&[91; 32]);
+    server
+        .fleet_db()
+        .unwrap()
+        .admit(
+            &node,
+            "test-host",
+            &[],
+            &code,
+            &birch.public(),
+            "birch",
+            &["127.0.0.1:7000".parse().unwrap()],
+            &membership::consent(
+                &birch,
+                &id,
+                &node.public().to_string(),
+                "birch",
+                &["127.0.0.1:7000".parse().unwrap()],
+            ),
+            now().unwrap(),
+        )
+        .unwrap();
+    for (legacy, op) in [
+        (
+            Request::ComputerAccept {
+                computer: "birch".into(),
+            },
+            "network_computer_accept",
+        ),
+        (
+            Request::ComputerTrust {
+                computer: "birch".into(),
+            },
+            "network_computer_trust",
+        ),
+        (
+            Request::ComputerBlock {
+                computer: "birch".into(),
+            },
+            "network_computer_block",
+        ),
+        (
+            Request::ComputerAccept {
+                computer: "birch".into(),
+            },
+            "network_computer_accept",
+        ),
+    ] {
+        let old = serde_json::to_value(server.apply(legacy).unwrap()).unwrap();
+        let new = serde_json::to_value(
+            server
+                .dispatch(serde_json::json!({"v":1,"op":op,"network":id,"computer":"birch"}))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(old["computer"], new["computer"]);
+        assert_eq!(new["network"], created["network"]);
+    }
+    let old = serde_json::to_value(server.apply(Request::ComputerList {}).unwrap()).unwrap();
+    let new = serde_json::to_value(
+        server
+            .dispatch(serde_json::json!({"v":1,"op":"network_computer_list","network":id}))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(old["computers"], new["computers"]);
+    assert_eq!(new["network"], created["network"]);
+    for op in ["network_code_revoke", "code_revoke"] {
+        let code = server
+            .apply(Request::CodeCreate {
+                name: None,
+                ttl: None,
+            })
+            .unwrap();
+        let mut request = serde_json::json!({"v":1,"op":op,"id":code.code_id.unwrap()});
+        if op == "network_code_revoke" {
+            request["network"] = id.clone().into();
+        }
+        let revoked = serde_json::to_value(server.dispatch(request.clone()).unwrap()).unwrap();
+        assert_eq!(revoked["removed"], true);
+        assert_eq!(
+            serde_json::to_value(server.dispatch(request).unwrap()).unwrap()["removed"],
+            false
+        );
+        if op == "network_code_revoke" {
+            assert_eq!(revoked["network"], created["network"]);
+        }
+    }
+}
+
+#[test]
+fn network_leave_answers_with_the_row_it_removes() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"))
+        .with_link_port(0);
+    let found = serde_json::to_value(
+        server
+            .dispatch(serde_json::json!({"v":1,"op":"network_init","name":"garden"}))
+            .unwrap(),
+    )
+    .unwrap();
+    let id = found["network"]["id"].clone();
+    server
+        .fleet_db()
+        .unwrap()
+        .add_link_address("127.0.0.1".parse().unwrap())
+        .unwrap();
+    let left = serde_json::to_value(
+        server
+            .dispatch(serde_json::json!({"v":1,"op":"network_leave","network":id}))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        left,
+        serde_json::json!({"ok":true,"network":{"id":id,"name":"garden","scope":"personal","state":"member","work_together":false},"delivered":0})
+    );
+    assert_eq!(
+        serde_json::to_value(
+            server
+                .dispatch(serde_json::json!({"v":1,"op":"network_list"}))
+                .unwrap()
+        )
+        .unwrap(),
+        serde_json::json!({"ok":true,"networks":[]})
+    );
+}
+
+#[test]
+fn network_phrases_change_only_the_twin_words() {
+    for (old, new) in [
+        ("already in a fleet", "already in a personal network"),
+        ("not in a fleet", "no such network"),
+        ("not a fleet name", "not a network name"),
+        ("the fleet store is busy", "the network store is busy"),
+        (
+            "the fleet folder is not usable",
+            "the network folder is not usable",
+        ),
+        (
+            "still telling the other computers; check computer_list later",
+            "still telling the other computers; check network_computer_list later",
+        ),
+        ("not a member", "not a member"),
+        (
+            "this computer has no link address",
+            "this computer has no link address",
+        ),
+        ("fleet.db could not be read", "fleet.db could not be read"),
+    ] {
+        assert_eq!(network_phrase(old), new);
+        assert_eq!(
+            failure(old.into()).refused,
+            failure(network_phrase(old).into()).refused
+        );
+    }
 }

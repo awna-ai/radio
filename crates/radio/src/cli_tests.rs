@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 13);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 14);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1511,4 +1511,102 @@ fn stepping_a_deliberation_requires_an_author() {
     );
     assert_eq!(command.body, None);
     assert!(parse(&args(&words[..3])).is_err());
+}
+
+#[test]
+fn network_words_parse_to_their_requests() {
+    for (words, value) in [
+        (
+            vec!["network", "list"],
+            serde_json::json!({"op":"network_list"}),
+        ),
+        (
+            vec!["network", "scope", "garden", "external"],
+            serde_json::json!({"op":"network_scope_set","network":"garden","scope":"external"}),
+        ),
+        (
+            vec!["network", "init", "garden"],
+            serde_json::json!({"op":"network_init","name":"garden"}),
+        ),
+        (
+            vec!["network", "code", "create", "garden"],
+            serde_json::json!({"op":"network_code_create","network":"garden"}),
+        ),
+        (
+            vec![
+                "network", "code", "create", "garden", "--name", "birch", "--ttl", "2h",
+            ],
+            serde_json::json!({"op":"network_code_create","network":"garden","name":"birch","ttl":7200}),
+        ),
+        (
+            vec!["network", "code", "create", "garden", "--ttl", "90"],
+            serde_json::json!({"op":"network_code_create","network":"garden","ttl":90}),
+        ),
+        (
+            vec!["network", "code", "list", "garden"],
+            serde_json::json!({"op":"network_code_list","network":"garden"}),
+        ),
+        (
+            vec!["network", "code", "revoke", "garden", "code"],
+            serde_json::json!({"op":"network_code_revoke","network":"garden","id":"code"}),
+        ),
+        (
+            vec!["network", "leave", "garden"],
+            serde_json::json!({"op":"network_leave","network":"garden"}),
+        ),
+        (
+            vec!["network", "computer", "list", "garden"],
+            serde_json::json!({"op":"network_computer_list","network":"garden"}),
+        ),
+        (
+            vec!["network", "computer", "accept", "garden", "birch"],
+            serde_json::json!({"op":"network_computer_accept","network":"garden","computer":"birch"}),
+        ),
+        (
+            vec!["network", "computer", "block", "garden", "birch"],
+            serde_json::json!({"op":"network_computer_block","network":"garden","computer":"birch"}),
+        ),
+        (
+            vec!["network", "computer", "trust", "garden", "birch"],
+            serde_json::json!({"op":"network_computer_trust","network":"garden","computer":"birch"}),
+        ),
+        (
+            vec!["network", "computer", "remove", "garden", "birch"],
+            serde_json::json!({"op":"network_computer_remove","network":"garden","computer":"birch"}),
+        ),
+    ] {
+        let command = parse(&args(&words)).unwrap();
+        assert_eq!(
+            serde_json::to_value(command.request).unwrap(),
+            value,
+            "{words:?}"
+        );
+        assert_eq!(command.body, None);
+    }
+}
+
+#[test]
+fn network_join_reads_only_standard_input() {
+    for input in ["rj1.nope", "rj1.nope\n", "rj1.nope\r\n"] {
+        let command = parse(&args(&["network", "join"])).unwrap();
+        assert_eq!(command.body, Some(BodySource::File("-".into())));
+        assert_eq!(
+            serde_json::to_value(command.resolve(input.as_bytes()).unwrap()).unwrap(),
+            serde_json::json!({"op":"network_join","code":"rj1.nope"})
+        );
+    }
+    for words in [
+        vec!["network", "join", "rj1.nope"],
+        vec!["network", "join", "--code", "rj1.nope"],
+    ] {
+        assert!(parse(&args(&words)).is_err());
+    }
+    for input in ["", "\n", "\r\n"] {
+        assert_eq!(
+            parse(&args(&["network", "join"]))
+                .unwrap()
+                .resolve(input.as_bytes()),
+            Err((2, "radio: no join code on standard input".into()))
+        );
+    }
 }

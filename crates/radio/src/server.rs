@@ -482,37 +482,40 @@ impl Server {
                 response.majors = Some(SUPPORTED_MAJORS.to_vec());
                 response.ops = Some(OPS.iter().map(|op| (*op).into()).collect());
             }
+            request @ (Request::Join { .. }
+            | Request::ComputerRemove { .. }
+            | Request::Leave { .. }
+            | Request::FleetInit { .. }
+            | Request::CodeCreate { .. }
+            | Request::CodeList { .. }
+            | Request::CodeRevoke { .. }
+            | Request::ComputerList { .. }
+            | Request::ComputerAccept { .. }
+            | Request::ComputerBlock { .. }
+            | Request::ComputerTrust { .. }) => {
+                return self.fleet_request(request, now);
+            }
+            request @ (Request::NetworkList { .. }
+            | Request::NetworkScopeSet { .. }
+            | Request::NetworkInit { .. }
+            | Request::NetworkCodeCreate { .. }
+            | Request::NetworkCodeList { .. }
+            | Request::NetworkCodeRevoke { .. }
+            | Request::NetworkJoin { .. }
+            | Request::NetworkLeave { .. }
+            | Request::NetworkComputerList { .. }
+            | Request::NetworkComputerAccept { .. }
+            | Request::NetworkComputerBlock { .. }
+            | Request::NetworkComputerTrust { .. }
+            | Request::NetworkComputerRemove { .. }) => {
+                return self
+                    .network_request(request, now)
+                    .map_err(|error| network_phrase(&error).to_owned());
+            }
             Request::Id {} => {
                 let dir = self.link_dir.as_deref().ok_or("the link is not set up")?;
                 let key = radio_link::key::load_or_create(dir)?;
                 response.id = Some(radio_link::key::endpoint_id(&key));
-            }
-            Request::Join { code } => {
-                let code = radio_link::code::JoinCode::parse(&code)?;
-                if self.fleet_db()?.fleet()?.is_some() {
-                    return Err("already in a fleet".into());
-                }
-                if code.hints.direct.is_empty() {
-                    return Err("the join code has no address to dial".into());
-                }
-                self.start_link()?;
-                self.link.as_ref().unwrap().join(code, now)?;
-                let record = self.fleet_db()?.fleet()?.ok_or("not in a fleet")?;
-                response.fleet = Some(Fleet {
-                    id: record.body.id,
-                    name: record.body.name,
-                    version: record.body.version,
-                    founder: record.body.founder,
-                });
-            }
-            Request::ComputerRemove { computer } => {
-                self.start_link()?;
-                response.delivered =
-                    Some(self.link.as_ref().unwrap().remove(&computer, now)? as u64);
-            }
-            Request::Leave {} => {
-                self.start_link()?;
-                response.delivered = Some(self.link.as_ref().unwrap().leave(now)? as u64);
             }
             Request::Keep { app, computers } => {
                 if !self.store.registered(&app)? {
@@ -642,74 +645,6 @@ impl Server {
                         })
                         .collect(),
                 );
-            }
-            Request::FleetInit { name } => {
-                drop(self.fleet_db()?);
-                let dir = self.link_dir.as_deref().unwrap().to_path_buf();
-                let node = radio_link::key::load_or_create(&dir)?;
-                let dir = absolute_link_dir(&dir)?;
-                let (record, file) = self.fleet_db()?.found(&node, &name, &dir)?;
-                response.fleet = Some(Fleet {
-                    id: record.body.id,
-                    name: record.body.name,
-                    version: record.body.version,
-                    founder: record.body.founder,
-                });
-                response.recovery_file = Some(file.to_string_lossy().into_owned());
-            }
-            Request::CodeCreate { name, ttl } => {
-                self.retry_link()?;
-                let dir = self.link_dir.as_deref().unwrap();
-                let node = radio_link::key::load_or_create(dir)?;
-                let hints = radio_link::code::Hints {
-                    direct: self.fleet_db()?.direct_addrs()?,
-                };
-                let (code, row) =
-                    self.fleet_db()?
-                        .create_code(&node, name.as_deref(), ttl, hints, now)?;
-                response.code = Some(code.encode());
-                response.code_id = Some(row.id);
-                response.expires_at = Some(row.expires_at);
-            }
-            Request::CodeList {} => {
-                response.codes = Some(
-                    self.fleet_db()?
-                        .codes(now)?
-                        .into_iter()
-                        .map(|row| JoinCodeInfo {
-                            id: row.id,
-                            name: row.name,
-                            created: row.created,
-                            expires_at: row.expires_at,
-                            uses: row.uses,
-                        })
-                        .collect(),
-                );
-            }
-            Request::CodeRevoke { id } => {
-                response.removed = Some(self.fleet_db()?.revoke_code(&id, now)?);
-            }
-            Request::ComputerList {} => {
-                let db = self.fleet_db()?;
-                db.fleet()?.ok_or("not in a fleet")?;
-                response.computers = Some(db.computers()?.into_iter().map(computer).collect());
-            }
-            Request::ComputerAccept { computer: target } => {
-                let row = match &self.link {
-                    Some(node) => node.accept(&target)?,
-                    None => self.fleet_db()?.accept(&target)?,
-                };
-                response.computer = Some(computer(row));
-            }
-            Request::ComputerBlock { computer: target } => {
-                let row = match &self.link {
-                    Some(node) => node.block(&target)?,
-                    None => self.fleet_db()?.block(&target)?,
-                };
-                response.computer = Some(computer(row));
-            }
-            Request::ComputerTrust { computer: target } => {
-                response.computer = Some(computer(self.fleet_db()?.trust(&target)?));
             }
             Request::Resign {
                 app,
@@ -972,6 +907,207 @@ impl Server {
         Ok(response)
     }
 
+    /// The released fleet operations, shared by their network counterparts.
+    fn fleet_request(&mut self, request: Request, now: f64) -> Result<Response, String> {
+        let mut response = success();
+        match request {
+            Request::Join { code } => {
+                let code = radio_link::code::JoinCode::parse(&code)?;
+                if self.fleet_db()?.fleet()?.is_some() {
+                    return Err("already in a fleet".into());
+                }
+                if code.hints.direct.is_empty() {
+                    return Err("the join code has no address to dial".into());
+                }
+                self.start_link()?;
+                self.link.as_ref().unwrap().join(code, now)?;
+                let record = self.fleet_db()?.fleet()?.ok_or("not in a fleet")?;
+                response.fleet = Some(Fleet {
+                    id: record.body.id,
+                    name: record.body.name,
+                    version: record.body.version,
+                    founder: record.body.founder,
+                });
+            }
+            Request::ComputerRemove { computer } => {
+                self.start_link()?;
+                response.delivered =
+                    Some(self.link.as_ref().unwrap().remove(&computer, now)? as u64);
+            }
+            Request::Leave {} => {
+                self.start_link()?;
+                response.delivered = Some(self.link.as_ref().unwrap().leave(now)? as u64);
+            }
+            Request::FleetInit { name } => {
+                drop(self.fleet_db()?);
+                let dir = self.link_dir.as_deref().unwrap().to_path_buf();
+                let node = radio_link::key::load_or_create(&dir)?;
+                let dir = absolute_link_dir(&dir)?;
+                let (record, file) = self.fleet_db()?.found(&node, &name, &dir)?;
+                response.fleet = Some(Fleet {
+                    id: record.body.id,
+                    name: record.body.name,
+                    version: record.body.version,
+                    founder: record.body.founder,
+                });
+                response.recovery_file = Some(file.to_string_lossy().into_owned());
+            }
+            Request::CodeCreate { name, ttl } => {
+                self.retry_link()?;
+                let dir = self.link_dir.as_deref().unwrap();
+                let node = radio_link::key::load_or_create(dir)?;
+                let hints = radio_link::code::Hints {
+                    direct: self.fleet_db()?.direct_addrs()?,
+                };
+                let (code, row) =
+                    self.fleet_db()?
+                        .create_code(&node, name.as_deref(), ttl, hints, now)?;
+                response.code = Some(code.encode());
+                response.code_id = Some(row.id);
+                response.expires_at = Some(row.expires_at);
+            }
+            Request::CodeList {} => {
+                response.codes = Some(
+                    self.fleet_db()?
+                        .codes(now)?
+                        .into_iter()
+                        .map(|row| JoinCodeInfo {
+                            id: row.id,
+                            name: row.name,
+                            created: row.created,
+                            expires_at: row.expires_at,
+                            uses: row.uses,
+                        })
+                        .collect(),
+                );
+            }
+            Request::CodeRevoke { id } => {
+                response.removed = Some(self.fleet_db()?.revoke_code(&id, now)?);
+            }
+            Request::ComputerList {} => {
+                let db = self.fleet_db()?;
+                db.fleet()?.ok_or("not in a fleet")?;
+                response.computers = Some(db.computers()?.into_iter().map(computer).collect());
+            }
+            Request::ComputerAccept { computer: target } => {
+                let row = match &self.link {
+                    Some(node) => node.accept(&target)?,
+                    None => self.fleet_db()?.accept(&target)?,
+                };
+                response.computer = Some(computer(row));
+            }
+            Request::ComputerBlock { computer: target } => {
+                let row = match &self.link {
+                    Some(node) => node.block(&target)?,
+                    None => self.fleet_db()?.block(&target)?,
+                };
+                response.computer = Some(computer(row));
+            }
+            Request::ComputerTrust { computer: target } => {
+                response.computer = Some(computer(self.fleet_db()?.trust(&target)?));
+            }
+            _ => unreachable!("not a fleet operation"),
+        }
+        Ok(response)
+    }
+
+    fn require_personal_network(&mut self, id: &str) -> Result<radio_client::NetworkInfo, String> {
+        let network = self
+            .fleet_db()?
+            .personal_network()?
+            .ok_or("no such network")?;
+        if network.id != id {
+            return Err("no such network".into());
+        }
+        Ok(network_info(network))
+    }
+
+    fn network_request(&mut self, request: Request, now: f64) -> Result<Response, String> {
+        let (id, legacy) = match request {
+            Request::NetworkList {} => {
+                return Ok(Response {
+                    networks: Some(
+                        self.fleet_db()?
+                            .networks()?
+                            .into_iter()
+                            .map(network_info)
+                            .collect(),
+                    ),
+                    ..success()
+                });
+            }
+            Request::NetworkScopeSet { network, scope } => {
+                self.require_personal_network(&network)?;
+                let scope = radio_link::fleet_db::Scope::parse(&scope)?;
+                if scope == radio_link::fleet_db::Scope::Personal {
+                    return Err("a network's scope is internal or external".into());
+                }
+                return Ok(Response {
+                    network: Some(network_info(
+                        self.fleet_db()?.set_network_scope(&network, scope)?,
+                    )),
+                    ..success()
+                });
+            }
+            Request::NetworkInit { name } => (None, Request::FleetInit { name }),
+            Request::NetworkJoin { code } => (None, Request::Join { code }),
+            Request::NetworkCodeCreate { network, name, ttl } => {
+                (Some(network), Request::CodeCreate { name, ttl })
+            }
+            Request::NetworkCodeList { network } => (Some(network), Request::CodeList {}),
+            Request::NetworkCodeRevoke { network, id } => {
+                (Some(network), Request::CodeRevoke { id })
+            }
+            Request::NetworkLeave { network } => (Some(network), Request::Leave {}),
+            Request::NetworkComputerList { network } => (Some(network), Request::ComputerList {}),
+            Request::NetworkComputerAccept { network, computer } => {
+                (Some(network), Request::ComputerAccept { computer })
+            }
+            Request::NetworkComputerBlock { network, computer } => {
+                (Some(network), Request::ComputerBlock { computer })
+            }
+            Request::NetworkComputerTrust { network, computer } => {
+                (Some(network), Request::ComputerTrust { computer })
+            }
+            Request::NetworkComputerRemove { network, computer } => {
+                (Some(network), Request::ComputerRemove { computer })
+            }
+            _ => unreachable!("not a network operation"),
+        };
+        let before = id
+            .as_deref()
+            .map(|id| self.require_personal_network(id))
+            .transpose()?;
+        let leaving = matches!(legacy, Request::Leave {});
+        let result = self.fleet_request(legacy, now);
+        // A slow leave keeps telling peers after its answer, and may already have cleared the row.
+        let mut response = match result {
+            Ok(response) => response,
+            Err(error)
+                if leaving
+                    && error == "still telling the other computers; check computer_list later" =>
+            {
+                failure(network_phrase(&error).to_owned())
+            }
+            Err(error) => return Err(error),
+        };
+        let mut network = if leaving {
+            before.ok_or("no such network")?
+        } else {
+            network_info(
+                self.fleet_db()?
+                    .personal_network()?
+                    .ok_or("no such network")?,
+            )
+        };
+        if let Some(fleet) = response.fleet.take() {
+            network.version = Some(fleet.version);
+            network.founder = Some(fleet.founder);
+        }
+        response.network = Some(network);
+        Ok(response)
+    }
+
     fn require_room(&self, room: &str) -> Result<(), String> {
         self.store
             .room(room)?
@@ -1163,6 +1299,32 @@ fn peer_uid(stream: &UnixStream) -> Option<u32> {
         )
     };
     (result == 0 && len as usize == std::mem::size_of::<libc::ucred>()).then_some(credentials.uid)
+}
+
+fn network_info(row: radio_link::fleet_db::Network) -> radio_client::NetworkInfo {
+    radio_client::NetworkInfo {
+        id: row.id,
+        name: row.name,
+        scope: row.scope.as_str().into(),
+        state: row.state.into(),
+        work_together: row.work_together,
+        version: None,
+        founder: None,
+    }
+}
+
+fn network_phrase(phrase: &str) -> &str {
+    match phrase {
+        "already in a fleet" => "already in a personal network",
+        "not in a fleet" => "no such network",
+        "not a fleet name" => "not a network name",
+        "the fleet store is busy" => "the network store is busy",
+        "the fleet folder is not usable" => "the network folder is not usable",
+        "still telling the other computers; check computer_list later" => {
+            "still telling the other computers; check network_computer_list later"
+        }
+        _ => phrase,
+    }
 }
 
 fn computer(row: radio_link::fleet_db::Computer) -> Computer {

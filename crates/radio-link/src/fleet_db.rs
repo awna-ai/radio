@@ -26,7 +26,7 @@ use std::{
 };
 
 pub const DB_FILE: &str = "fleet.db";
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 pub const JOIN_RECORDS_MAX: usize = 256 * 1024;
 pub const CODES_MAX: usize = 64;
 pub const TTL_DEFAULT: u64 = 30 * 60;
@@ -128,6 +128,52 @@ CREATE TABLE announcements (
     announcement TEXT NOT NULL
 ) STRICT;
 ";
+
+const SCHEMA_8: &str = "
+CREATE TABLE networks (
+    id TEXT PRIMARY KEY CHECK (length(id) = 64),
+    scope TEXT NOT NULL CHECK (scope IN ('personal', 'internal', 'external')),
+    name TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('member')),
+    work_together INTEGER NOT NULL DEFAULT 0 CHECK (work_together IN (0, 1))
+) STRICT;
+CREATE UNIQUE INDEX one_personal ON networks (scope) WHERE scope = 'personal';
+";
+
+pub const NETWORKS_OTHER_MAX: usize = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    Personal,
+    Internal,
+    External,
+}
+impl Scope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Personal => "personal",
+            Self::Internal => "internal",
+            Self::External => "external",
+        }
+    }
+    pub fn parse(value: &str) -> Result<Self, &'static str> {
+        match value {
+            "personal" => Ok(Self::Personal),
+            "internal" => Ok(Self::Internal),
+            "external" => Ok(Self::External),
+            _ => Err("not a scope"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Network {
+    pub id: String,
+    pub name: String,
+    pub scope: Scope,
+    pub state: &'static str,
+    pub work_together: bool,
+}
 
 pub const INTRODUCTIONS_PER_DAY: i64 = 3;
 pub const DAY: f64 = 86400.0;
@@ -240,6 +286,99 @@ impl FleetDb {
             .map_err(|_| WRITE)?;
         migrate(&mut conn)?;
         Ok(Self { conn, folder })
+    }
+
+    pub fn networks(&self) -> Result<Vec<Network>, &'static str> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, scope, state, work_together FROM networks ORDER BY scope != 'personal', name, id",
+        ).map_err(|_| READ)?;
+        stmt.query_map([], network_row)
+            .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+            .map_err(|_| READ)
+    }
+
+    pub fn network(&self, id: &str) -> Result<Network, &'static str> {
+        load_network(&self.conn, id)?.ok_or("no such network")
+    }
+
+    pub fn personal_network(&self) -> Result<Option<Network>, &'static str> {
+        self.conn.query_row(
+            "SELECT id, name, scope, state, work_together FROM networks WHERE scope = 'personal'",
+            [], network_row,
+        ).optional().map_err(|_| READ)
+    }
+
+    pub fn set_network_scope(&mut self, id: &str, scope: Scope) -> Result<Network, &'static str> {
+        if scope == Scope::Personal {
+            return Err("a network's scope is internal or external");
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        let mut network = load_network(&tx, id)?.ok_or("no such network")?;
+        if network.scope == Scope::Personal {
+            return Err("the personal network's scope is fixed");
+        }
+        if network.scope != scope {
+            tx.execute(
+                "UPDATE networks SET scope = ?1 WHERE id = ?2",
+                params![scope.as_str(), id],
+            )
+            .map_err(|_| WRITE)?;
+            network.scope = scope;
+        }
+        tx.commit().map_err(|_| WRITE)?;
+        Ok(network)
+    }
+
+    /// Store seam for creating or joining another network in a later step.
+    pub fn add_network(
+        &mut self,
+        id: &str,
+        name: &str,
+        scope: Scope,
+    ) -> Result<Network, &'static str> {
+        if !wire::hex64(id) {
+            return Err("not a network id");
+        }
+        if !wire::member_name(name) {
+            return Err("not a network name");
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| WRITE)?;
+        if load_network(&tx, id)?.is_some() {
+            return Err("already in that network");
+        }
+        if scope == Scope::Personal {
+            let exists: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM networks WHERE scope = 'personal')",
+                    [],
+                    |r| r.get(0),
+                )
+                .map_err(|_| READ)?;
+            if exists {
+                return Err("already in a personal network");
+            }
+        } else {
+            let count: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM networks WHERE scope != 'personal'",
+                    [],
+                    |r| r.get(0),
+                )
+                .map_err(|_| READ)?;
+            if count >= NETWORKS_OTHER_MAX as i64 {
+                return Err("too many networks; at most 8 besides the personal one");
+            }
+        }
+        insert_network(&tx, id, name, scope)?;
+        let network = load_network(&tx, id)?.ok_or(READ)?;
+        tx.commit().map_err(|_| WRITE)?;
+        Ok(network)
     }
 
     pub fn set_delivery_folder(&mut self, app: &str, folder: &Path) -> Result<(), &'static str> {
@@ -498,6 +637,7 @@ impl FleetDb {
             let text = serde_json::to_string(&record).map_err(|_| WRITE)?;
             tx.execute("INSERT INTO fleet (one, record) VALUES (1, ?1)", [text])
                 .map_err(|_| WRITE)?;
+            insert_network(&tx, &record.body.id, &record.body.name, Scope::Personal)?;
             tx.execute("INSERT INTO local VALUES (1, 1, NULL)", [])
                 .map_err(|_| WRITE)?;
             tx.commit().map_err(|_| WRITE)
@@ -1036,6 +1176,12 @@ impl FleetDb {
             [serde_json::to_string(&answer.fleet).map_err(|_| WRITE)?],
         )
         .map_err(|_| WRITE)?;
+        insert_network(
+            &tx,
+            &answer.fleet.body.id,
+            &answer.fleet.body.name,
+            Scope::Personal,
+        )?;
         for known in &answer.computers {
             insert_computer(&tx, known, State::Accepted, now)?;
         }
@@ -1468,6 +1614,45 @@ fn read_link_addresses(conn: &Connection) -> Result<Vec<IpAddr>, &'static str> {
         .collect()
 }
 
+fn network_row(row: &Row<'_>) -> rusqlite::Result<Network> {
+    let scope: String = row.get(2)?;
+    let state: String = row.get(3)?;
+    if state != "member" {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(Network {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        scope: Scope::parse(&scope).map_err(|_| rusqlite::Error::InvalidQuery)?,
+        state: "member",
+        work_together: row.get(4)?,
+    })
+}
+
+fn load_network(conn: &Connection, id: &str) -> Result<Option<Network>, &'static str> {
+    conn.query_row(
+        "SELECT id, name, scope, state, work_together FROM networks WHERE id = ?1",
+        [id],
+        network_row,
+    )
+    .optional()
+    .map_err(|_| READ)
+}
+
+fn insert_network(
+    tx: &Transaction<'_>,
+    id: &str,
+    name: &str,
+    scope: Scope,
+) -> Result<(), &'static str> {
+    tx.execute(
+        "INSERT INTO networks (id, name, scope, state) VALUES (?1, ?2, ?3, 'member')",
+        params![id, name, scope.as_str()],
+    )
+    .map_err(|_| WRITE)?;
+    Ok(())
+}
+
 fn load_fleet(conn: &Connection) -> Result<Option<FleetRecord>, &'static str> {
     let text: Option<String> = conn
         .query_row("SELECT record FROM fleet WHERE one = 1", [], |row| {
@@ -1712,7 +1897,7 @@ fn delete_computer(tx: &Transaction<'_>, key: &str) -> Result<(), &'static str> 
     Ok(())
 }
 fn clear_fleet(tx: &Transaction<'_>) -> Result<(), &'static str> {
-    tx.execute_batch("DELETE FROM announcements; DELETE FROM computer_records; DELETE FROM local; DELETE FROM computers; DELETE FROM tombstones; DELETE FROM held; DELETE FROM records; DELETE FROM codes; DELETE FROM fleet;").map_err(|_| WRITE)
+    tx.execute_batch("DELETE FROM announcements; DELETE FROM computer_records; DELETE FROM local; DELETE FROM computers; DELETE FROM tombstones; DELETE FROM held; DELETE FROM records; DELETE FROM codes; DELETE FROM fleet; DELETE FROM networks WHERE scope = 'personal';").map_err(|_| WRITE)
 }
 
 fn resolve(conn: &Connection, target: &str) -> Result<Computer, &'static str> {
@@ -1892,7 +2077,7 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
             tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?;
         }
         2 => tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?,
-        3..=6 => {}
+        3..=7 => {}
         SCHEMA_VERSION => return Ok(()),
         value if value > SCHEMA_VERSION => return Err("fleet.db is newer than this build"),
         _ => return Err(READ),
@@ -1906,7 +2091,15 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
     if version < 6 {
         tx.execute_batch(SCHEMA_6).map_err(|_| WRITE)?;
     }
-    tx.execute_batch(SCHEMA_7).map_err(|_| WRITE)?;
+    if version < 7 {
+        tx.execute_batch(SCHEMA_7).map_err(|_| WRITE)?;
+    }
+    if version < 8 {
+        tx.execute_batch(SCHEMA_8).map_err(|_| WRITE)?;
+        if let Some(fleet) = load_fleet(&tx)? {
+            insert_network(&tx, &fleet.body.id, &fleet.body.name, Scope::Personal)?;
+        }
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|_| WRITE)?;
     tx.commit().map_err(|_| WRITE)

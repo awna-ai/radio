@@ -1,0 +1,12 @@
+{
+  "request": {
+    "v": 1,
+    "op": "network_leave",
+    "network": "<network>"
+  },
+  "response": {
+    "ok": false,
+    "error": "this computer has no link address"
+  },
+  "exact": true
+}

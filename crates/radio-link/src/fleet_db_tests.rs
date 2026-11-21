@@ -3903,7 +3903,7 @@ fn migrates_version_six_with_an_announcements_table() {
     let temp = Temp::new();
     let (db, _) = temp.found();
     db.conn
-        .execute_batch("DROP TABLE announcements; PRAGMA user_version = 6;")
+        .execute_batch("DROP TABLE networks; DROP TABLE announcements; PRAGMA user_version = 6;")
         .unwrap();
     drop(db);
     let db = temp.open();
@@ -4203,4 +4203,263 @@ fn fetch_wanted_excludes_terminal_states_and_tombstones() {
     tombstone(&db, &peer.public(), &node.public());
     assert_eq!(db.announcement(&peer.public()), Ok(Some(announcement)));
     assert_eq!(db.fetch_wanted(&peer.public()), Ok(None));
+}
+
+#[test]
+fn networks_follow_founding_forgetting_and_joining() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    assert_eq!(count(&db, "networks"), 0);
+    let node = iroh::SecretKey::generate();
+    let (fleet, _) = db.found(&node, "garden", &temp.link()).unwrap();
+    assert_eq!(
+        db.conn
+            .query_row(
+                "SELECT id, name, scope, state, work_together FROM networks",
+                [],
+                |r| Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, bool>(4)?
+                ))
+            )
+            .unwrap(),
+        (
+            fleet.body.id,
+            "garden".into(),
+            "personal".into(),
+            "member".into(),
+            false
+        )
+    );
+    db.forget().unwrap();
+    assert_eq!(count(&db, "networks"), 0);
+    let (code, answer) = answer(&iroh::SecretKey::generate());
+    db.joined(&node.public(), &code, &answer, 10.0).unwrap();
+    assert_eq!(
+        db.conn
+            .query_row("SELECT id FROM networks", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        answer.fleet.body.id
+    );
+}
+
+fn schema_seven_store(temp: &Temp, record: Option<&str>) {
+    key::private_folder(&temp.0).unwrap();
+    let conn = Connection::open(temp.path()).unwrap();
+    for schema in [
+        SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7,
+    ] {
+        conn.execute_batch(schema).unwrap();
+    }
+    if let Some(record) = record {
+        conn.execute("INSERT INTO fleet VALUES (1, ?1)", [record])
+            .unwrap();
+    }
+    conn.pragma_update(None, "user_version", 7).unwrap();
+}
+
+#[test]
+fn networks_migrate_schema_seven_with_and_without_fleet() {
+    for has_fleet in [true, false] {
+        let temp = Temp::new();
+        let fleet = fleet::found(&iroh::SecretKey::generate(), "garden")
+            .unwrap()
+            .0;
+        let text = serde_json::to_string(&fleet).unwrap();
+        schema_seven_store(&temp, has_fleet.then_some(text.as_str()));
+        let db = temp.open();
+        assert_eq!(
+            db.conn
+                .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+                .unwrap(),
+            8
+        );
+        assert_eq!(count(&db, "networks"), i64::from(has_fleet));
+        if has_fleet {
+            assert_eq!(
+                db.conn
+                    .query_row(
+                        "SELECT id, name, scope, state, work_together FROM networks",
+                        [],
+                        |r| Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, String>(3)?,
+                            r.get::<_, bool>(4)?
+                        ))
+                    )
+                    .unwrap(),
+                (
+                    fleet.body.id,
+                    "garden".into(),
+                    "personal".into(),
+                    "member".into(),
+                    false
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn networks_migration_refuses_damaged_fleet_without_advancing_schema() {
+    let temp = Temp::new();
+    schema_seven_store(&temp, Some("{}"));
+    assert_eq!(
+        FleetDb::open(&temp.path()).err(),
+        Some("fleet.db holds a damaged fleet record")
+    );
+    let conn = Connection::open(temp.path()).unwrap();
+    assert_eq!(
+        conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        7
+    );
+}
+
+#[test]
+fn networks_validate_ids_names_duplicates_and_caps() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    assert_eq!(
+        db.add_network("bad", "garden", Scope::Internal),
+        Err("not a network id")
+    );
+    assert_eq!(
+        db.add_network(&"A".repeat(64), "garden", Scope::Internal),
+        Err("not a network id")
+    );
+    assert_eq!(
+        db.add_network(&"a".repeat(64), "", Scope::Internal),
+        Err("not a network name")
+    );
+    db.add_network(&"a".repeat(64), "garden", Scope::Personal)
+        .unwrap();
+    assert_eq!(
+        db.add_network(&"b".repeat(64), "birch", Scope::Personal),
+        Err("already in a personal network")
+    );
+    for i in 0..NETWORKS_OTHER_MAX {
+        let scope = if i % 2 == 0 {
+            Scope::Internal
+        } else {
+            Scope::External
+        };
+        assert_eq!(
+            db.add_network(&format!("{i:064x}"), "orchard", scope)
+                .unwrap()
+                .scope,
+            scope
+        );
+    }
+    assert_eq!(
+        db.add_network(&format!("{:064x}", 9), "orchard", Scope::Internal),
+        Err("too many networks; at most 8 besides the personal one")
+    );
+    assert_eq!(
+        db.add_network(&format!("{:064x}", 0), "orchard", Scope::Internal),
+        Err("already in that network")
+    );
+    assert_eq!(db.network("bad"), Err("no such network"));
+}
+
+#[test]
+fn networks_scope_changes_and_personal_scope_is_fixed() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    assert_eq!(db.personal_network(), Ok(None));
+    let id = "b".repeat(64);
+    let personal = db
+        .add_network(&"a".repeat(64), "garden", Scope::Personal)
+        .unwrap();
+    assert_eq!(db.personal_network(), Ok(Some(personal.clone())));
+    let internal = db.add_network(&id, "birch", Scope::Internal).unwrap();
+    assert_eq!(db.network(&id), Ok(internal.clone()));
+    assert_eq!(internal.scope, Scope::Internal);
+    assert_eq!(internal.state, "member");
+    assert!(!internal.work_together);
+    assert_eq!(
+        db.set_network_scope(&id, Scope::External).unwrap().scope,
+        Scope::External
+    );
+    assert_eq!(
+        db.set_network_scope(&id, Scope::External).unwrap().scope,
+        Scope::External
+    );
+    assert_eq!(db.set_network_scope(&id, Scope::Internal), Ok(internal));
+    assert_eq!(
+        db.set_network_scope(&personal.id, Scope::Internal),
+        Err("the personal network's scope is fixed")
+    );
+    assert_eq!(
+        db.set_network_scope(&id, Scope::Personal),
+        Err("a network's scope is internal or external")
+    );
+    assert_eq!(
+        db.set_network_scope(&"c".repeat(64), Scope::Internal),
+        Err("no such network")
+    );
+}
+
+#[test]
+fn networks_sort_personal_then_name_then_id_and_survive_forgetting() {
+    let temp = Temp::new();
+    let (mut db, _) = temp.found();
+    let personal = db.personal_network().unwrap().unwrap();
+    let later = db
+        .add_network(&"b".repeat(64), "orchard", Scope::Internal)
+        .unwrap();
+    let second = db
+        .add_network(&"c".repeat(64), "birch", Scope::External)
+        .unwrap();
+    let first = db
+        .add_network(&"a".repeat(64), "birch", Scope::Internal)
+        .unwrap();
+    assert_eq!(
+        db.networks().unwrap(),
+        vec![personal, first.clone(), second.clone(), later.clone()]
+    );
+    db.forget().unwrap();
+    assert_eq!(db.personal_network(), Ok(None));
+    assert_eq!(db.networks().unwrap(), vec![first, second, later]);
+}
+
+#[test]
+fn networks_empty_store_and_scope_words() {
+    let temp = Temp::new();
+    let db = temp.open();
+    assert_eq!(db.networks(), Ok(vec![]));
+    assert_eq!(db.personal_network(), Ok(None));
+    assert_eq!(db.network(&"a".repeat(64)), Err("no such network"));
+    for scope in [Scope::Personal, Scope::Internal, Scope::External] {
+        assert_eq!(Scope::parse(scope.as_str()), Ok(scope));
+    }
+    assert_eq!(Scope::parse("unknown"), Err("not a scope"));
+}
+
+#[test]
+fn networks_database_caps_personal_and_fleet_changes_roll_back_together() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    db.conn.execute_batch("CREATE TRIGGER refuse_network BEFORE INSERT ON networks BEGIN SELECT RAISE(ABORT, 'refuse'); END;").unwrap();
+    let node = iroh::SecretKey::generate();
+    assert_eq!(db.found(&node, "garden", &temp.link()).err(), Some(WRITE));
+    assert_eq!(db.fleet(), Ok(None));
+    assert!(!temp.link().join(RECOVERY_FILE).exists());
+    let (code, answer) = answer(&iroh::SecretKey::generate());
+    assert_eq!(db.joined(&node.public(), &code, &answer, 10.0), Err(WRITE));
+    assert_eq!(db.fleet(), Ok(None));
+    db.conn
+        .execute_batch("DROP TRIGGER refuse_network")
+        .unwrap();
+    db.found(&node, "garden", &temp.link()).unwrap();
+    assert!(db.conn.execute("INSERT INTO networks (id, scope, name, state) VALUES (?1, 'personal', 'birch', 'member')", [&"a".repeat(64)]).is_err());
+    db.conn.execute_batch("CREATE TRIGGER refuse_network_delete BEFORE DELETE ON networks BEGIN SELECT RAISE(ABORT, 'refuse'); END;").unwrap();
+    assert_eq!(db.forget(), Err(WRITE));
+    assert!(db.fleet().unwrap().is_some());
+    assert_eq!(count(&db, "networks"), 1);
 }

@@ -1,0 +1,21 @@
+{
+  "request": {
+    "v": 1,
+    "op": "network_init",
+    "name": "garden"
+  },
+  "response": {
+    "ok": true,
+    "network": {
+      "id": "<string>",
+      "name": "garden",
+      "scope": "personal",
+      "state": "member",
+      "work_together": false,
+      "version": 1,
+      "founder": "<string>"
+    },
+    "recovery_file": "<string>"
+  },
+  "exact": false
+}

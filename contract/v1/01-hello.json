@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 13
+      "minor": 14
     },
     "majors": [
       1
@@ -52,7 +52,20 @@
       "deliberation_state",
       "deliberation_result",
       "deliberation_time_box",
-      "deliberation_step"
+      "deliberation_step",
+      "network_list",
+      "network_scope_set",
+      "network_init",
+      "network_code_create",
+      "network_code_list",
+      "network_code_revoke",
+      "network_join",
+      "network_leave",
+      "network_computer_list",
+      "network_computer_accept",
+      "network_computer_block",
+      "network_computer_trust",
+      "network_computer_remove"
     ]
   },
   "exact": false

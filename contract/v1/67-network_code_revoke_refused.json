@@ -1,0 +1,13 @@
+{
+  "request": {
+    "v": 1,
+    "op": "network_code_revoke",
+    "network": "unknown",
+    "id": "unknown"
+  },
+  "response": {
+    "ok": false,
+    "error": "no such network"
+  },
+  "exact": true
+}
