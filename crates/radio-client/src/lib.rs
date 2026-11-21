@@ -247,9 +247,8 @@ pub enum Request {
     DeliberationStep { room: String, author: Member },
     /// Lists the networks this computer belongs to.
     NetworkList {},
-    /// Marks a non-personal network internal or external.
-    /// Re-marks any non-personal network in the index; unknown ids answer `no such network`.
-    /// Leaving or removing scoped networks comes in a later minor.
+    /// Marks any non-personal network in the index internal or external; unknown ids answer
+    /// `no such network`. Leaving or removing a scoped network comes in a later minor.
     NetworkScopeSet { network: String, scope: String },
     /// Makes the personal network by default, or an internal or external network with its own
     /// key, store and recovery file when scope is supplied (protocol minor 15).

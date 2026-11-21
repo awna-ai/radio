@@ -4002,7 +4002,11 @@ fn network_twins_refuse_unknown_ids_before_acting() {
                     );
                     match extra["scope"].as_str().unwrap() {
                         "external" => {
-                            assert_eq!(result.unwrap().network.unwrap().scope, "external")
+                            assert_eq!(result.unwrap().network.unwrap().scope, "external");
+                            let answer = server
+                                .dispatch(serde_json::json!({"v":1,"op":"network_scope_set","network":id,"scope":"internal"}))
+                                .unwrap();
+                            assert_eq!(answer.network.unwrap().scope, "internal");
                         }
                         "personal" => assert_eq!(
                             result.unwrap_err(),

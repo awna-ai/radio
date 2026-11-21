@@ -220,4 +220,4 @@ Ops for seats arrive as minors of major 1 when they are built.
 
 ## Change log
 
-- Minor 15 adds optional `scope` to `network_init` for internal and external networks, with separate keys, stores and recovery files.
+- Minor 15 adds optional `scope` to `network_init` for internal and external networks, with separate keys, stores and recovery files. `network_scope_set` also re-marks any non-personal network in the index.

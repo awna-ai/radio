@@ -1306,6 +1306,10 @@ fn remove_orphan_network_files(
             if let Some(id) = id
                 && !networks.iter().any(|network| network.id == id)
                 && !entry.file_type().map_err(|_| FOLDER)?.is_dir()
+                && fs::symlink_metadata(entry.path())
+                    .map_err(|_| FOLDER)?
+                    .uid()
+                    == uid
             {
                 fs::remove_file(entry.path()).map_err(|_| FOLDER)?;
             }

@@ -112,8 +112,9 @@ row follows the fleet. `network_init` with `internal` or `external` scope now ma
 its own key (`networks/<id>.key`) and recovery file (`networks/<id>.recovery.key`) in the link
 folder, and store (`networks/<id>.db`) beside `fleet.db`. N2 is built for keys and stores, tested in
 `key_tests.rs`, `fleet_db_tests.rs` and `crates/radio/src/server_tests.rs`; endpoints are the next
-step. `network_scope_set` still serves only the personal network and refuses. No other control
-N1 to N15 is built. Each row marked **not built**
+step. `network_scope_set` re-marks any non-personal network in the index; the personal network's
+scope stays fixed. Network ops other than `network_init` and `network_scope_set` still serve only
+the personal network. No other control N1 to N15 is built. Each row marked **not built**
 remains the design that the step building it is held to: that step replaces **not built** with its
 tests and names the control it proves. The fleet rows below (§ *Trust boundaries* and the gaps) keep
 holding for the personal network.
@@ -413,7 +414,8 @@ The repo needs no secrets. On a computer, Radio keeps `node.key` and, for each s
 only the personal key's public half. Recovery secrets are written once to `recovery.key` for the
 personal network or `networks/<id>.recovery.key` for a scoped network, in the link folder, as 0600
 files for the person to move into a password manager and delete. An interrupted scoped init leaves
-files that the next scoped init removes when their network has no index row.
+files that the next scoped init removes when their network has no index row. These can include
+a scoped network's recovery file that the person was never shown, since that init never answered.
 Relay admit tokens remain designed (§ *Several networks*). A join code's secret lives only in
 the person's hands until it is used, and the inviter keeps only its hash. Radio's own releases
 are signed ad hoc (D14), so Radio holds no release key; an app that signs its own updates keeps
