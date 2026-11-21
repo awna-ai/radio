@@ -77,8 +77,12 @@ impl FleetRecord {
             || body.version == 0
             || founder == recovery
             || !body.relays.is_empty()
-            || !valid_list(&body.admitters, 64, |key| public_key(key).is_some())
-            || !valid_list(&body.moderators, 64, |key| public_key(key).is_some())
+            || !valid_list(&body.admitters, 64, |key| {
+                key != body.recovery && public_key(key).is_some()
+            })
+            || !valid_list(&body.moderators, 64, |key| {
+                key != body.recovery && public_key(key).is_some()
+            })
             || !valid_list(&body.links, 8, |id| crate::wire::hex64(id) && id != body.id)
             || body
                 .release_key
@@ -151,9 +155,14 @@ pub fn found(
     if !crate::wire::member_name(name) {
         return Err("not a fleet name");
     }
+    found_network(node, &new_network_id()?, name)
+}
+
+/// Makes a random network id without creating an identity key.
+pub fn new_network_id() -> Result<String, &'static str> {
     let mut id = [0; 32];
     getrandom::fill(&mut id).map_err(|_| "the fleet could not be made")?;
-    found_network(node, &data_encoding::HEXLOWER.encode(&id), name)
+    Ok(data_encoding::HEXLOWER.encode(&id))
 }
 
 pub fn found_network(

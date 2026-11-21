@@ -440,3 +440,20 @@ fn only_founder_may_change_network_lists() {
         );
     }
 }
+
+#[test]
+fn network_lists_refuse_recovery_as_admitter_or_moderator() {
+    let (node, recovery) = keys();
+    for moderator in [false, true] {
+        let mut b = body(&node, &recovery);
+        if moderator {
+            b.moderators.push(b.recovery.clone());
+        } else {
+            b.admitters.push(b.recovery.clone());
+        }
+        assert_eq!(
+            sign(b, Signer::Founder, &node).verify(),
+            Err("not a fleet record")
+        );
+    }
+}

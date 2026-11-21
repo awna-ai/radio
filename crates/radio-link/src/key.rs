@@ -21,7 +21,9 @@ pub fn load_or_create(dir: &Path) -> Result<iroh::SecretKey, &'static str> {
     let _folder = private_folder(dir).map_err(|_| FOLDER)?;
     // SAFETY: geteuid has no arguments or memory preconditions.
     let uid = unsafe { libc::geteuid() };
-    remove_stale_temporary_keys(dir, uid);
+    remove_stale_temporary_keys(dir, uid, |name| {
+        name.as_encoded_bytes().starts_with(b".node.key.")
+    });
     loop {
         if let Some(key) = load(dir, KEY_FILE, uid)? {
             return Ok(key);
@@ -39,6 +41,9 @@ pub fn create_network_key(link_dir: &Path, network: &str) -> Result<iroh::Secret
     let _link_folder = private_folder(link_dir).map_err(|_| FOLDER)?;
     let dir = link_dir.join(NETWORKS_DIR);
     let _folder = private_folder(&dir).map_err(|_| FOLDER)?;
+    // SAFETY: geteuid has no arguments or memory preconditions.
+    let uid = unsafe { libc::geteuid() };
+    remove_stale_temporary_keys(&dir, uid, stale_network_key_name);
     create(&dir, &format!("{network}.key"))?.ok_or("the network key already exists")
 }
 
@@ -51,6 +56,7 @@ pub fn load_network_key(link_dir: &Path, network: &str) -> Result<iroh::SecretKe
     let _folder = existing_private_folder(&dir).map_err(|_| FOLDER)?;
     // SAFETY: geteuid has no arguments or memory preconditions.
     let uid = unsafe { libc::geteuid() };
+    remove_stale_temporary_keys(&dir, uid, stale_network_key_name);
     load(&dir, &format!("{network}.key"), uid)?.ok_or(READ)
 }
 
@@ -122,16 +128,41 @@ fn existing_private_folder(dir: &Path) -> Result<File, ()> {
     Ok(folder)
 }
 
-fn remove_stale_temporary_keys(dir: &Path, uid: u32) {
+fn stale_network_key_name(name: &std::ffi::OsStr) -> bool {
+    let Some(name) = name.to_str().and_then(|name| name.strip_prefix('.')) else {
+        return false;
+    };
+    let Some((id, tail)) = name.split_once(".key.") else {
+        return false;
+    };
+    let Some((pid, nanos)) = tail.split_once('.') else {
+        return false;
+    };
+    if !crate::wire::hex64(id)
+        || pid.is_empty()
+        || !pid.bytes().all(|byte| byte.is_ascii_digit())
+        || nanos.is_empty()
+        || !nanos.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return false;
+    }
+    let Ok(pid) = pid.parse::<libc::pid_t>() else {
+        return false;
+    };
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: signal 0 probes this positive pid without sending a signal.
+    (unsafe { libc::kill(pid, 0) }) != 0
+        && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+}
+
+fn remove_stale_temporary_keys(dir: &Path, uid: u32, name_test: impl Fn(&std::ffi::OsStr) -> bool) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
-        if !entry
-            .file_name()
-            .as_encoded_bytes()
-            .starts_with(b".node.key.")
-        {
+        if !name_test(&entry.file_name()) {
             continue;
         }
         let path = entry.path();

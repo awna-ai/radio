@@ -149,7 +149,7 @@ CREATE TABLE networks_new (
     work_together INTEGER NOT NULL DEFAULT 0 CHECK (work_together IN (0, 1)),
     CHECK (NOT (scope = 'external' AND work_together = 1))
 ) STRICT;
-INSERT INTO networks_new SELECT id, scope, name, state, work_together FROM networks;
+INSERT INTO networks_new SELECT id, scope, name, state, CASE WHEN scope = 'external' THEN 0 ELSE work_together END FROM networks;
 DROP TABLE networks;
 ALTER TABLE networks_new RENAME TO networks;
 CREATE UNIQUE INDEX one_personal ON networks (scope) WHERE scope = 'personal';
@@ -264,12 +264,15 @@ pub struct FleetDb {
     folder: PathBuf,
 }
 
-pub fn network_store_path(fleet_db: &Path, network: &str) -> PathBuf {
-    fleet_db
+pub fn network_store_path(fleet_db: &Path, network: &str) -> Result<PathBuf, &'static str> {
+    if !wire::hex64(network) {
+        return Err("not a network id");
+    }
+    Ok(fleet_db
         .parent()
         .unwrap_or_else(|| Path::new(""))
         .join(key::NETWORKS_DIR)
-        .join(format!("{network}.db"))
+        .join(format!("{network}.db")))
 }
 
 impl FleetDb {
@@ -355,7 +358,7 @@ impl FleetDb {
         Ok(network)
     }
 
-    /// Store seam for creating or joining another network in a later step.
+    /// Adds a non-personal network to this computer's index, subject to the membership cap.
     pub fn add_network(
         &mut self,
         id: &str,
@@ -619,6 +622,7 @@ impl FleetDb {
         Ok((record, path))
     }
 
+    /// Founds a network only in its own store, without adding an index row.
     pub fn found_network(
         &mut self,
         key: &iroh::SecretKey,
@@ -1169,6 +1173,12 @@ impl FleetDb {
         if load_fleet(&tx)?.is_some() {
             return Err("already in a fleet");
         }
+        if !answer.fleet.body.admitters.is_empty()
+            || !answer.fleet.body.moderators.is_empty()
+            || !answer.fleet.body.links.is_empty()
+        {
+            return Err("not a fleet record");
+        }
         fleet::accept(None, &answer.fleet).map_err(|_| INVALID)?;
         if answer.fleet.body.id != code.fleet
             || answer.computers.len() > COMPUTERS_MAX
@@ -1658,14 +1668,16 @@ fn read_link_addresses(conn: &Connection) -> Result<Vec<IpAddr>, &'static str> {
 fn network_row(row: &Row<'_>) -> rusqlite::Result<Network> {
     let scope: String = row.get(2)?;
     let state: String = row.get(3)?;
-    if state != "member" {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
+    let state = match state.as_str() {
+        "member" => "member",
+        "left" => "left",
+        _ => return Err(rusqlite::Error::InvalidQuery),
+    };
     Ok(Network {
         id: row.get(0)?,
         name: row.get(1)?,
         scope: Scope::parse(&scope).map_err(|_| rusqlite::Error::InvalidQuery)?,
-        state: "member",
+        state,
         work_together: row.get(4)?,
     })
 }

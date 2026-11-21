@@ -3996,6 +3996,22 @@ fn network_twins_refuse_unknown_ids_before_acting() {
                     serde_json::json!({"computer":"birch"}),
                 ),
             ] {
+                if initialized && id == "b".repeat(64) && op == "network_scope_set" {
+                    let result = server.dispatch(
+                        serde_json::json!({"v":1,"op":op,"network":id,"scope":extra["scope"]}),
+                    );
+                    match extra["scope"].as_str().unwrap() {
+                        "external" => {
+                            assert_eq!(result.unwrap().network.unwrap().scope, "external")
+                        }
+                        "personal" => assert_eq!(
+                            result.unwrap_err(),
+                            "a network's scope is internal or external"
+                        ),
+                        _ => assert_eq!(result.unwrap_err(), "not a scope"),
+                    }
+                    continue;
+                }
                 let mut request = serde_json::json!({"v":1,"op":op,"network":id});
                 request
                     .as_object_mut()
@@ -4447,6 +4463,18 @@ fn scoped_network_init_has_own_files_and_preserves_personal_bytes() {
                 .join("networks")
                 .join(format!("{}.db", network.id));
             assert!(store_path.is_file());
+            assert_eq!(
+                fs::metadata(&store_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(store_path.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
             let db = radio_link::fleet_db::FleetDb::open(&store_path).unwrap();
             let record = db.fleet().unwrap().unwrap();
             assert_eq!(record.body.id, network.id);
@@ -4454,6 +4482,8 @@ fn scoped_network_init_has_own_files_and_preserves_personal_bytes() {
             record.verify().unwrap();
             assert!(db.networks().unwrap().is_empty());
             let recovery_path = link
+                .canonicalize()
+                .unwrap()
                 .join("networks")
                 .join(format!("{}.recovery.key", network.id));
             assert_eq!(
@@ -4604,9 +4634,202 @@ fn network_init_personal_scope_keeps_the_personal_paths() {
     assert_eq!(answer.network.unwrap().scope, "personal");
     assert_eq!(
         Path::new(answer.recovery_file.as_ref().unwrap()),
-        link.join("recovery.key")
+        link.canonicalize().unwrap().join("recovery.key")
     );
     assert!(link.join("node.key").is_file());
     assert!(!link.join("networks").exists());
     assert!(!fixture.0.join("networks").exists());
+}
+
+#[test]
+fn scoped_network_can_be_remarked_and_unknown_id_is_refused() {
+    let fixture = Fixture::new();
+    let mut server = fixture
+        .bind()
+        .with_link_dir(fixture.0.join("link"))
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    let initial = server
+        .dispatch(
+            serde_json::json!({"v":1,"op":"network_init","name":"orchard","scope":"internal"}),
+        )
+        .unwrap();
+    let id = initial.network.unwrap().id;
+    for scope in ["external", "internal"] {
+        let response = server
+            .dispatch(
+                serde_json::json!({"v":1,"op":"network_scope_set","network":id,"scope":scope}),
+            )
+            .unwrap();
+        assert_eq!(response.network.unwrap().scope, scope);
+        let rows = server.fleet_db().unwrap().networks().unwrap();
+        assert_eq!(rows[0].scope.as_str(), scope);
+    }
+    assert_eq!(server.dispatch(serde_json::json!({"v":1,"op":"network_scope_set","network":"a".repeat(64),"scope":"external"})).unwrap_err(), "no such network");
+}
+
+#[test]
+fn scoped_network_init_removes_only_unindexed_files() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    let kept = "ab".repeat(32);
+    let orphan = "cd".repeat(32);
+    server
+        .fleet_db()
+        .unwrap()
+        .add_network(&kept, "birch", radio_link::fleet_db::Scope::Internal)
+        .unwrap();
+    let keys = link.join("networks");
+    let stores = fixture.0.join("networks");
+    fs::create_dir_all(&keys).unwrap();
+    fs::create_dir_all(&stores).unwrap();
+    let mut removed = vec![];
+    let mut preserved = vec![];
+    for (dir, endings) in [
+        (&keys, vec![".key", ".recovery.key"]),
+        (&stores, vec![".db", ".db-wal", ".db-shm"]),
+    ] {
+        for suffix in endings {
+            let path = dir.join(format!("{orphan}{suffix}"));
+            fs::write(&path, b"orphan").unwrap();
+            removed.push(path);
+            let path = dir.join(format!("{kept}{suffix}"));
+            fs::write(&path, b"keep").unwrap();
+            preserved.push(path);
+        }
+        for name in [
+            format!("{}.key", "A".repeat(64)),
+            format!("{orphan}.other"),
+            "keep".into(),
+        ] {
+            let path = dir.join(name);
+            fs::write(&path, b"keep").unwrap();
+            preserved.push(path);
+        }
+    }
+    let answer = server
+        .dispatch(
+            serde_json::json!({"v":1,"op":"network_init","name":"orchard","scope":"internal"}),
+        )
+        .unwrap();
+    assert!(answer.ok);
+    for path in removed {
+        assert!(!path.exists(), "{}", path.display());
+    }
+    for path in preserved {
+        assert_eq!(fs::read(path).unwrap(), b"keep");
+    }
+    assert!(
+        server
+            .fleet_db()
+            .unwrap()
+            .networks()
+            .unwrap()
+            .iter()
+            .any(|row| row.id == kept)
+    );
+}
+
+#[test]
+fn scoped_network_init_refuses_symlinked_store_folder_without_a_key() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    drop(server.fleet_db().unwrap());
+    let target = fixture.0.join("elsewhere");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join(format!("{}.db", "ab".repeat(32))), b"keep").unwrap();
+    symlink(&target, fixture.0.join("networks")).unwrap();
+    assert_eq!(
+        server
+            .dispatch(
+                serde_json::json!({"v":1,"op":"network_init","name":"orchard","scope":"internal"})
+            )
+            .unwrap_err(),
+        "the network folder is not usable"
+    );
+    assert_eq!(fs::read_dir(link.join("networks")).unwrap().count(), 0);
+    assert_eq!(
+        fs::read(target.join(format!("{}.db", "ab".repeat(32)))).unwrap(),
+        b"keep"
+    );
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 1);
+    assert!(server.fleet_db().unwrap().networks().unwrap().is_empty());
+}
+
+#[test]
+fn orphan_cleanup_removes_only_unindexed_network_files() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let fleet_path = fixture.0.join("fleet.db");
+    let mut db = radio_link::fleet_db::FleetDb::open(&fleet_path).unwrap();
+    let kept = "ab".repeat(32);
+    let orphan = "cd".repeat(32);
+    db.add_network(&kept, "birch", radio_link::fleet_db::Scope::Internal)
+        .unwrap();
+    let mut removed = vec![];
+    let mut preserved = vec![];
+    for (folder, suffixes) in [
+        (link.join("networks"), &[".key", ".recovery.key"][..]),
+        (
+            fixture.0.join("networks"),
+            &[".db", ".db-wal", ".db-shm"][..],
+        ),
+    ] {
+        fs::create_dir_all(&folder).unwrap();
+        for suffix in suffixes {
+            let path = folder.join(format!("{orphan}{suffix}"));
+            fs::write(&path, b"orphan").unwrap();
+            removed.push(path);
+            let path = folder.join(format!("{kept}{suffix}"));
+            fs::write(&path, b"keep").unwrap();
+            preserved.push(path);
+        }
+        for name in [
+            format!("{}.key", "A".repeat(64)),
+            format!("{orphan}.other"),
+            "keep".into(),
+        ] {
+            let path = folder.join(name);
+            fs::write(&path, b"keep").unwrap();
+            preserved.push(path);
+        }
+    }
+    remove_orphan_network_files(&link, &fleet_path, &db.networks().unwrap()).unwrap();
+    for path in removed {
+        assert!(!path.exists(), "{}", path.display());
+    }
+    for path in preserved {
+        assert_eq!(fs::read(path).unwrap(), b"keep");
+    }
+    assert_eq!(db.networks().unwrap().len(), 1);
+}
+
+#[test]
+fn orphan_cleanup_never_traverses_symlinked_folders() {
+    for parent_link in [false, true] {
+        let fixture = Fixture::new();
+        let link = fixture.0.join("link");
+        let target = fixture.0.join("target");
+        fs::create_dir_all(target.join("networks")).unwrap();
+        let sentinel = if parent_link {
+            symlink(&target, &link).unwrap();
+            target
+                .join("networks")
+                .join(format!("{}.key", "ab".repeat(32)))
+        } else {
+            fs::create_dir_all(link.join("networks")).unwrap();
+            symlink(&target, fixture.0.join("networks")).unwrap();
+            target.join(format!("{}.db", "ab".repeat(32)))
+        };
+        fs::write(&sentinel, b"keep").unwrap();
+        remove_orphan_network_files(&link, &fixture.0.join("fleet.db"), &[]).unwrap();
+        assert_eq!(fs::read(sentinel).unwrap(), b"keep");
+    }
 }

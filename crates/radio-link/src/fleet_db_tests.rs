@@ -163,7 +163,7 @@ fn founding_writes_one_private_recovery_key() {
 fn founding_network_uses_its_id_key_and_private_store_without_an_index_row() {
     let temp = Temp::new();
     let id = "a".repeat(64);
-    let path = network_store_path(&temp.path(), &id);
+    let path = network_store_path(&temp.path(), &id).unwrap();
     assert_eq!(path, temp.0.join("networks").join(format!("{id}.db")));
     let mut db = FleetDb::open(&path).unwrap();
     assert_eq!(mode(path.parent().unwrap()), 0o700);
@@ -4350,7 +4350,7 @@ fn networks_migrate_schema_eight_preserving_rows_and_other_data() {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO networks VALUES (?1, 'external', 'orchard', 'member', 0)",
+        "INSERT INTO networks VALUES (?1, 'external', 'orchard', 'member', 1)",
         [&"b".repeat(64)],
     )
     .unwrap();
@@ -4424,6 +4424,9 @@ fn networks_schema_accepts_left() {
             [&"b".repeat(64)],
         )
         .unwrap();
+    let rows = db.networks().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row.state == "left"));
 }
 
 #[test]
@@ -4652,4 +4655,53 @@ fn networks_database_caps_personal_and_fleet_changes_roll_back_together() {
     assert_eq!(db.forget(), Err(WRITE));
     assert!(db.fleet().unwrap().is_some());
     assert_eq!(count(&db, "networks"), 1);
+}
+
+#[test]
+fn joining_personal_network_refuses_record_lists_without_writes() {
+    let inviter = iroh::SecretKey::generate();
+    let node = iroh::SecretKey::generate();
+    for field in 0..3 {
+        let temp = Temp::new();
+        let mut db = temp.open();
+        let (code, mut answer) = answer(&inviter);
+        let entry = iroh::SecretKey::generate().public().to_string();
+        match field {
+            0 => answer.fleet.body.admitters.push(entry),
+            1 => answer.fleet.body.moderators.push(entry),
+            _ => answer.fleet.body.links.push("ab".repeat(32)),
+        }
+        answer.fleet = fleet::sign(answer.fleet.body, fleet::Signer::Founder, &inviter);
+        answer.fleet.verify().unwrap();
+        assert_eq!(
+            db.joined(&node.public(), &code, &answer, 10.0),
+            Err("not a fleet record")
+        );
+        for table in [
+            "fleet",
+            "networks",
+            "computers",
+            "local",
+            "tombstones",
+            "records",
+            "computer_records",
+        ] {
+            assert_eq!(count(&db, table), 0, "{table}");
+        }
+    }
+}
+
+#[test]
+fn network_store_path_refuses_non_hex_ids() {
+    let path = Path::new("state/fleet.db");
+    for id in ["../escape".to_owned(), "A".repeat(64), "a".repeat(63)] {
+        assert_eq!(network_store_path(path, &id), Err("not a network id"));
+    }
+    assert_eq!(
+        network_store_path(path, &"ab".repeat(32)),
+        Ok(PathBuf::from(format!(
+            "state/networks/{}.db",
+            "ab".repeat(32)
+        )))
+    );
 }

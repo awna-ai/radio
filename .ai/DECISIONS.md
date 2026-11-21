@@ -236,6 +236,7 @@ founder key can't sign a version so high that the recovery key could never follo
 recovery key's secret is written once to `~/.config/radio/recovery.key` (0600, left out of Time
 Machine) rather than put in the op's answer, so it doesn't land in a terminal's or an agent's
 transcript; the person moves it into a password manager and deletes the file.
+The founder may also change the record's admitters, moderators and links; recovery may not.
 
 Join codes are Radio's own format, `rj1.` and four dot-separated parts (the fleet, the inviter, a
 256-bit secret and the addresses to dial), so no app's name is in them. Radio stores only each

@@ -1011,6 +1011,10 @@ impl Server {
         Ok(response)
     }
 
+    fn require_network(&mut self, id: &str) -> Result<radio_client::NetworkInfo, String> {
+        Ok(network_info(self.fleet_db()?.network(id)?))
+    }
+
     fn require_personal_network(&mut self, id: &str) -> Result<radio_client::NetworkInfo, String> {
         let network = self
             .fleet_db()?
@@ -1037,7 +1041,7 @@ impl Server {
                 });
             }
             Request::NetworkScopeSet { network, scope } => {
-                self.require_personal_network(&network)?;
+                self.require_network(&network)?;
                 let scope = radio_link::fleet_db::Scope::parse(&scope)?;
                 if scope == radio_link::fleet_db::Scope::Personal {
                     return Err("a network's scope is internal or external".into());
@@ -1108,6 +1112,16 @@ impl Server {
             return Err("not a network name".into());
         }
         let networks = self.fleet_db()?.networks()?;
+        let link_dir = self
+            .link_dir
+            .as_ref()
+            .ok_or("the link is not set up")?
+            .clone();
+        let fleet_db_path = self
+            .fleet_db_path
+            .as_deref()
+            .ok_or("the link is not set up")?;
+        remove_orphan_network_files(&link_dir, fleet_db_path, &networks)?;
         if networks
             .iter()
             .filter(|row| row.scope != Scope::Personal)
@@ -1116,22 +1130,8 @@ impl Server {
         {
             return Err("too many networks; at most 8 besides the personal one".into());
         }
-        let id: String = radio_link::SecretKey::generate()
-            .to_bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        let link_dir = self
-            .link_dir
-            .as_ref()
-            .ok_or("the link is not set up")?
-            .clone();
-        let store_path = network_store_path(
-            self.fleet_db_path
-                .as_deref()
-                .ok_or("the link is not set up")?,
-            &id,
-        );
+        let id = radio_link::fleet::new_network_id()?;
+        let store_path = network_store_path(fleet_db_path, &id)?;
         let key = radio_link::key::create_network_key(&link_dir, &id)?;
         let mut made = vec![
             link_dir
@@ -1253,6 +1253,65 @@ impl Server {
         self.answer_deadline = deadline;
         self
     }
+}
+
+fn remove_orphan_network_files(
+    link_dir: &Path,
+    fleet_db: &Path,
+    networks: &[radio_link::fleet_db::Network],
+) -> Result<(), &'static str> {
+    use std::os::unix::fs::MetadataExt;
+    const FOLDER: &str = "the network folder is not usable";
+    let folders = [
+        (
+            link_dir.join(radio_link::key::NETWORKS_DIR),
+            &[".recovery.key", ".key"][..],
+        ),
+        (
+            fleet_db
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join(radio_link::key::NETWORKS_DIR),
+            &[".db", ".db-wal", ".db-shm"][..],
+        ),
+    ];
+    // SAFETY: geteuid has no arguments or memory preconditions.
+    let uid = unsafe { libc::geteuid() };
+    for folder in
+        std::iter::once(link_dir).chain(folders.iter().map(|(folder, _)| folder.as_path()))
+    {
+        match fs::symlink_metadata(folder) {
+            Ok(metadata) if metadata.is_dir() && metadata.uid() == uid => {}
+            // Leave unusable folders to the normal init path, which reports its error
+            // and rolls back its new key. Never scan through a link in either folder.
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(FOLDER),
+        }
+    }
+    for (folder, suffixes) in folders {
+        let entries = match fs::read_dir(folder) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err(FOLDER),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|_| FOLDER)?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            let id = suffixes
+                .iter()
+                .filter_map(|suffix| name.strip_suffix(suffix))
+                .find(|id| radio_link::fleet_db::network_store_path(fleet_db, id).is_ok());
+            if let Some(id) = id
+                && !networks.iter().any(|network| network.id == id)
+                && !entry.file_type().map_err(|_| FOLDER)?.is_dir()
+            {
+                fs::remove_file(entry.path()).map_err(|_| FOLDER)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn absolute_link_dir(dir: &Path) -> Result<PathBuf, &'static str> {

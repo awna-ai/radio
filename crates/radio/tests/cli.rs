@@ -695,6 +695,14 @@ fn network_commands_replay_the_contract_against_a_real_daemon() {
     let daemon = Daemon::start();
     let mut network = String::new();
     for (number, words) in network_fixture_commands() {
+        let scoped_daemon = (number == 75).then(Daemon::start);
+        let daemon = scoped_daemon.as_ref().unwrap_or(&daemon);
+        if number == 75 {
+            let output = daemon.home.run(&["network", "list"]);
+            assert!(output.status.success(), "{output:?}");
+            let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(answer["networks"], serde_json::json!([]));
+        }
         let args: Vec<_> = words
             .iter()
             .map(|word| {

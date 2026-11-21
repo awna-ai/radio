@@ -294,12 +294,14 @@ A first session looks like this:
 | **`network_computer_remove`** | Removes another computer from the network for everyone: the computers it reaches, the removed one included, drop it, and `delivered` says how many it reached. |
 | **`network_leave`** | Takes this computer out of its network and tells the others. |
 
-`network_list` lists the networks; `network_scope_set` marks one internal or external. The personal
+`network_list` lists the networks; `network_scope_set` re-marks any non-personal network in the index
+internal or external; an unknown id answers `no such network`. The personal
 network's scope is fixed. `network_init` with optional `scope` (`internal` or `external`, protocol minor 15)
 starts another network; `radio network init <name> --scope internal` does the same. Its key and recovery
 file are `networks/<id>.key` and `networks/<id>.recovery.key` in the link folder, and its store is
 `networks/<id>.db` beside `fleet.db`. The code, computer and leave ops still take only the
-personal network's id as `network`; another id answers `no such network`. Each answer carries a `network`
+personal network's id as `network`; another id answers `no such network`. Leaving or removing a
+scoped network comes in a later minor. Each answer carries a `network`
 object with its id, name, scope, state (`member`) and `work_together` (`false`, always so for the
 personal network); init and join also include its version and founder.
 

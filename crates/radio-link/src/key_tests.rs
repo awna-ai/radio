@@ -448,3 +448,41 @@ fn network_key_load_refuses_link_folder_symlink() {
     assert_eq!(fs::read(network_key(&target)).unwrap(), before);
     fs::remove_file(&temp.0).unwrap();
 }
+
+#[test]
+fn network_temporary_keys_remove_only_stale_dead_writers() {
+    let temp = Temp::new();
+    let id = "ab".repeat(32);
+    create_network_key(&temp.0, &id).unwrap();
+    let dir = temp.0.join(NETWORKS_DIR);
+    for load_next in [false, true] {
+        let stale = dir.join(format!(".{id}.key.2147483647.1"));
+        let live = dir.join(format!(".{id}.key.{}.1", std::process::id()));
+        let recent = dir.join(format!(".{id}.key.2147483647.2"));
+        let unrelated = dir.join(".other.key.2147483647.1");
+        let target = dir.join("keep");
+        let linked = dir.join(format!(".{id}.key.2147483647.3"));
+        fs::write(&stale, b"stale").unwrap();
+        fs::write(&live, b"live").unwrap();
+        fs::write(&recent, b"recent").unwrap();
+        fs::write(&unrelated, b"other").unwrap();
+        fs::write(&target, b"target").unwrap();
+        if !linked.exists() {
+            symlink(&target, &linked).unwrap();
+        }
+        for path in [&stale, &live, &unrelated, &target] {
+            make_old(path);
+        }
+        if load_next {
+            load_network_key(&temp.0, &id).unwrap();
+        } else {
+            create_network_key(&temp.0, &"cd".repeat(32)).unwrap();
+        }
+        assert!(!stale.exists());
+        assert_eq!(fs::read(&live).unwrap(), b"live");
+        assert_eq!(fs::read(&recent).unwrap(), b"recent");
+        assert_eq!(fs::read(&unrelated).unwrap(), b"other");
+        assert!(fs::symlink_metadata(&linked).unwrap().is_symlink());
+        assert_eq!(fs::read(&target).unwrap(), b"target");
+    }
+}
