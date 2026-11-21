@@ -339,6 +339,9 @@ impl FleetDb {
         name: &str,
         scope: Scope,
     ) -> Result<Network, &'static str> {
+        if scope == Scope::Personal {
+            return Err("the personal network follows the fleet");
+        }
         if !wire::hex64(id) {
             return Err("not a network id");
         }
@@ -352,28 +355,15 @@ impl FleetDb {
         if load_network(&tx, id)?.is_some() {
             return Err("already in that network");
         }
-        if scope == Scope::Personal {
-            let exists: bool = tx
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM networks WHERE scope = 'personal')",
-                    [],
-                    |r| r.get(0),
-                )
-                .map_err(|_| READ)?;
-            if exists {
-                return Err("already in a personal network");
-            }
-        } else {
-            let count: i64 = tx
-                .query_row(
-                    "SELECT COUNT(*) FROM networks WHERE scope != 'personal'",
-                    [],
-                    |r| r.get(0),
-                )
-                .map_err(|_| READ)?;
-            if count >= NETWORKS_OTHER_MAX as i64 {
-                return Err("too many networks; at most 8 besides the personal one");
-            }
+        let count: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM networks WHERE scope != 'personal'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|_| READ)?;
+        if count >= NETWORKS_OTHER_MAX as i64 {
+            return Err("too many networks; at most 8 besides the personal one");
         }
         insert_network(&tx, id, name, scope)?;
         let network = load_network(&tx, id)?.ok_or(READ)?;

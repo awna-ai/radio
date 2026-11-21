@@ -295,8 +295,9 @@ A first session looks like this:
 `network_list` lists the networks; `network_scope_set` marks one internal or external. Today only
 this computer's personal network exists, and its scope is fixed. The code, computer and leave ops
 take its id as `network`; another id answers `no such network`. Each answer carries a `network`
-object with its id, name, scope, state (`member`) and `work_together` (`false`); init and join also
-include its version and founder.
+object with its id, name, scope, state (`member`) and `work_together` (`false`, always so for the
+personal network, where your own computers already work together); init and join also include its
+version and founder.
 
 The `network_computer_*` ops take a computer's name or id.
 

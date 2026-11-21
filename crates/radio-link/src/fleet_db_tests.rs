@@ -4322,9 +4322,29 @@ fn networks_migration_refuses_damaged_fleet_without_advancing_schema() {
 }
 
 #[test]
+fn networks_refuse_personal_additions_with_or_without_a_fleet() {
+    for initialized in [false, true] {
+        let temp = Temp::new();
+        let mut db = if initialized {
+            temp.found().0
+        } else {
+            temp.open()
+        };
+        db.add_network(&"b".repeat(64), "birch", Scope::Internal)
+            .unwrap();
+        let before = db.networks().unwrap();
+        assert_eq!(
+            db.add_network(&"c".repeat(64), "garden", Scope::Personal),
+            Err("the personal network follows the fleet")
+        );
+        assert_eq!(db.networks().unwrap(), before);
+    }
+}
+
+#[test]
 fn networks_validate_ids_names_duplicates_and_caps() {
     let temp = Temp::new();
-    let mut db = temp.open();
+    let (mut db, _) = temp.found();
     assert_eq!(
         db.add_network("bad", "garden", Scope::Internal),
         Err("not a network id")
@@ -4336,12 +4356,6 @@ fn networks_validate_ids_names_duplicates_and_caps() {
     assert_eq!(
         db.add_network(&"a".repeat(64), "", Scope::Internal),
         Err("not a network name")
-    );
-    db.add_network(&"a".repeat(64), "garden", Scope::Personal)
-        .unwrap();
-    assert_eq!(
-        db.add_network(&"b".repeat(64), "birch", Scope::Personal),
-        Err("already in a personal network")
     );
     for i in 0..NETWORKS_OTHER_MAX {
         let scope = if i % 2 == 0 {
@@ -4370,12 +4384,9 @@ fn networks_validate_ids_names_duplicates_and_caps() {
 #[test]
 fn networks_scope_changes_and_personal_scope_is_fixed() {
     let temp = Temp::new();
-    let mut db = temp.open();
-    assert_eq!(db.personal_network(), Ok(None));
+    let (mut db, _) = temp.found();
     let id = "b".repeat(64);
-    let personal = db
-        .add_network(&"a".repeat(64), "garden", Scope::Personal)
-        .unwrap();
+    let personal = db.personal_network().unwrap().unwrap();
     assert_eq!(db.personal_network(), Ok(Some(personal.clone())));
     let internal = db.add_network(&id, "birch", Scope::Internal).unwrap();
     assert_eq!(db.network(&id), Ok(internal.clone()));

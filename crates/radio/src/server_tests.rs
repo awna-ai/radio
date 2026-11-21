@@ -3957,6 +3957,21 @@ fn network_twins_refuse_unknown_ids_before_acting() {
                 )
                 .unwrap();
         }
+        let networks = server.fleet_db().unwrap().networks().unwrap();
+        let computers = if initialized {
+            assert!(
+                !server
+                    .fleet_db()
+                    .unwrap()
+                    .personal_network()
+                    .unwrap()
+                    .unwrap()
+                    .work_together
+            );
+            server.apply(Request::ComputerList {}).unwrap().computers
+        } else {
+            None
+        };
         for id in ["birch".to_owned(), "b".repeat(64)] {
             for (op, extra) in [
                 ("network_scope_set", serde_json::json!({"scope":"external"})),
@@ -3995,6 +4010,21 @@ fn network_twins_refuse_unknown_ids_before_acting() {
                     "{op}"
                 );
             }
+        }
+        assert_eq!(server.fleet_db().unwrap().networks().unwrap(), networks);
+        if initialized {
+            assert!(
+                server
+                    .apply(Request::CodeList {})
+                    .unwrap()
+                    .codes
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(
+                server.apply(Request::ComputerList {}).unwrap().computers,
+                computers
+            );
         }
     }
 }
@@ -4212,7 +4242,7 @@ fn network_phrases_change_only_the_twin_words() {
             "the network folder is not usable",
         ),
         (
-            "still telling the other computers; check computer_list later",
+            radio_link::node::STILL_TELLING,
             "still telling the other computers; check network_computer_list later",
         ),
         ("not a member", "not a member"),
@@ -4226,6 +4256,106 @@ fn network_phrases_change_only_the_twin_words() {
         assert_eq!(
             failure(old.into()).refused,
             failure(network_phrase(old).into()).refused
+        );
+    }
+}
+
+fn twin_network() -> radio_client::NetworkInfo {
+    radio_client::NetworkInfo {
+        id: "a".repeat(64),
+        name: "garden".into(),
+        scope: "personal".into(),
+        state: "member".into(),
+        work_together: false,
+        version: None,
+        founder: None,
+    }
+}
+
+#[test]
+fn network_twin_answer_keeps_the_network_on_a_slow_leave() {
+    let before = twin_network();
+    let answer = twin_answer(
+        Err(radio_link::node::STILL_TELLING.into()),
+        true,
+        Some(before.clone()),
+        None,
+    )
+    .unwrap();
+    assert!(!answer.ok);
+    assert_eq!(
+        answer.error.as_deref(),
+        Some("still telling the other computers; check network_computer_list later")
+    );
+    assert_eq!(answer.network, Some(before));
+}
+
+#[test]
+fn network_twin_answer_returns_other_errors_unchanged() {
+    for leaving in [false, true] {
+        assert_eq!(
+            twin_answer(Err("not in a fleet".into()), leaving, None, None).unwrap_err(),
+            "not in a fleet"
+        );
+    }
+    assert_eq!(
+        twin_answer(
+            Err(radio_link::node::STILL_TELLING.into()),
+            false,
+            None,
+            None
+        )
+        .unwrap_err(),
+        radio_link::node::STILL_TELLING
+    );
+}
+
+#[test]
+fn network_twin_answer_keeps_a_done_code_when_the_row_vanishes() {
+    let before = twin_network();
+    let response = Response {
+        code: Some("only-copy".into()),
+        ..success()
+    };
+    let answer = twin_answer(Ok(response.clone()), false, Some(before.clone()), None);
+    assert_eq!(
+        answer.unwrap(),
+        Response {
+            network: Some(before),
+            ..response
+        }
+    );
+}
+
+#[test]
+fn network_twin_answer_uses_the_new_row_and_moves_the_fleet_record() {
+    let before = twin_network();
+    let mut after = before.clone();
+    after.id = "b".repeat(64);
+    after.name = "birch".into();
+    let response = Response {
+        fleet: Some(radio_client::Fleet {
+            id: after.id.clone(),
+            name: after.name.clone(),
+            version: 7,
+            founder: "c".repeat(64),
+        }),
+        ..success()
+    };
+    let answer = twin_answer(Ok(response), false, Some(before), Some(after.clone())).unwrap();
+    after.version = Some(7);
+    after.founder = Some("c".repeat(64));
+    assert_eq!(answer.network, Some(after));
+    assert!(answer.fleet.is_none());
+    assert!(answer.ok);
+}
+
+#[test]
+fn network_twin_answer_refuses_when_both_rows_are_missing() {
+    for leaving in [false, true] {
+        assert_eq!(
+            twin_answer(Ok(success()), leaving, None, None).unwrap_err(),
+            "no such network"
         );
     }
 }

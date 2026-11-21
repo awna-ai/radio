@@ -79,8 +79,12 @@ A `network` object is `{id, name, scope, state, work_together}`. `network_init` 
 include the record's `version` and `founder`. Its id is 64 lowercase hex characters. `scope` is
 `personal` for this computer's own network, which is fixed; `internal` is the default mark for any
 other network; `external` marks a network the person does not trust. `state` is `member` today; a
-client treats an unknown state as not a member, since a later minor may add one. `work_together` is
-false until a later minor adds the switch. Today only the personal network exists: every op taking
+client treats an unknown state as not a member, since a later minor may add one. `work_together` says
+whether every member of a private network other than personal has turned *Work together* on, which
+lets that network carry `send`, `message`, `keep` and apps' sections. It is false until a later minor
+adds the switch, and always false for the personal network and an external one. It never governs
+the personal network: `send`, `message` and `keep` reach this computer's own other computers as they
+always have. Today only the personal network exists: every op taking
 `network` refuses any value other than its id with `no such network`.
 
 The `network_*` twins keep their old ops' behavior and other answer shapes, replacing `fleet` with
@@ -120,7 +124,7 @@ Other phrases and refusal markings stay the same.
 | `computer_remove` | `computer` | `delivered` | Removes another computer from the fleet for everyone. Radio signs the removal (only the computer's inviter or the founding member may) and sends it to the removed computer (when it is accepted here and has an address) and to every accepted computer it has an address for; `delivered` counts those it reached. One that was off misses it. Past 110 seconds it answers `still telling the other computers; check computer_list later` and finishes in the background, unless the daemon stops or a link address changes first. Needs a link address here. It is also broadcast on the fleet topic. |
 | `leave` | none | `delivered` | Takes this computer out of its fleet: Radio signs the leave, sends it to every accepted computer it has an address for (`delivered` counts those it reached), then forgets the fleet. Past 110 seconds it answers `still telling the other computers; check computer_list later` and finishes in the background, unless the daemon stops or a link address changes first (a leave cut short that way has told some computers and may still hold the fleet here). Needs a link address here. It is also broadcast on the fleet topic. |
 | `network_list` | none | `networks: [network]` | Lists this computer's networks, personal first, then by name and id |
-| `network_scope_set` | `network`, `scope` | `network` | Marks a network `internal` or `external`. `personal` answers `a network's scope is internal or external`; another word answers `not a scope`. The personal network's scope is fixed |
+| `network_scope_set` | `network`, `scope` | `network` | Marks a network `internal` or `external`. `personal` answers `a network's scope is internal or external`; another word answers `not a scope`. Marking the personal network answers `the personal network's scope is fixed` |
 | `network_init` | `name` | `network` (also `version`, `founder`), `recovery_file` | Starts this computer's personal network, following `fleet_init`'s name and recovery-file rules |
 | `network_code_create` | `network`, optional `name`, optional `ttl` (60 to 86400 seconds, 1800 by default) | `network`, `code`, `code_id`, `expires_at` | Makes a one-time join code, with `code_create`'s shape and limits |
 | `network_code_list` | `network` | `network`, `codes` | Lists open codes, with `code_list`'s shape and order |
@@ -208,4 +212,6 @@ exact field names and types of each op are `radio-client`'s types. `contract/v1/
 op but the four file ops (`send`, `delivery_folder_set`, `delivery_folder_clear`, `deliveries`),
 whose requests `crates/radio-client/tests/contract.rs` round-trips instead; the fixtures are
 replayed against a real daemon and through `radio-client`'s types, so a minor that would break an
-older client fails its test. Ops for seats arrive as minors of major 1 when they are built.
+older client fails its test. Fixtures 62 to 74 replay in order on a fresh daemon, separately from
+the older fixtures, with `<network>` replaced by the personal network's id from `network_init`.
+Ops for seats arrive as minors of major 1 when they are built.

@@ -1080,32 +1080,15 @@ impl Server {
             .transpose()?;
         let leaving = matches!(legacy, Request::Leave {});
         let result = self.fleet_request(legacy, now);
-        // A slow leave keeps telling peers after its answer, and may already have cleared the row.
-        let mut response = match result {
-            Ok(response) => response,
-            Err(error)
-                if leaving
-                    && error == "still telling the other computers; check computer_list later" =>
-            {
-                failure(network_phrase(&error).to_owned())
-            }
-            Err(error) => return Err(error),
-        };
-        let mut network = if leaving {
-            before.ok_or("no such network")?
+        let after = if leaving {
+            None
         } else {
-            network_info(
-                self.fleet_db()?
-                    .personal_network()?
-                    .ok_or("no such network")?,
-            )
+            self.fleet_db()
+                .ok()
+                .and_then(|db| db.personal_network().ok().flatten())
+                .map(network_info)
         };
-        if let Some(fleet) = response.fleet.take() {
-            network.version = Some(fleet.version);
-            network.founder = Some(fleet.founder);
-        }
-        response.network = Some(network);
-        Ok(response)
+        twin_answer(result, leaving, before, after)
     }
 
     fn require_room(&self, room: &str) -> Result<(), String> {
@@ -1313,6 +1296,34 @@ fn network_info(row: radio_link::fleet_db::Network) -> radio_client::NetworkInfo
     }
 }
 
+/// A twin's answer: the old op's result, with the network it acted on.
+fn twin_answer(
+    result: Result<Response, String>,
+    leaving: bool,
+    before: Option<radio_client::NetworkInfo>,
+    after: Option<radio_client::NetworkInfo>,
+) -> Result<Response, String> {
+    // A slow leave keeps telling peers after its answer, and may already have cleared the row.
+    let mut response = match result {
+        Ok(response) => response,
+        Err(error) if leaving && error == radio_link::node::STILL_TELLING => {
+            failure(network_phrase(&error).to_owned())
+        }
+        Err(error) => return Err(error),
+    };
+    let mut network = if leaving {
+        before.ok_or("no such network")?
+    } else {
+        after.or(before).ok_or("no such network")?
+    };
+    if let Some(fleet) = response.fleet.take() {
+        network.version = Some(fleet.version);
+        network.founder = Some(fleet.founder);
+    }
+    response.network = Some(network);
+    Ok(response)
+}
+
 fn network_phrase(phrase: &str) -> &str {
     match phrase {
         "already in a fleet" => "already in a personal network",
@@ -1320,7 +1331,7 @@ fn network_phrase(phrase: &str) -> &str {
         "not a fleet name" => "not a network name",
         "the fleet store is busy" => "the network store is busy",
         "the fleet folder is not usable" => "the network folder is not usable",
-        "still telling the other computers; check computer_list later" => {
+        radio_link::node::STILL_TELLING => {
             "still telling the other computers; check network_computer_list later"
         }
         _ => phrase,

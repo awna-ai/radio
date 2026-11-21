@@ -31,7 +31,7 @@ const REJOIN_FIRST: Duration = Duration::from_secs(1);
 const REJOIN_MAX: Duration = Duration::from_secs(60);
 
 pub(crate) const WAIT: Duration = Duration::from_secs(110);
-const STILL_TELLING: &str = "still telling the other computers; check computer_list later";
+pub const STILL_TELLING: &str = "still telling the other computers; check computer_list later";
 
 /// Call from outside the runtime, without holding the fleet store's lock.
 pub struct Node {
@@ -617,12 +617,8 @@ mod tests {
     fn a_wait_times_out_with_the_delivery_phrase() {
         let (sender, receiver) = sync_channel::<()>(1);
         assert_eq!(
-            wait(
-                receiver,
-                Duration::ZERO,
-                "still telling the other computers; check computer_list later"
-            ),
-            Err("still telling the other computers; check computer_list later")
+            wait(receiver, Duration::ZERO, STILL_TELLING),
+            Err(STILL_TELLING)
         );
         assert!(sender.send(()).is_err());
         assert_eq!(WAIT, Duration::from_secs(110));
@@ -653,13 +649,6 @@ mod tests {
     fn a_disconnected_wait_reports_the_link_stopped() {
         let (sender, receiver) = sync_channel::<()>(1);
         drop(sender);
-        assert_eq!(
-            wait(
-                receiver,
-                WAIT,
-                "still telling the other computers; check computer_list later"
-            ),
-            Err("the link stopped")
-        );
+        assert_eq!(wait(receiver, WAIT, STILL_TELLING), Err("the link stopped"));
     }
 }
