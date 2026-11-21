@@ -769,7 +769,9 @@ async fn leaving_closes_every_connection_even_where_the_leave_was_not_applied() 
         bounded(peer.connection().closed()).await,
         iroh::endpoint::ConnectionError::LocallyClosed
     );
-    assert_eq!(row(&b, c.link.id()).unwrap().state, State::Accepted);
+    // B's aborted driver never applies the direct leave; the topic may still bring it.
+    let state = row(&b, c.link.id()).unwrap().state;
+    assert!(matches!(state, State::Accepted | State::Left), "{state:?}");
     stop(&[&a, &b, &c]).await;
 }
 
