@@ -13,6 +13,9 @@ fn body(node: &iroh::SecretKey, recovery: &iroh::SecretKey) -> FleetBody {
         recovery: recovery.public().to_string(),
         release_key: None,
         relays: vec![],
+        admitters: vec![],
+        moderators: vec![],
+        links: vec![],
     }
 }
 fn invalid_point() -> String {
@@ -251,6 +254,189 @@ fn recovery_cannot_reuse_or_lower_an_epoch_even_with_a_newer_version() {
                 &sign(next.clone(), Signer::Recovery, &recovery)
             ),
             Err("the fleet record is not newer")
+        );
+    }
+}
+
+#[test]
+fn empty_network_lists_preserve_legacy_json_and_signature() {
+    #[derive(serde::Serialize)]
+    struct LegacyBody<'a> {
+        id: &'a str,
+        name: &'a str,
+        version: u64,
+        epoch: u64,
+        founder: &'a str,
+        recovery: &'a str,
+        release_key: Option<String>,
+        relays: Vec<String>,
+    }
+    let (node, recovery) = keys();
+    let b = body(&node, &recovery);
+    let legacy = LegacyBody {
+        id: &b.id,
+        name: &b.name,
+        version: b.version,
+        epoch: b.epoch,
+        founder: &b.founder,
+        recovery: &b.recovery,
+        release_key: None,
+        relays: vec![],
+    };
+    let old_json = serde_json::to_vec(&legacy).unwrap();
+    let mut json = serde_json::to_value(&b).unwrap();
+    for field in ["admitters", "moderators", "links"] {
+        json[field] = serde_json::json!([]);
+    }
+    let decoded = serde_json::from_value::<FleetBody>(json);
+    assert!(decoded.is_ok(), "empty network lists must be accepted");
+    assert_eq!(serde_json::to_vec(&decoded.unwrap()).unwrap(), old_json);
+    let record = sign(b, Signer::Founder, &node);
+    let mut old_bytes = RECORD_DOMAIN.to_vec();
+    old_bytes.extend(&old_json);
+    let old_signature = data_encoding::HEXLOWER.encode(&node.sign(&old_bytes).to_bytes());
+    assert_eq!(record.signature, old_signature);
+    assert_eq!(record.verify(), Ok(()));
+    let old_record = format!(
+        "{{\"body\":{},\"signer\":\"founder\",\"signature\":\"{}\"}}",
+        String::from_utf8(old_json).unwrap(),
+        old_signature
+    );
+    assert_eq!(
+        serde_json::from_str::<FleetRecord>(&old_record).unwrap(),
+        record
+    );
+    assert_eq!(serde_json::to_string(&record).unwrap(), old_record);
+}
+
+#[test]
+fn network_lists_refuse_each_invalid_shape() {
+    let (node, recovery) = keys();
+    let b = body(&node, &recovery);
+    let mut valid = b.clone();
+    valid.admitters = (0..64)
+        .map(|_| iroh::SecretKey::generate().public().to_string())
+        .collect();
+    valid.moderators = valid.admitters.clone();
+    valid.links = (0..8).map(|n| format!("{n:064x}")).collect();
+    assert_eq!(sign(valid, Signer::Founder, &node).verify(), Ok(()));
+    for field in 0..3 {
+        let limit = if field == 2 { 8 } else { 64 };
+        let mut oversized = b.clone();
+        let entries: Vec<_> = (0..=limit)
+            .map(|n| {
+                if field == 2 {
+                    format!("{n:064x}")
+                } else {
+                    iroh::SecretKey::generate().public().to_string()
+                }
+            })
+            .collect();
+        match field {
+            0 => oversized.admitters = entries,
+            1 => oversized.moderators = entries,
+            _ => oversized.links = entries,
+        }
+        assert_eq!(
+            sign(oversized, Signer::Founder, &node).verify(),
+            Err("not a fleet record"),
+            "list {field} cap"
+        );
+        let good = if field == 2 {
+            "cd".repeat(32)
+        } else {
+            node.public().to_string()
+        };
+        let mut cases = vec![
+            vec![good.clone(), good.clone()],
+            vec![good.to_uppercase()],
+            vec!["z".repeat(64)],
+            vec!["a".repeat(63)],
+        ];
+        if field != 2 {
+            cases.push(vec![invalid_point()]);
+        } else {
+            cases.push(vec![b.id.clone()]);
+        }
+        for entries in cases {
+            let mut invalid = b.clone();
+            match field {
+                0 => invalid.admitters = entries,
+                1 => invalid.moderators = entries,
+                _ => invalid.links = entries,
+            }
+            assert_eq!(
+                sign(invalid, Signer::Founder, &node).verify(),
+                Err("not a fleet record"),
+                "list {field}"
+            );
+        }
+    }
+}
+
+#[test]
+fn founding_network_uses_the_given_id_and_empty_lists() {
+    let node = iroh::SecretKey::generate();
+    let id = "cd".repeat(32);
+    let (record, recovery) = found_network(&node, &id, "garden").unwrap();
+    assert_eq!(record.body.id, id);
+    assert_eq!(record.body.founder, node.public().to_string());
+    assert_eq!(record.body.recovery, recovery.public().to_string());
+    assert_eq!(record.verify(), Ok(()));
+    assert!(record.body.admitters.is_empty());
+    assert!(record.body.moderators.is_empty());
+    assert!(record.body.links.is_empty());
+    assert_eq!(
+        found_network(&node, "invalid", "garden").err(),
+        Some("not a fleet record")
+    );
+    assert_eq!(
+        found_network(&node, &id, "Garden").err(),
+        Some("not a fleet name")
+    );
+}
+
+#[test]
+fn only_founder_may_change_network_lists() {
+    let (node, recovery) = keys();
+    let b = body(&node, &recovery);
+    let current = sign(b.clone(), Signer::Founder, &node);
+    for field in 0..3 {
+        let mut next = b.clone();
+        next.version += 1;
+        match field {
+            0 => next.admitters.push(node.public().to_string()),
+            1 => next.moderators.push(node.public().to_string()),
+            _ => next.links.push("cd".repeat(32)),
+        }
+        let founder_record = sign(next.clone(), Signer::Founder, &node);
+        assert_eq!(accept(Some(&current), &founder_record), Ok(()));
+        next.epoch += 1;
+        assert_eq!(
+            accept(
+                Some(&current),
+                &sign(next.clone(), Signer::Recovery, &recovery)
+            ),
+            Err("the recovery key changes only the founding member and the release key"),
+            "recovery may not add to list {field}",
+        );
+        let mut removed = b.clone();
+        removed.epoch += 1;
+        assert_eq!(
+            accept(
+                Some(&founder_record),
+                &sign(removed, Signer::Recovery, &recovery)
+            ),
+            Err("the recovery key changes only the founding member and the release key"),
+            "recovery may not clear list {field}",
+        );
+        next.founder = iroh::SecretKey::generate().public().to_string();
+        assert_eq!(
+            accept(
+                Some(&founder_record),
+                &sign(next, Signer::Recovery, &recovery)
+            ),
+            Ok(())
         );
     }
 }

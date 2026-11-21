@@ -1,7 +1,7 @@
 # Radio's socket contract
 
 Protocol major: 1
-Protocol minor: 14
+Protocol minor: 15
 
 This is the one contract between Radio and the apps that use it: what an app may send, what it
 gets back, and what may change between versions. It is written to be exact; the README's *For app
@@ -83,8 +83,8 @@ client treats an unknown state as not a member, since a later minor may add one.
 whether every member of a private network other than personal has turned *Work together* on. A later
 minor will add the switch and use it for that network's `send`, `message`, `keep` and apps' sections.
 It is false until then, and always false for the personal network and an external one. It never
-governs the personal network. Today only the personal network exists: every op taking
-`network` refuses any value other than its id with `no such network`.
+governs the personal network. A computer can start internal and external networks too. The code, computer, join and leave ops
+still serve only the personal network; any other id answers `no such network`.
 
 The `network_*` twins keep their old ops' behavior and other answer shapes, replacing `fleet` with
 `network` for init and join and adding `network` to the other answers.
@@ -124,7 +124,7 @@ Other phrases and refusal markings stay the same.
 | `leave` | none | `delivered` | Takes this computer out of its fleet: Radio signs the leave, sends it to every accepted computer it has an address for (`delivered` counts those it reached), then forgets the fleet. Past 110 seconds it answers `still telling the other computers; check computer_list later` and finishes in the background, unless the daemon stops or a link address changes first (a leave cut short that way has told some computers and may still hold the fleet here). Needs a link address here. It is also broadcast on the fleet topic. |
 | `network_list` | none | `networks: [network]` | Lists this computer's networks, personal first, then by name and id |
 | `network_scope_set` | `network`, `scope` | `network` | Marks a network `internal` or `external`. `personal` answers `a network's scope is internal or external`; another word answers `not a scope`. Marking the personal network answers `the personal network's scope is fixed` |
-| `network_init` | `name` | `network` (also `version`, `founder`), `recovery_file` | Starts this computer's personal network, following `fleet_init`'s name and recovery-file rules |
+| `network_init` | `name`, optional `scope` | `network` (also `version`, `founder`), `recovery_file` | With absent or `personal` scope, starts this computer's personal network, following `fleet_init`'s name and recovery-file rules. `internal` or `external` starts a network with its own key at `networks/<id>.key` and recovery file at `networks/<id>.recovery.key`, relative to the link folder, and its own store at `networks/<id>.db` beside `fleet.db`. The name follows `fleet_init`'s rule. Any other scope answers `not a scope`; at most 8 non-personal networks may exist. Failure removes the files this call made |
 | `network_code_create` | `network`, optional `name`, optional `ttl` (60 to 86400 seconds, 1800 by default) | `network`, `code`, `code_id`, `expires_at` | Makes a one-time join code, with `code_create`'s shape and limits |
 | `network_code_list` | `network` | `network`, `codes` | Lists open codes, with `code_list`'s shape and order |
 | `network_code_revoke` | `network`, `id` | `network`, `removed` | Closes an open code |
@@ -213,4 +213,9 @@ whose requests `crates/radio-client/tests/contract.rs` round-trips instead; the 
 replayed against a real daemon and through `radio-client`'s types, so a minor that would break an
 older client fails its test. Fixtures 62 to 74 replay in order on a fresh daemon, separately from
 the older fixtures, with `<network>` replaced by the personal network's id from `network_init`.
+Fixture 75 replays on another fresh daemon and starts an internal network.
 Ops for seats arrive as minors of major 1 when they are built.
+
+## Change log
+
+- Minor 15 adds optional `scope` to `network_init` for internal and external networks, with separate keys, stores and recovery files.

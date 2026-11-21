@@ -1049,7 +1049,14 @@ impl Server {
                     ..success()
                 });
             }
-            Request::NetworkInit { name } => (None, Request::FleetInit { name }),
+            Request::NetworkInit { name, scope } => {
+                let scope =
+                    radio_link::fleet_db::Scope::parse(scope.as_deref().unwrap_or("personal"))?;
+                if scope != radio_link::fleet_db::Scope::Personal {
+                    return self.init_scoped_network(&name, scope);
+                }
+                (None, Request::FleetInit { name })
+            }
             Request::NetworkJoin { code } => (None, Request::Join { code }),
             Request::NetworkCodeCreate { network, name, ttl } => {
                 (Some(network), Request::CodeCreate { name, ttl })
@@ -1089,6 +1096,89 @@ impl Server {
                 .map(network_info)
         };
         twin_answer(result, leaving, before, after)
+    }
+
+    fn init_scoped_network(
+        &mut self,
+        name: &str,
+        scope: radio_link::fleet_db::Scope,
+    ) -> Result<Response, String> {
+        use radio_link::fleet_db::{FleetDb, NETWORKS_OTHER_MAX, Scope, network_store_path};
+        if !radio_link::wire::member_name(name) {
+            return Err("not a network name".into());
+        }
+        let networks = self.fleet_db()?.networks()?;
+        if networks
+            .iter()
+            .filter(|row| row.scope != Scope::Personal)
+            .count()
+            >= NETWORKS_OTHER_MAX
+        {
+            return Err("too many networks; at most 8 besides the personal one".into());
+        }
+        let id: String = radio_link::SecretKey::generate()
+            .to_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let link_dir = self
+            .link_dir
+            .as_ref()
+            .ok_or("the link is not set up")?
+            .clone();
+        let store_path = network_store_path(
+            self.fleet_db_path
+                .as_deref()
+                .ok_or("the link is not set up")?,
+            &id,
+        );
+        let key = radio_link::key::create_network_key(&link_dir, &id)?;
+        let mut made = vec![
+            link_dir
+                .join(radio_link::key::NETWORKS_DIR)
+                .join(format!("{id}.key")),
+        ];
+        let result = (|| {
+            let recovery_path = absolute_link_dir(&link_dir)?
+                .join(radio_link::key::NETWORKS_DIR)
+                .join(format!("{id}.recovery.key"));
+            let wal = store_path.with_file_name(format!("{id}.db-wal"));
+            let shm = store_path.with_file_name(format!("{id}.db-shm"));
+            // A collision must never open or remove a file this call did not make.
+            for (path, phrase) in [
+                (&store_path, "fleet.db could not be opened"),
+                (&wal, "fleet.db could not be opened"),
+                (&shm, "fleet.db could not be opened"),
+                (&recovery_path, "the recovery key could not be written"),
+            ] {
+                match fs::symlink_metadata(path) {
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::NotFound
+                            || error.raw_os_error() == Some(libc::ENOTDIR) => {}
+                    Ok(_) if path == &recovery_path => {
+                        return Err("a recovery key file is waiting to be moved".into());
+                    }
+                    _ => return Err(phrase.into()),
+                }
+            }
+            made.extend([store_path.clone(), wal, shm, recovery_path.clone()]);
+            let mut store = FleetDb::open(&store_path)?;
+            let record = store.found_network(&key, &id, name, &recovery_path)?;
+            let mut network = network_info(self.fleet_db()?.add_network(&id, name, scope)?);
+            network.version = Some(record.body.version);
+            network.founder = Some(record.body.founder);
+            Ok(Response {
+                network: Some(network),
+                recovery_file: Some(recovery_path.to_string_lossy().into_owned()),
+                ..success()
+            })
+        })();
+        if result.is_err() {
+            for path in made {
+                let _ = fs::remove_file(path);
+            }
+        }
+        result
     }
 
     fn require_room(&self, room: &str) -> Result<(), String> {

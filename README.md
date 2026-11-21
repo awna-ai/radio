@@ -58,6 +58,8 @@ This is where Radio is headed: your apps' work follows you. The same app on your
 desktop works on the same body of work, and other apps' agents join in, whichever computer they run
 on. Today Radio links the copies on your computers; rooms that span them come next.
 
+A computer can now start an internal or external network.
+
 ### How your apps work together across them
 
 An app installed on several of your computers talks to its own copy on each one through Radio.
@@ -280,7 +282,7 @@ A first session looks like this:
 | Op | What it does |
 | --- | --- |
 | **`id`** | This computer's link id: the public half of its key, 64 lowercase hex characters. The first call makes the key. |
-| **`network_init`** | Starts the person's network of computers with this computer as its founding member, and writes the network's recovery key once to a file: the person moves it into a password manager and deletes the file. |
+| **`network_init`** | Starts the person's network of computers by default. With `scope: internal` or `scope: external`, starts another network with its own key, store and recovery file. The recovery key is written once to a file: the person moves it into a password manager and deletes the file. |
 | **`network_code_create`** | Makes a one-time join code for another computer, valid for 30 minutes unless `ttl` says otherwise (24 hours at most). |
 | **`network_code_list`**, **`network_code_revoke`** | Show and close the open codes. |
 | **`network_computer_list`** | This computer's view of the network: each other computer's id, name, state and inviter, and whether it is trusted. |
@@ -292,9 +294,12 @@ A first session looks like this:
 | **`network_computer_remove`** | Removes another computer from the network for everyone: the computers it reaches, the removed one included, drop it, and `delivered` says how many it reached. |
 | **`network_leave`** | Takes this computer out of its network and tells the others. |
 
-`network_list` lists the networks; `network_scope_set` marks one internal or external. Today only
-this computer's personal network exists, and its scope is fixed. The code, computer and leave ops
-take its id as `network`; another id answers `no such network`. Each answer carries a `network`
+`network_list` lists the networks; `network_scope_set` marks one internal or external. The personal
+network's scope is fixed. `network_init` with optional `scope` (`internal` or `external`, protocol minor 15)
+starts another network; `radio network init <name> --scope internal` does the same. Its key and recovery
+file are `networks/<id>.key` and `networks/<id>.recovery.key` in the link folder, and its store is
+`networks/<id>.db` beside `fleet.db`. The code, computer and leave ops still take only the
+personal network's id as `network`; another id answers `no such network`. Each answer carries a `network`
 object with its id, name, scope, state (`member`) and `work_together` (`false`, always so for the
 personal network); init and join also include its version and founder.
 

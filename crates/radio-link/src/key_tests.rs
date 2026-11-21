@@ -274,3 +274,177 @@ fn leaves_stale_temporary_symlinks_and_their_targets_untouched() {
     assert_no_backup_attribute(&target.key());
     assert!(key.to_bytes() != [7; 32]);
 }
+
+fn network_id() -> String {
+    "ab".repeat(32)
+}
+fn network_key(temp: &Temp) -> PathBuf {
+    temp.0
+        .join(NETWORKS_DIR)
+        .join(format!("{}.key", network_id()))
+}
+#[test]
+fn network_key_creates_private_file_and_folder_without_changing_node_key() {
+    let temp = Temp::new();
+    load_or_create(&temp.0).unwrap();
+    let before = fs::read(temp.key()).unwrap();
+    let key = create_network_key(&temp.0, &network_id()).unwrap();
+    assert_eq!(mode(&temp.0.join(NETWORKS_DIR)), 0o700);
+    assert_eq!(mode(&network_key(&temp)), 0o600);
+    assert_eq!(fs::metadata(network_key(&temp)).unwrap().len(), 32);
+    assert_eq!(
+        key.public(),
+        load_network_key(&temp.0, &network_id()).unwrap().public()
+    );
+    assert_eq!(fs::read(temp.key()).unwrap(), before);
+    assert_ne!(key.public(), load_or_create(&temp.0).unwrap().public());
+}
+#[test]
+fn network_key_second_create_refuses_and_preserves_first() {
+    let temp = Temp::new();
+    let first = create_network_key(&temp.0, &network_id()).unwrap();
+    let before = fs::read(network_key(&temp)).unwrap();
+    assert_eq!(
+        create_network_key(&temp.0, &network_id()).err(),
+        Some("the network key already exists")
+    );
+    assert_eq!(fs::read(network_key(&temp)).unwrap(), before);
+    assert_eq!(
+        first.public(),
+        load_network_key(&temp.0, &network_id()).unwrap().public()
+    );
+}
+#[test]
+fn network_key_refuses_file_symlink_without_changing_target() {
+    let temp = Temp::new();
+    let target = Temp::new();
+    target.write(32, 0o600);
+    fs::create_dir_all(temp.0.join(NETWORKS_DIR)).unwrap();
+    symlink(target.key(), network_key(&temp)).unwrap();
+    assert_eq!(
+        create_network_key(&temp.0, &network_id()).err(),
+        Some("the network key already exists")
+    );
+    assert_eq!(
+        load_network_key(&temp.0, &network_id()).err(),
+        Some("the link key is not a regular file")
+    );
+    assert_eq!(fs::read_link(network_key(&temp)).unwrap(), target.key());
+    assert_eq!(fs::read(target.key()).unwrap(), [7; 32]);
+    assert_no_backup_attribute(&target.key());
+}
+#[test]
+fn network_key_refuses_networks_folder_symlink() {
+    let temp = Temp::new();
+    let target = Temp::new();
+    fs::create_dir_all(&temp.0).unwrap();
+    fs::create_dir_all(&target.0).unwrap();
+    symlink(&target.0, temp.0.join(NETWORKS_DIR)).unwrap();
+    assert_eq!(
+        create_network_key(&temp.0, &network_id()).err(),
+        Some("the link folder is not usable")
+    );
+    assert_eq!(
+        load_network_key(&temp.0, &network_id()).err(),
+        Some("the link folder is not usable")
+    );
+    assert_eq!(fs::read_dir(&target.0).unwrap().count(), 0);
+}
+#[test]
+fn network_key_refuses_nonhex_ids_before_writing() {
+    for id in [
+        String::new(),
+        "../escape".to_owned(),
+        "A".repeat(64),
+        "g".repeat(64),
+        "a".repeat(63),
+        "a".repeat(65),
+    ] {
+        let temp = Temp::new();
+        assert_eq!(
+            create_network_key(&temp.0, &id).err(),
+            Some("not a network id")
+        );
+        assert_eq!(
+            load_network_key(&temp.0, &id).err(),
+            Some("not a network id")
+        );
+        assert!(!temp.0.exists());
+    }
+}
+#[test]
+fn network_key_load_never_creates_missing_folder_or_file() {
+    let temp = Temp::new();
+    assert_eq!(
+        load_network_key(&temp.0, &network_id()).err(),
+        Some("the link folder is not usable")
+    );
+    assert!(!temp.0.exists());
+    fs::create_dir_all(temp.0.join(NETWORKS_DIR)).unwrap();
+    assert_eq!(
+        load_network_key(&temp.0, &network_id()).err(),
+        Some("the link key could not be read")
+    );
+    assert_eq!(fs::read_dir(temp.0.join(NETWORKS_DIR)).unwrap().count(), 0);
+    assert!(!temp.key().exists());
+}
+#[test]
+fn network_key_load_refuses_loose_damaged_and_nonregular_files() {
+    for (size, permissions, phrase) in [
+        (32, 0o644, "the link key is open to others"),
+        (31, 0o600, "the link key is damaged"),
+        (33, 0o600, "the link key is damaged"),
+    ] {
+        let temp = Temp::new();
+        fs::create_dir_all(temp.0.join(NETWORKS_DIR)).unwrap();
+        fs::write(network_key(&temp), vec![7; size]).unwrap();
+        fs::set_permissions(network_key(&temp), fs::Permissions::from_mode(permissions)).unwrap();
+        assert_eq!(load_network_key(&temp.0, &network_id()).err(), Some(phrase));
+        assert_eq!(fs::read(network_key(&temp)).unwrap(), vec![7; size]);
+        assert_eq!(mode(&network_key(&temp)), permissions);
+        assert_no_backup_attribute(&network_key(&temp));
+    }
+    let temp = Temp::new();
+    fs::create_dir_all(network_key(&temp)).unwrap();
+    assert_eq!(
+        load_network_key(&temp.0, &network_id()).err(),
+        Some("the link key is not a regular file")
+    );
+}
+#[cfg(target_os = "macos")]
+#[test]
+fn network_key_excludes_created_and_loaded_files_from_backups() {
+    const EXPECTED: &[u8] = b"bplist00\x5f\x10\x11com.apple.backupd\x08\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c";
+    for existing in [false, true] {
+        let temp = Temp::new();
+        if existing {
+            fs::create_dir_all(temp.0.join(NETWORKS_DIR)).unwrap();
+            fs::write(network_key(&temp), [7; 32]).unwrap();
+            fs::set_permissions(network_key(&temp), fs::Permissions::from_mode(0o600)).unwrap();
+            assert_no_backup_attribute(&network_key(&temp));
+            load_network_key(&temp.0, &network_id()).unwrap();
+        } else {
+            create_network_key(&temp.0, &network_id()).unwrap();
+        }
+        assert_eq!(
+            backup_attribute(&network_key(&temp)).as_deref(),
+            Some(EXPECTED)
+        );
+        assert!(!temp.key().exists());
+    }
+}
+
+#[test]
+fn network_key_load_refuses_link_folder_symlink() {
+    let temp = Temp::new();
+    let target = Temp::new();
+    create_network_key(&target.0, &network_id()).unwrap();
+    let before = fs::read(network_key(&target)).unwrap();
+    symlink(&target.0, &temp.0).unwrap();
+    assert_eq!(
+        load_network_key(&temp.0, &network_id()).err(),
+        Some("the link folder is not usable")
+    );
+    assert_eq!(fs::read(network_key(&target)).unwrap(), before);
+    fs::remove_file(&temp.0).unwrap();
+}

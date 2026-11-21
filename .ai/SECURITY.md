@@ -1,6 +1,6 @@
 # Security: radio
 
-**Last reviewed:** 2026-11-21, with the networks store and network ops (§ *Several networks*). This
+**Last reviewed:** 2026-11-21, with network records, keys and stores (§ *Several networks*). This
 model describes the design every step is held to, and each step that builds a boundary updates its row.
 
 ## What this system is
@@ -87,7 +87,7 @@ background children on normal exit, including children that keep stdout open.
 At most 4 socket messages wait independently of file sends; their outer wait is 45 seconds and
 the client waits 60 seconds.
 
-## Several networks (store built; controls designed, not built)
+## Several networks (keys and stores built; endpoints and other controls designed)
 
 A computer may belong to several networks at once (D30). Each network has one access scope, which the
 person sets on their own computer: `personal` (the person's own computers, today's fleet), `internal`
@@ -108,12 +108,18 @@ memberships, its addresses, or who its owner is elsewhere.
 
 The store's `networks` table, the person's scope mark and the caps of one personal and 8 other
 networks are built and tested in the store (`crates/radio-link/src/fleet_db_tests.rs`); the personal
-row follows the fleet. No op can make a network other than personal yet: the store's `add_network`
-has no caller outside tests, so `network_scope_set` today only refuses. The network twins are tested
-in `crates/radio/src/server_tests.rs`. No control N1 to N15 is built. Each row marked **not built**
+row follows the fleet. `network_init` with `internal` or `external` scope now makes a network with
+its own key (`networks/<id>.key`) and recovery file (`networks/<id>.recovery.key`) in the link
+folder, and store (`networks/<id>.db`) beside `fleet.db`. N2 is built for keys and stores, tested in
+`key_tests.rs`, `fleet_db_tests.rs` and `crates/radio/src/server_tests.rs`; endpoints are the next
+step. `network_scope_set` still serves only the personal network and refuses. No other control
+N1 to N15 is built. Each row marked **not built**
 remains the design that the step building it is held to: that step replaces **not built** with its
 tests and names the control it proves. The fleet rows below (§ *Trust boundaries* and the gaps) keep
 holding for the personal network.
+
+A founder-signed record may change its admitters, moderators and links; a recovery-signed one
+keeps them unchanged. Empty lists keep the personal record's bytes and signature.
 
 ### What may cross: the controls
 
@@ -124,7 +130,8 @@ holding for the personal network.
   Test: a member of one network posting into another network's room on this computer is refused.
 - **N2. A key and an endpoint per membership.** `node.key` is only an ordinary computer's personal
   identity, and a shared computer's first personal one. Every other membership has its own key and
-  its own endpoint and UDP socket (the transport's endpoint has exactly one id). Test: the peers of
+  its own endpoint and UDP socket (the transport's endpoint has exactly one id). Separate keys and
+  stores are built; endpoints remain unbuilt. Test: the peers of
   two networks see two different keys, and nothing either network is served names the other network
   or this computer's personal key, except a quote the person brought in (N6, a gap below).
 - **N3. Peers act only inside their own network.** A computer of network A reaches only A's rooms on
@@ -313,11 +320,11 @@ holding for the personal network.
 | Class | Examples | Where stored | Exposure impact | Retention |
 | --- | --- | --- | --- | --- |
 | Membership keys | an Ed25519 key for each membership but the personal one (D30) | `~/.config/radio/networks/<network id>.key` (under `$XDG_CONFIG_HOME` on Linux), held to `node.key`'s rules: 0600, `O_EXCL`, no links, left out of Time Machine (on Linux, the person's own backup must leave them out: no mechanism yet) | anyone holding one speaks as this computer in that network, and only there | until the computer leaves that network and the person forgets it |
-| Recovery-key secrets | the secret half of each network this computer founded | a file of its own per network beside its membership key, written once, under the same rules, never the personal network's recovery-key path | anyone holding one rewrites that network's record | until the person moves it off the computer |
+| Recovery-key secrets | the secret half of each network this computer founded | `networks/<id>.recovery.key` in the link folder, written once, under the membership key's rules, never the personal network's recovery-key path | anyone holding one rewrites that network's record | until the person moves it off the computer |
 | Relay admit tokens | what a network's record gives its relays to admit its members | `fleet.db`, per network, 0600 like the store | a holder may reach that network's relays, and make a member's endpoint do a handshake before admission refuses it | until the founder's next record replaces them; removing a member replaces them |
 | What relays hold | each network's member set (or admit tokens) that this computer's networks send their relays | on each relay, outside this computer | the relay's operator learns each network's members' keys | until the network's next record replaces it |
 | Network join codes | each open code's hash, expiry and uses left, and the relays it names | `fleet.db`, per network | a leaked multi-use code lets strangers ask to join until it expires, runs out or is revoked; an admitter still lets each one in | until used up, expired or revoked |
-| Network records | each network's signed record (id, name, founder, the recovery key's public half, relays, admitters, moderators, founder-signed links), its member list, vouches, moderation records, and this computer's own display name there | `fleet.db`, per network (a store of its own for each membership on a shared computer) | who is in each network, and where its relays are; one network's record never names another membership of this computer | until the computer leaves the network |
+| Network records | each network's signed record (id, name, founder, the recovery key's public half, relays, admitters, moderators, founder-signed links), its member list, vouches, moderation records, and this computer's own display name there | `fleet.db` for personal, `networks/<id>.db` beside it for each other network | who is in each network, and where its relays are; one network's record never names another membership of this computer | until the computer leaves the network |
 | The person's marks and blocks | each network's scope, whether it may connect directly, which relays are the person's own (with their keys), working-together choices, blocked participants | `fleet.db`, this computer's own rows, never sent | which networks the person trusts, and whom they blocked | until the person changes them |
 | Other networks' rooms | messages, names, status lines and deliberations of a network other than personal | `rooms.db`, each room tagged with its network | other people's words, untrusted; and, if read elsewhere, that this computer is in that network | read only after leaving, until the person forgets the network |
 | Quotes | messages the person brought into a private room | `rooms.db`, in that private room | another network's words, and that the person picked them | as the room's other messages |
@@ -388,7 +395,7 @@ members already hold.
 | --- | --- | --- | --- | --- |
 | Conversations | room messages and statuses, registered members, each deliberation's seats, open-round blocks, state and drafts | `~/.local/state/radio/rooms.db`, 0600, in a 0700 folder, opened without following a link | private words of the people in a room | kept until the user deletes them; uninstall keeps them |
 | Identity | the computer's link key (Ed25519) | `~/.config/radio/node.key`, 0600, in a 0700 folder, created with `O_EXCL` and opened without following a link; a key file that is a link, not this user's, or readable by anyone else is refused, never repaired; made by a temporary file hard-linked into place, so two makers at once agree on one key; the file is marked to be left out of Time Machine backups (`crates/radio-link/src/key_tests.rs`) | anyone holding it can speak as this computer to every member | kept until the computer leaves; on loss or leak the computer is removed and joins again with a new key |
-| Recovery key | the secret half of the fleet's recovery key | written once by `fleet_init` or `network_init` to `~/.config/radio/recovery.key` (0600, created with `O_EXCL` and without following a link, in the link key's 0700 folder, marked to be left out of Time Machine before the secret is written, as `node.key` is), for the person to move into their password manager and then delete; never in an answer or a log; an existing file refuses `fleet_init` and `network_init`; only its public half stays, in the fleet record (`crates/radio-link/src/fleet_db_tests.rs`: the file, its mode and the backup mark; `crates/radio/src/server_tests.rs`: `fleet_and_join_codes_cross_the_socket_without_logging_secrets` proves the secret is in neither `fleet_init`'s answer nor `radio.log`; `network_init` runs the same `fleet_init` path) | anyone holding it can name a new founding member | for the life of the fleet |
+| Recovery key | the secret half of the fleet's recovery key | written once by `fleet_init` or personal `network_init` to `~/.config/radio/recovery.key`, or scoped `network_init` to `networks/<id>.recovery.key` in the link folder (0600, created with `O_EXCL` and without following a link, in the link key's 0700 folder, marked to be left out of Time Machine before the secret is written, as `node.key` is), for the person to move into their password manager and then delete; never in an answer or a log; an existing file refuses `fleet_init` and `network_init`; only its public half stays, in the fleet record (`crates/radio-link/src/fleet_db_tests.rs`: the file, its mode and the backup mark; `crates/radio/src/server_tests.rs`: `fleet_and_join_codes_cross_the_socket_without_logging_secrets` proves the secret is in neither `fleet_init`'s answer nor `radio.log`; unscoped `network_init` runs the same `fleet_init` path; scoped init writes `networks/<id>.recovery.key` in the link folder with the same rules) | anyone holding it can name a new founding member | for the life of the fleet |
 | Fleet records | the fleet record, each member's latest signed record and state, join codes' SHA-256 and expiry, tombstones and held removals, each member's last working addresses, each delivery's name, size, time and sender | `~/.local/state/radio/fleet.db` (SQLite, WAL, 0600, in a 0700 folder, the daemon its one writer); network ids, names and scope marks in table `networks` (no secrets), this computer's own link addresses (table `link_addresses`, D22; the port is fixed), delivery records and their numbering (`arrivals` and `sqlite_sequence`), and delivery folders (`delivery_folders`) in the same file; no `fleet.toml` is written | who the user's computers are and where they can be reached; a code's hash can't be turned back into the code | when this computer leaves or is removed, `clear_fleet` deletes all rows in `announcements`, `computer_records`, `local`, `computers`, `tombstones`, `held`, `records`, `codes` and `fleet`, and only the personal row in `networks`; it keeps this computer's own link addresses until the person removes them, delivery records and their numbering (the newest 10,000 per app), delivery folders until an app clears its own, and network rows other than personal (`crates/radio-link/src/fleet_db_tests.rs`: `networks_sort_personal_then_name_then_id_and_survive_forgetting` proves those network rows survive); expired codes are deleted |
 | Connection status | the computers connected now: each one's name, key, the address its connection's selected path uses (observed on the connection, so for an incoming one it may be an address no fleet record holds), its round-trip time and when Radio last wrote it; a `relay` line | `~/.local/state/radio/status.json`, 0600, in a 0700 folder; written whole on each connect and close to a temporary file created without following a link, then renamed into place; never read back by Radio (`crates/radio-link/tests/node.rs`: the entries, the mode and the close) | which of the user's computers are online now, where they can be reached, and how far away they are | replaced on each connect and close (not when a path or round-trip time changes); the list is emptied when the link starts, so after Radio stops or crashes it still shows the last connections until the next start; kept on uninstall with the rest of the folder |
 | Deliveries | files other computers sent to an app | only in the folder Radio made for that app; Radio keeps no copy of the contents, on either side, only the record in `fleet.db`: name, size, time, the sender's key and Radio's name for it | whatever the app sent: the app's own data class | the receiving app's to keep or delete |
@@ -406,7 +413,7 @@ several networks (designed: § *Several networks*), it also keeps one membership
 membership and each network's recovery-key secret where it founded one, under the same rules, and
 relay admit tokens in its store; none of them leaves through the socket either. A join code's secret lives only
 in the person's hands until it is used, and the inviter keeps only its hash. The recovery key's
-secret half is on the computer, in `recovery.key`, only until the person has moved it. Radio's own releases are signed ad
+secret half is on the computer, in `recovery.key` or `networks/<id>.recovery.key`, only until the person has moved it. Radio's own releases are signed ad
 hoc (D14), so Radio holds no release key; an app that signs its own updates keeps that key itself. No
 token, key or password belongs in the repo; gitleaks runs in `scripts/ci-local.sh`.
 
@@ -602,3 +609,4 @@ missing objects, and reads ref names.
 - 2026-11-20: one fleet gossip topic on `radio-gossip/1` (D29, link minor 7), direct removals and leaves kept beside broadcasts, conditional leave drain, topic re-join from 1 to 60 seconds, signature checks before the store lock, one kept announcement per sender key per five minutes, background record fetches with per-computer deduplication and a 60-second failure back-off; the gossip address-lookup and endpoint-wide unidirectional-stream gaps are accepted, and the older-peer gap is recorded.
 - 2026-11-20: a computer in several networks is designed (D30, D31): § *Several networks* with fifteen controls (N15, the person's own steps confirmed outside the socket, not yet designed), eight boundary rows, twelve data classes and twenty-two gaps, all not built; the worst outcomes take two more; six gaps' revisit cells, the relay row, *External integrations*, the identity line, the endpoint row and § *Where secrets live* now point at it.
 - 2026-11-21: `fleet.db` version 8 adds the `networks` table, with the personal network kept in step with the fleet, the person's scope mark and the cap of one personal and 8 other networks. Protocol minor 14 adds the `network_*` ops; the old ops are deprecated and unchanged. No control N1 to N15 is built.
+- 2026-11-21: protocol minor 15 lets `network_init` start an internal or external network with its own key, store and recovery file. `fleet.db` version 9 accepts `left` and forbids external working together. N2 is built for keys and stores; endpoints remain unbuilt.

@@ -543,7 +543,7 @@ fn hello_names_the_version_and_all_ops() {
     assert_eq!(
         call(&fixture.socket(), serde_json::json!({"v":1,"op":"hello"})),
         serde_json::json!({
-            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":14},"majors":[1],"ops":radio_client::OPS
+            "ok":true,"radio":env!("CARGO_PKG_VERSION"),"protocol":{"major":1,"minor":15},"majors":[1],"ops":radio_client::OPS
         })
     );
     worker.join().unwrap();
@@ -4393,4 +4393,220 @@ fn network_twin_answer_builds_from_the_fleet_when_both_rows_vanish() {
             ..response
         }
     );
+}
+
+#[test]
+fn scoped_network_init_has_own_files_and_preserves_personal_bytes() {
+    use std::os::unix::fs::PermissionsExt;
+    for personal in [false, true] {
+        for scope in ["internal", "external"] {
+            let fixture = Fixture::new();
+            let link = fixture.0.join("link");
+            let db_path = fixture.0.join("fleet.db");
+            let mut server = fixture
+                .bind()
+                .with_link_dir(link.clone())
+                .with_fleet_db(db_path.clone());
+            if personal {
+                server
+                    .dispatch(serde_json::json!({"v":1,"op":"network_init","name":"garden"}))
+                    .unwrap();
+            }
+            let node_before = fs::read(link.join("node.key")).ok();
+            let recovery_before = fs::read(link.join("recovery.key")).ok();
+            let personal_before = server.fleet_db().unwrap().fleet().unwrap();
+            let record_before = personal_before
+                .as_ref()
+                .map(|record| serde_json::to_vec(record).unwrap());
+            let answer = server
+                .dispatch(
+                    serde_json::json!({"v":1,"op":"network_init","name":"orchard","scope":scope}),
+                )
+                .unwrap();
+            assert!(answer.ok);
+            let network = answer.network.unwrap();
+            assert_eq!(network.name, "orchard");
+            assert_eq!(network.scope, scope);
+            assert_eq!(network.state, "member");
+            assert!(!network.work_together);
+            assert_eq!(network.version, Some(1));
+            assert_ne!(
+                personal_before.as_ref().map(|record| &record.body.id),
+                Some(&network.id)
+            );
+            let key_path = link.join("networks").join(format!("{}.key", network.id));
+            assert_eq!(
+                fs::metadata(&key_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            let key_bytes: [u8; 32] = fs::read(&key_path).unwrap().try_into().unwrap();
+            let key = radio_link::SecretKey::from_bytes(&key_bytes);
+            assert_eq!(network.founder, Some(key.public().to_string()));
+            let store_path = fixture
+                .0
+                .join("networks")
+                .join(format!("{}.db", network.id));
+            assert!(store_path.is_file());
+            let db = radio_link::fleet_db::FleetDb::open(&store_path).unwrap();
+            let record = db.fleet().unwrap().unwrap();
+            assert_eq!(record.body.id, network.id);
+            assert_eq!(record.body.founder, key.public().to_string());
+            record.verify().unwrap();
+            assert!(db.networks().unwrap().is_empty());
+            let recovery_path = link
+                .join("networks")
+                .join(format!("{}.recovery.key", network.id));
+            assert_eq!(
+                Path::new(answer.recovery_file.as_ref().unwrap()),
+                recovery_path
+            );
+            assert_eq!(
+                fs::metadata(&recovery_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            let recovery_text = fs::read_to_string(recovery_path).unwrap();
+            assert_eq!(recovery_text.len(), 65);
+            assert!(recovery_text.ends_with('\n'));
+            let recovery: radio_link::SecretKey = recovery_text.trim().parse().unwrap();
+            assert_eq!(recovery.public().to_string(), record.body.recovery);
+            assert_eq!(fs::read(link.join("node.key")).ok(), node_before);
+            assert_eq!(fs::read(link.join("recovery.key")).ok(), recovery_before);
+            assert_eq!(
+                server
+                    .fleet_db()
+                    .unwrap()
+                    .fleet()
+                    .unwrap()
+                    .map(|record| serde_json::to_vec(&record).unwrap()),
+                record_before
+            );
+            assert!(server.link.is_none());
+        }
+    }
+}
+
+#[test]
+fn scoped_network_init_refuses_unknown_scope_without_files() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let db_path = fixture.0.join("fleet.db");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(db_path.clone());
+    assert_eq!(
+        server
+            .dispatch(
+                serde_json::json!({"v":1,"op":"network_init","name":"orchard","scope":"unknown"})
+            )
+            .unwrap_err(),
+        "not a scope"
+    );
+    assert!(!link.exists());
+    assert!(!db_path.exists());
+}
+
+#[test]
+fn scoped_network_init_refuses_ninth_network_without_files() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    for index in 0..8 {
+        server
+            .fleet_db()
+            .unwrap()
+            .add_network(
+                &format!("{index:064x}"),
+                "orchard",
+                radio_link::fleet_db::Scope::Internal,
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        server
+            .dispatch(
+                serde_json::json!({"v":1,"op":"network_init","name":"orchard","scope":"internal"})
+            )
+            .unwrap_err(),
+        "too many networks; at most 8 besides the personal one"
+    );
+    assert!(!link.exists());
+    assert!(!fixture.0.join("networks").exists());
+    assert_eq!(server.fleet_db().unwrap().networks().unwrap().len(), 8);
+}
+
+#[test]
+fn scoped_network_init_store_failure_removes_the_new_key() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    drop(server.fleet_db().unwrap());
+    // Keys are under the link folder; stores are under the state folder.
+    let obstacle = fixture.0.join("networks");
+    fs::write(&obstacle, b"keep").unwrap();
+    assert_eq!(
+        server
+            .dispatch(
+                serde_json::json!({"v":1,"op":"network_init","name":"orchard","scope":"internal"})
+            )
+            .unwrap_err(),
+        "the network folder is not usable"
+    );
+    assert_eq!(fs::read_dir(link.join("networks")).unwrap().count(), 0);
+    assert_eq!(fs::read(obstacle).unwrap(), b"keep");
+    assert!(server.fleet_db().unwrap().networks().unwrap().is_empty());
+    assert!(!link.join("node.key").exists());
+    assert!(!link.join("recovery.key").exists());
+}
+
+#[test]
+fn scoped_network_init_index_failure_removes_all_new_files() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let db_path = fixture.0.join("fleet.db");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(db_path.clone());
+    drop(server.fleet_db().unwrap());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch("CREATE TRIGGER refuse_network BEFORE INSERT ON networks BEGIN SELECT RAISE(ABORT, 'refused'); END;").unwrap();
+    assert_eq!(
+        server
+            .dispatch(
+                serde_json::json!({"v":1,"op":"network_init","name":"orchard","scope":"internal"})
+            )
+            .unwrap_err(),
+        "fleet.db could not be written"
+    );
+    assert_eq!(fs::read_dir(link.join("networks")).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(fixture.0.join("networks")).unwrap().count(), 0);
+    assert!(server.fleet_db().unwrap().networks().unwrap().is_empty());
+}
+
+#[test]
+fn network_init_personal_scope_keeps_the_personal_paths() {
+    let fixture = Fixture::new();
+    let link = fixture.0.join("link");
+    let mut server = fixture
+        .bind()
+        .with_link_dir(link.clone())
+        .with_fleet_db(fixture.0.join("fleet.db"));
+    let answer = server
+        .dispatch(serde_json::json!({"v":1,"op":"network_init","name":"garden","scope":"personal"}))
+        .unwrap();
+    assert_eq!(answer.network.unwrap().scope, "personal");
+    assert_eq!(
+        Path::new(answer.recovery_file.as_ref().unwrap()),
+        link.join("recovery.key")
+    );
+    assert!(link.join("node.key").is_file());
+    assert!(!link.join("networks").exists());
+    assert!(!fixture.0.join("networks").exists());
 }

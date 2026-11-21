@@ -26,7 +26,7 @@ use std::{
 };
 
 pub const DB_FILE: &str = "fleet.db";
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 pub const JOIN_RECORDS_MAX: usize = 256 * 1024;
 pub const CODES_MAX: usize = 64;
 pub const TTL_DEFAULT: u64 = 30 * 60;
@@ -140,6 +140,21 @@ CREATE TABLE networks (
 CREATE UNIQUE INDEX one_personal ON networks (scope) WHERE scope = 'personal';
 ";
 
+const SCHEMA_9: &str = "
+CREATE TABLE networks_new (
+    id TEXT PRIMARY KEY CHECK (length(id) = 64),
+    scope TEXT NOT NULL CHECK (scope IN ('personal', 'internal', 'external')),
+    name TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('member', 'left')),
+    work_together INTEGER NOT NULL DEFAULT 0 CHECK (work_together IN (0, 1)),
+    CHECK (NOT (scope = 'external' AND work_together = 1))
+) STRICT;
+INSERT INTO networks_new SELECT id, scope, name, state, work_together FROM networks;
+DROP TABLE networks;
+ALTER TABLE networks_new RENAME TO networks;
+CREATE UNIQUE INDEX one_personal ON networks (scope) WHERE scope = 'personal';
+";
+
 pub const NETWORKS_OTHER_MAX: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,6 +262,14 @@ pub struct Arrival {
 pub struct FleetDb {
     conn: Connection,
     folder: PathBuf,
+}
+
+pub fn network_store_path(fleet_db: &Path, network: &str) -> PathBuf {
+    fleet_db
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(key::NETWORKS_DIR)
+        .join(format!("{network}.db"))
 }
 
 impl FleetDb {
@@ -591,6 +614,29 @@ impl FleetDb {
         name: &str,
         link_dir: &Path,
     ) -> Result<(FleetRecord, PathBuf), &'static str> {
+        let path = link_dir.join(RECOVERY_FILE);
+        let record = self.found_record(node, None, name, &path, true)?;
+        Ok((record, path))
+    }
+
+    pub fn found_network(
+        &mut self,
+        key: &iroh::SecretKey,
+        id: &str,
+        name: &str,
+        recovery_path: &Path,
+    ) -> Result<FleetRecord, &'static str> {
+        self.found_record(key, Some(id), name, recovery_path, false)
+    }
+
+    fn found_record(
+        &mut self,
+        node: &iroh::SecretKey,
+        id: Option<&str>,
+        name: &str,
+        path: &Path,
+        personal: bool,
+    ) -> Result<FleetRecord, &'static str> {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -601,15 +647,18 @@ impl FleetDb {
         if exists {
             return Err("already in a fleet");
         }
-        let (record, recovery) = fleet::found(node, name)?;
-        let _folder = key::private_folder(link_dir).map_err(|_| "the link folder is not usable")?;
-        let path = link_dir.join(RECOVERY_FILE);
+        let (record, recovery) = match id {
+            Some(id) => fleet::found_network(node, id, name)?,
+            None => fleet::found(node, name)?,
+        };
+        let parent = path.parent().ok_or("the link folder is not usable")?;
+        let _folder = key::private_folder(parent).map_err(|_| "the link folder is not usable")?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)
+            .open(path)
             .map_err(|error| {
                 if error.kind() == std::io::ErrorKind::AlreadyExists {
                     "a recovery key file is waiting to be moved"
@@ -627,16 +676,18 @@ impl FleetDb {
             let text = serde_json::to_string(&record).map_err(|_| WRITE)?;
             tx.execute("INSERT INTO fleet (one, record) VALUES (1, ?1)", [text])
                 .map_err(|_| WRITE)?;
-            insert_network(&tx, &record.body.id, &record.body.name, Scope::Personal)?;
+            if personal {
+                insert_network(&tx, &record.body.id, &record.body.name, Scope::Personal)?;
+            }
             tx.execute("INSERT INTO local VALUES (1, 1, NULL)", [])
                 .map_err(|_| WRITE)?;
             tx.commit().map_err(|_| WRITE)
         })();
         if let Err(error) = result {
-            let _ = fs::remove_file(&path);
+            let _ = fs::remove_file(path);
             return Err(error);
         }
-        Ok((record, path))
+        Ok(record)
     }
 
     pub fn standing(&self, key: &iroh::EndpointId) -> Result<Standing, &'static str> {
@@ -2067,7 +2118,7 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
             tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?;
         }
         2 => tx.execute_batch(SCHEMA_3).map_err(|_| WRITE)?,
-        3..=7 => {}
+        3..=8 => {}
         SCHEMA_VERSION => return Ok(()),
         value if value > SCHEMA_VERSION => return Err("fleet.db is newer than this build"),
         _ => return Err(READ),
@@ -2089,6 +2140,9 @@ fn migrate(conn: &mut Connection) -> Result<(), &'static str> {
         if let Some(fleet) = load_fleet(&tx)? {
             insert_network(&tx, &fleet.body.id, &fleet.body.name, Scope::Personal)?;
         }
+    }
+    if version < 9 {
+        tx.execute_batch(SCHEMA_9).map_err(|_| WRITE)?;
     }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|_| WRITE)?;

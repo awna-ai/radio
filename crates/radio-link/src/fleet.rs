@@ -11,6 +11,12 @@ pub struct FleetBody {
     pub recovery: String,
     pub release_key: Option<String>,
     pub relays: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub admitters: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moderators: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<String>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -52,6 +58,14 @@ pub(crate) fn public_key(hex: &str) -> Option<iroh::PublicKey> {
     iroh::PublicKey::from_bytes(&bytes).ok()
 }
 
+fn valid_list(values: &[String], limit: usize, valid: impl Fn(&str) -> bool) -> bool {
+    values.len() <= limit
+        && values
+            .iter()
+            .enumerate()
+            .all(|(index, value)| valid(value) && !values[..index].contains(value))
+}
+
 impl FleetRecord {
     pub fn verify(&self) -> Result<(), &'static str> {
         const INVALID: &str = "not a fleet record";
@@ -63,6 +77,9 @@ impl FleetRecord {
             || body.version == 0
             || founder == recovery
             || !body.relays.is_empty()
+            || !valid_list(&body.admitters, 64, |key| public_key(key).is_some())
+            || !valid_list(&body.moderators, 64, |key| public_key(key).is_some())
+            || !valid_list(&body.links, 8, |id| crate::wire::hex64(id) && id != body.id)
             || body
                 .release_key
                 .as_ref()
@@ -112,7 +129,12 @@ pub fn accept(current: Option<&FleetRecord>, new: &FleetRecord) -> Result<(), &'
             if new.body.epoch <= current.body.epoch {
                 return Err("the fleet record is not newer");
             }
-            if new.body.name != current.body.name || new.body.relays != current.body.relays {
+            if new.body.name != current.body.name
+                || new.body.relays != current.body.relays
+                || new.body.admitters != current.body.admitters
+                || new.body.moderators != current.body.moderators
+                || new.body.links != current.body.links
+            {
                 return Err(
                     "the recovery key changes only the founding member and the release key",
                 );
@@ -131,6 +153,20 @@ pub fn found(
     }
     let mut id = [0; 32];
     getrandom::fill(&mut id).map_err(|_| "the fleet could not be made")?;
+    found_network(node, &data_encoding::HEXLOWER.encode(&id), name)
+}
+
+pub fn found_network(
+    node: &iroh::SecretKey,
+    id: &str,
+    name: &str,
+) -> Result<(FleetRecord, iroh::SecretKey), &'static str> {
+    if !crate::wire::member_name(name) {
+        return Err("not a fleet name");
+    }
+    if !crate::wire::hex64(id) {
+        return Err("not a fleet record");
+    }
     let recovery = loop {
         let key = iroh::SecretKey::generate();
         if key.public() != node.public() {
@@ -138,7 +174,7 @@ pub fn found(
         }
     };
     let body = FleetBody {
-        id: data_encoding::HEXLOWER.encode(&id),
+        id: id.into(),
         name: name.into(),
         version: 1,
         epoch: 0,
@@ -146,6 +182,9 @@ pub fn found(
         recovery: recovery.public().to_string(),
         release_key: None,
         relays: vec![],
+        admitters: vec![],
+        moderators: vec![],
+        links: vec![],
     };
     Ok((sign(body, Signer::Founder, node), recovery))
 }

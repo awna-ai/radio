@@ -160,6 +160,74 @@ fn founding_writes_one_private_recovery_key() {
     assert_eq!(fs::read(path).unwrap(), bytes);
 }
 #[test]
+fn founding_network_uses_its_id_key_and_private_store_without_an_index_row() {
+    let temp = Temp::new();
+    let id = "a".repeat(64);
+    let path = network_store_path(&temp.path(), &id);
+    assert_eq!(path, temp.0.join("networks").join(format!("{id}.db")));
+    let mut db = FleetDb::open(&path).unwrap();
+    assert_eq!(mode(path.parent().unwrap()), 0o700);
+    let key = iroh::SecretKey::generate();
+    let recovery_path = temp.0.join("keys").join(format!("{id}.recovery.key"));
+    let record = db
+        .found_network(&key, &id, "birch", &recovery_path)
+        .unwrap();
+    assert_eq!(record.body.id, id);
+    assert_eq!(record.body.founder, key.public().to_string());
+    assert_eq!(record.body.name, "birch");
+    record.verify().unwrap();
+    assert_eq!(db.fleet().unwrap(), Some(record.clone()));
+    assert_eq!(db.networks().unwrap(), vec![]);
+    assert_eq!(mode(&recovery_path), 0o600);
+    assert_eq!(mode(recovery_path.parent().unwrap()), 0o700);
+    let bytes = fs::read(&recovery_path).unwrap();
+    assert_eq!(bytes.len(), 65);
+    assert_eq!(bytes[64], b'\n');
+    let secret: [u8; 32] = data_encoding::HEXLOWER
+        .decode(&bytes[..64])
+        .unwrap()
+        .try_into()
+        .unwrap();
+    assert_eq!(
+        iroh::SecretKey::from_bytes(&secret).public().to_string(),
+        record.body.recovery
+    );
+    assert_eq!(
+        db.found_network(&key, &id, "orchard", &recovery_path).err(),
+        Some("already in a fleet")
+    );
+    assert_eq!(fs::read(&recovery_path).unwrap(), bytes);
+    assert_eq!(db.fleet().unwrap(), Some(record));
+    assert!(!temp.link().join(RECOVERY_FILE).exists());
+}
+
+#[test]
+fn founding_network_preserves_waiting_recovery_file_and_rolls_back_failures() {
+    let temp = Temp::new();
+    let mut db = temp.open();
+    let key = iroh::SecretKey::generate();
+    let id = "a".repeat(64);
+    let path = temp.0.join("keys").join("network.recovery.key");
+    key::private_folder(path.parent().unwrap()).unwrap();
+    fs::write(&path, b"waiting").unwrap();
+    assert_eq!(
+        db.found_network(&key, &id, "birch", &path).err(),
+        Some("a recovery key file is waiting to be moved")
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"waiting");
+    assert_eq!(db.fleet().unwrap(), None);
+    fs::remove_file(&path).unwrap();
+    db.conn.execute_batch("CREATE TRIGGER refuse_fleet BEFORE INSERT ON fleet BEGIN SELECT RAISE(ABORT, 'refuse'); END;").unwrap();
+    assert_eq!(
+        db.found_network(&key, &id, "birch", &path).err(),
+        Some("fleet.db could not be written")
+    );
+    assert!(!path.exists());
+    assert_eq!(db.fleet().unwrap(), None);
+    assert_eq!(db.networks().unwrap(), vec![]);
+}
+
+#[test]
 fn refuses_waiting_recovery_file_without_storing_fleet() {
     let temp = Temp::new();
     let mut db = temp.open();
@@ -4262,6 +4330,117 @@ fn schema_seven_store(temp: &Temp, record: Option<&str>) {
 }
 
 #[test]
+fn networks_migrate_schema_eight_preserving_rows_and_other_data() {
+    let temp = Temp::new();
+    let fleet = fleet::found(&iroh::SecretKey::generate(), "garden")
+        .unwrap()
+        .0;
+    let text = serde_json::to_string(&fleet).unwrap();
+    schema_seven_store(&temp, Some(&text));
+    let conn = Connection::open(temp.path()).unwrap();
+    conn.execute_batch(SCHEMA_8).unwrap();
+    conn.execute(
+        "INSERT INTO networks VALUES (?1, 'personal', 'garden', 'member', 0)",
+        [&fleet.body.id],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO networks VALUES (?1, 'internal', 'birch', 'member', 1)",
+        [&"a".repeat(64)],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO networks VALUES (?1, 'external', 'orchard', 'member', 0)",
+        [&"b".repeat(64)],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO local VALUES (1, 17, NULL)", [])
+        .unwrap();
+    conn.pragma_update(None, "user_version", 8).unwrap();
+    drop(conn);
+    let db = temp.open();
+    assert_eq!(
+        db.conn
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        9
+    );
+    assert_eq!(db.fleet().unwrap(), Some(fleet.clone()));
+    assert_eq!(
+        db.conn
+            .query_row("SELECT next_counter FROM local", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        17
+    );
+    assert_eq!(
+        db.networks().unwrap(),
+        vec![
+            Network {
+                id: fleet.body.id,
+                name: "garden".into(),
+                scope: Scope::Personal,
+                state: "member",
+                work_together: false
+            },
+            Network {
+                id: "a".repeat(64),
+                name: "birch".into(),
+                scope: Scope::Internal,
+                state: "member",
+                work_together: true
+            },
+            Network {
+                id: "b".repeat(64),
+                name: "orchard".into(),
+                scope: Scope::External,
+                state: "member",
+                work_together: false
+            },
+        ]
+    );
+    assert!(
+        db.conn
+            .execute(
+                "INSERT INTO networks VALUES (?1, 'personal', 'extra', 'member', 0)",
+                [&"c".repeat(64)]
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn networks_schema_accepts_left() {
+    let temp = Temp::new();
+    let db = temp.open();
+    db.conn
+        .execute(
+            "INSERT INTO networks VALUES (?1, 'internal', 'birch', 'left', 1)",
+            [&"a".repeat(64)],
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO networks VALUES (?1, 'external', 'orchard', 'left', 0)",
+            [&"b".repeat(64)],
+        )
+        .unwrap();
+}
+
+#[test]
+fn networks_schema_refuses_external_work_together() {
+    let temp = Temp::new();
+    let db = temp.open();
+    assert!(
+        db.conn
+            .execute(
+                "INSERT INTO networks VALUES (?1, 'external', 'orchard', 'member', 1)",
+                [&"b".repeat(64)]
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn networks_migrate_schema_seven_with_and_without_fleet() {
     for has_fleet in [true, false] {
         let temp = Temp::new();
@@ -4275,7 +4454,7 @@ fn networks_migrate_schema_seven_with_and_without_fleet() {
             db.conn
                 .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            8
+            SCHEMA_VERSION
         );
         assert_eq!(count(&db, "networks"), i64::from(has_fleet));
         if has_fleet {

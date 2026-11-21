@@ -10,9 +10,9 @@ pub use transport::{NO_ANSWER, NOT_RUNNING, request, request_line};
 /// The protocol major every request carries as `"v"`.
 pub const PROTOCOL_MAJOR: u32 = 1;
 /// The protocol minor of major 1 this crate speaks.
-pub const PROTOCOL_MINOR: u32 = 14;
+pub const PROTOCOL_MINOR: u32 = 15;
 
-/// The ops major 1, minor 14 serves, in this order.
+/// The ops major 1, minor 15 serves, in this order.
 pub const OPS: &[&str] = &[
     "hello",
     "register",
@@ -249,8 +249,13 @@ pub enum Request {
     NetworkList {},
     /// Marks a non-personal network internal or external.
     NetworkScopeSet { network: String, scope: String },
-    /// Makes this computer's personal network.
-    NetworkInit { name: String },
+    /// Makes the personal network by default, or an internal or external network with its own
+    /// key, store and recovery file when scope is supplied (protocol minor 15).
+    NetworkInit {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<String>,
+    },
     /// Makes a one-time code for the named network.
     NetworkCodeCreate {
         network: String,
@@ -664,7 +669,7 @@ mod tests {
 
     #[test]
     fn scoped_network_ops_are_appended_in_protocol_order() {
-        assert_eq!(PROTOCOL_MINOR, 14);
+        assert_eq!(PROTOCOL_MINOR, 15);
         assert_eq!(
             &OPS[39..],
             &[
@@ -735,7 +740,7 @@ mod tests {
 
     #[test]
     fn kept_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 14);
+        assert_eq!(PROTOCOL_MINOR, 15);
         assert_eq!(&OPS[31..33], &["keep", "kept"]);
         for value in [
             serde_json::json!({"op":"keep","app":"notes","computers":["birch","cedar"]}),
@@ -772,7 +777,7 @@ mod tests {
 
     #[test]
     fn message_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 14);
+        assert_eq!(PROTOCOL_MINOR, 15);
         assert_eq!(OPS[30], "message");
         let value =
             serde_json::json!({"op":"message","app":"notes","computer":"birch","body":"hello"});
@@ -800,7 +805,7 @@ mod tests {
 
     #[test]
     fn link_address_contract_round_trips() {
-        assert_eq!(PROTOCOL_MINOR, 14);
+        assert_eq!(PROTOCOL_MINOR, 15);
         assert_eq!(
             &OPS[20..23],
             &[
@@ -870,5 +875,17 @@ mod tests {
             r#"{"ok":true,"delivered":2}"#
         );
         assert_eq!(serde_json::to_value(response).unwrap(), value);
+    }
+
+    #[test]
+    fn network_init_optional_scope_round_trips() {
+        for scope in [None, Some("personal"), Some("internal"), Some("external")] {
+            let mut value = serde_json::json!({"op":"network_init","name":"garden"});
+            if let Some(scope) = scope {
+                value["scope"] = scope.into();
+            }
+            let request: Request = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(request).unwrap(), value);
+        }
     }
 }

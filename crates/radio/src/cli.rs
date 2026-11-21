@@ -72,7 +72,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         ["deliveries", rest @ ..] => ("deliveries", 0, rest, &["--app", "--after", "--limit"]),
         ["network", "list", rest @ ..] => ("network_list", 0, rest, &[]),
         ["network", "scope", rest @ ..] => ("network_scope_set", 2, rest, &[]),
-        ["network", "init", rest @ ..] => ("network_init", 1, rest, &[]),
+        ["network", "init", rest @ ..] => ("network_init", 1, rest, &["--scope"]),
         ["network", "join", rest @ ..] => ("network_join", 0, rest, &[]),
         ["network", "leave", rest @ ..] => ("network_leave", 1, rest, &[]),
         ["network", "code", "create", rest @ ..] => {
@@ -231,6 +231,7 @@ pub fn parse(args: &[String]) -> Result<Command, ()> {
         },
         "network_init" => Request::NetworkInit {
             name: positionals[0].into(),
+            scope: seen.get("--scope").map(|value| (*value).into()),
         },
         "network_code_create" => Request::NetworkCodeCreate {
             network: positionals[0].into(),

@@ -718,7 +718,7 @@ fn fleet_fixture(stem: &str) -> serde_json::Value {
 
 #[test]
 fn fleet_contract_requests_are_supported() {
-    assert_eq!(radio_client::PROTOCOL_MINOR, 14);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 15);
     let response = serde_json::json!({"ok":true,"fleet":{"id":"garden","name":"garden","version":1,"founder":"orchard"},"recovery_file":"/recovery.key","code":"hidden","code_id":"garden","expires_at":1800.0,"codes":[{"id":"garden","created":1.0,"expires_at":1800.0,"uses":1}]});
     let typed: radio_client::Response = serde_json::from_value(response.clone()).unwrap();
     assert_eq!(serde_json::to_value(typed).unwrap(), response);
@@ -1609,4 +1609,20 @@ fn network_join_reads_only_standard_input() {
             Err((2, "radio: no join code on standard input".into()))
         );
     }
+}
+
+#[test]
+fn network_init_scope_is_optional() {
+    for scope in ["internal", "external"] {
+        let command = parse(&args(&["network", "init", "garden", "--scope", scope])).unwrap();
+        assert_eq!(
+            serde_json::to_value(command.request).unwrap(),
+            serde_json::json!({"op":"network_init","name":"garden","scope":scope})
+        );
+    }
+    let command = parse(&args(&["network", "init", "garden"])).unwrap();
+    assert_eq!(
+        serde_json::to_value(command.request).unwrap(),
+        serde_json::json!({"op":"network_init","name":"garden"})
+    );
 }

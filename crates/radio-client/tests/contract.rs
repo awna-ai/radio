@@ -40,7 +40,7 @@ fn file_ops_and_protocol_minor_are_available() {
     ] {
         assert!(radio_client::OPS.contains(&op), "{op}");
     }
-    assert_eq!(radio_client::PROTOCOL_MINOR, 14);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 15);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn delivery_type_round_trips_and_accepts_future_fields() {
 fn deliberation_contract_round_trips() {
     use radio_client::{Request, Response};
     use serde_json::json;
-    assert_eq!(radio_client::PROTOCOL_MINOR, 14);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 15);
     assert_eq!(
         &radio_client::OPS[33..39],
         &[
@@ -153,7 +153,7 @@ fn setting_a_deliberations_time_box_is_an_additive_request() {
     let mut wrong_type = value;
     wrong_type["time_box"] = json!(15);
     assert!(serde_json::from_value::<Request>(wrong_type).is_err());
-    assert_eq!(radio_client::PROTOCOL_MINOR, 14);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 15);
     assert_eq!(radio_client::OPS.get(37), Some(&"deliberation_time_box"));
 }
 
@@ -165,6 +165,6 @@ fn stepping_an_open_round_round_trips() {
     let request = serde_json::from_value::<Request>(value.clone());
     assert!(request.is_ok(), "{request:?}");
     assert_eq!(serde_json::to_value(request.unwrap()).unwrap(), value);
-    assert_eq!(radio_client::PROTOCOL_MINOR, 14);
+    assert_eq!(radio_client::PROTOCOL_MINOR, 15);
     assert_eq!(radio_client::OPS.get(38), Some(&"deliberation_step"));
 }

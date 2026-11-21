@@ -249,6 +249,9 @@ fn fleet_record(
                 None
             },
             relays: vec![],
+            admitters: vec![],
+            moderators: vec![],
+            links: vec![],
         },
         signer,
         match signer {
@@ -1215,6 +1218,9 @@ fn fleet_accept_keeps_its_promises() {
                     None
                 },
                 relays: vec![],
+                admitters: vec![],
+                moderators: vec![],
+                links: vec![],
             };
             let right = match signer {
                 Signer::Founder => founder,
@@ -1280,6 +1286,9 @@ fn fleet_accept_keeps_its_promises() {
                     assert!(new.body.epoch > current.body.epoch);
                     assert_eq!(new.body.name, current.body.name);
                     assert_eq!(new.body.relays, current.body.relays);
+                    assert_eq!(new.body.admitters, current.body.admitters);
+                    assert_eq!(new.body.moderators, current.body.moderators);
+                    assert_eq!(new.body.links, current.body.links);
                 }
             }
             assert!(fleet::accept(Some(&new), &current).is_err());
@@ -1344,4 +1353,57 @@ fn join_codes_parse_only_what_they_encode() {
             }
         }
     });
+}
+
+#[test]
+fn fleet_list_rules_hold_whatever_the_rest_says() {
+    run(
+        "fleet_list_rules_hold_whatever_the_rest_says",
+        0x30a,
+        |g, i| {
+            let founder = key(g);
+            let recovery = key(g);
+            let signer = *g.pick(&[Signer::Founder, Signer::Recovery]);
+            let mut body = fleet_record(g, &founder, &recovery, signer).body;
+            let good = key(g).public().to_string();
+            match i % 12 {
+                0 => body.admitters = (0..65).map(|_| key(g).public().to_string()).collect(),
+                1 => body.moderators = (0..65).map(|_| key(g).public().to_string()).collect(),
+                2 => body.links = (0..9).map(|_| hex64(g)).collect(),
+                3 => body.admitters = vec![good.to_uppercase()],
+                4 => body.moderators = vec![good.to_uppercase()],
+                5 => body.links = vec!["G".repeat(64)],
+                6 => body.admitters = vec![good.clone(), good],
+                7 => body.moderators = vec![good.clone(), good],
+                8 => {
+                    let link = hex64(g);
+                    body.links = vec![link.clone(), link];
+                }
+                9 => body.links = vec![body.id.clone()],
+                _ => {
+                    let invalid = loop {
+                        let bytes = g.array32();
+                        if iroh::PublicKey::from_bytes(&bytes).is_err() {
+                            break bytes.iter().map(|b| format!("{b:02x}")).collect();
+                        }
+                    };
+                    if i % 12 == 10 {
+                        body.admitters = vec![invalid];
+                    } else {
+                        body.moderators = vec![invalid];
+                    }
+                }
+            }
+            let signing = match signer {
+                Signer::Founder => &founder,
+                Signer::Recovery => &recovery,
+            };
+            assert_eq!(
+                fleet::sign(body, signer, signing).verify(),
+                Err("not a fleet record"),
+                "list rule {}",
+                i % 12
+            );
+        },
+    );
 }

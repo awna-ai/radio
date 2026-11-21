@@ -1,0 +1,22 @@
+{
+  "request": {
+    "v": 1,
+    "op": "network_init",
+    "name": "orchard",
+    "scope": "internal"
+  },
+  "response": {
+    "ok": true,
+    "network": {
+      "id": "<string>",
+      "name": "orchard",
+      "scope": "internal",
+      "state": "member",
+      "work_together": false,
+      "version": 1,
+      "founder": "<string>"
+    },
+    "recovery_file": "<string>"
+  },
+  "exact": false
+}

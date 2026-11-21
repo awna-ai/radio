@@ -49,8 +49,14 @@ fn link_replay_major_one_contract() {
                 .unwrap()
                 .starts_with("network_")
         });
+    let (scoped, network): (Vec<_>, Vec<_>) = network.into_iter().partition(|(fixture, _)| {
+        fixture["request"]["op"] == "network_init" && fixture["request"]["scope"].is_string()
+    });
     replay_contract(legacy);
     replay_contract(network);
+    for fixture in scoped {
+        replay_contract(vec![fixture]);
+    }
 }
 
 fn replay_contract(fixtures: Vec<(Value, PathBuf)>) {

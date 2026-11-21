@@ -8,7 +8,7 @@
     "radio": "<string>",
     "protocol": {
       "major": 1,
-      "minor": 14
+      "minor": 15
     },
     "majors": [
       1
